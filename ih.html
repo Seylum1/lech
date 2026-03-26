@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Imperial Household Office — Empire of Lech</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{background:#0e0806;color:#e8dcc8;font-family:'Crimson Text',Georgia,serif;min-height:100vh;}
+::-webkit-scrollbar{width:5px;}
+::-webkit-scrollbar-track{background:#0e0806;}
+::-webkit-scrollbar-thumb{background:#4a2a10;border-radius:2px;}
+input,select,textarea{font-family:'Crimson Text',Georgia,serif;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+@keyframes pulse{0%,100%{opacity:.6;}50%{opacity:1;}}
+@keyframes shimmer{0%,100%{opacity:.6;}50%{opacity:1;}}
+.fadeIn{animation:fadeIn .4s ease both;}
+.mono{font-family:'Share Tech Mono',monospace;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback,useMemo}=React;
+
+const SCRIPT_URL="https://script.google.com/macros/s/AKfycbxLu8jQehAZJEvMEeCLoHc9S2C4FM8o9fQh8Pp4gMzDNwwIG0S9qLJ5-1gyGM1c_InUfQ/exec";
+
+const C={
+  bg:"#0e0806",s1:"#180e08",s2:"#201408",s3:"#281a0c",
+  border:"#3a2010",borderL:"#5a3a1a",
+  text:"#e8dcc8",textD:"#a89070",textDD:"#6a5030",
+  gold:"#C9A84C",goldD:"#8a6820",goldL:"#e8c870",
+  crimson:"#8b1a1a",crimsonD:"#5a0808",crimsonL:"#c05050",
+  accent:"#C9A84C",
+};
+
+const PEERAGE_RANKS=[
+  {v:"crown_prince",l:"Crown Prince of Lech",style:"His Imperial Highness",color:"#cc2222",border:"#8b1a1a",bg:"#1a0404",royal:true},
+  {v:"prince",      l:"Prince",              style:"His Imperial Highness",color:"#9a44cc",border:"#6a1a8a",bg:"#16041e",royal:true},
+  {v:"princess",    l:"Princess",            style:"Her Imperial Highness",color:"#9a44cc",border:"#6a1a8a",bg:"#16041e",royal:true},
+  {v:"duke",        l:"Duke",                style:"His Grace",            color:"#C9A84C",border:"#7a5820",bg:"#1a1004",royal:false},
+  {v:"marquess",    l:"Marquess",            style:"The Most Honourable",  color:"#8899bb",border:"#4a5a7a",bg:"#0c1018",royal:false},
+  {v:"count",       l:"Count",               style:"The Right Honourable", color:"#7aaa88",border:"#3a6a48",bg:"#0a140c",royal:false},
+  {v:"viscount",    l:"Viscount",            style:"The Right Honourable", color:"#aa8866",border:"#6a5030",bg:"#120e08",royal:false},
+  {v:"baron",       l:"Baron",               style:"The Honourable",       color:"#8899aa",border:"#4a5a6a",bg:"#0c1014",royal:false},
+  {v:"baronet",     l:"Baronet",             style:"Sir / Dame",           color:"#9a9a9a",border:"#5a5a5a",bg:"#101010",royal:false},
+];
+const RANK_ORDER={crown_prince:0,prince:1,princess:2,duke:3,marquess:4,count:5,viscount:6,baron:7,baronet:8};
+const PR=(v)=>PEERAGE_RANKS.find(r=>r.v===v)||null;
+
+const MIL_MEDAL_TYPES=[
+  {v:"IIC",  l:"Imperial Iron Cross",             cat:"military_grand",   prestige:1},
+  {v:"OBE",  l:"Order of the Black Eagle",        cat:"military_grand",   prestige:2},
+  {v:"ICV",  l:"Imperial Cross of Valor",         cat:"military_valor",   prestige:3},
+  {v:"IDSM", l:"Imperial Defense Service Medal",  cat:"military_service", prestige:4},
+  {v:"MSMM", l:"Military Service Medal of Merit", cat:"military_service", prestige:5},
+  {v:"MOH",  l:"Medal of Honor",                  cat:"military_service", prestige:6},
+  {v:"DSA",  l:"Defense Service Award",           cat:"military_service", prestige:7},
+  {v:"LEM",  l:"Law Enforcement Service Medal",   cat:"military_service", prestige:8},
+  {v:"PSM",  l:"Public Services Medal",           cat:"military_service", prestige:9},
+  {v:"EMCM", l:"Exemplary Military Conduct Medal",cat:"military_service", prestige:10},
+  {v:"KESJM",l:"King Edward Silver Jubilee Medal", cat:"campaign",        prestige:11},
+  {v:"FECM", l:"First Edward Campaigns Medal",    cat:"campaign",         prestige:12},
+];
+const CIVIL_MEDAL_TYPES=[
+  {v:"ICOGO",l:"Imperial Civil Order of the Golden Oak",cat:"civil_grand",  prestige:1},
+  {v:"ORE",  l:"Order of the Red Eagle",               cat:"civil_grand",  prestige:2},
+  {v:"IOM_G",l:"Imperial Order of Merit (Gold)",        cat:"civil_merit",  prestige:3},
+  {v:"IOM_S",l:"Imperial Order of Merit (Silver)",      cat:"civil_merit",  prestige:4},
+  {v:"IOM_B",l:"Imperial Order of Merit (Bronze)",      cat:"civil_merit",  prestige:5},
+  {v:"DCSM", l:"Distinguished Civil Service Medal",     cat:"civil_service",prestige:6},
+  {v:"GSM",  l:"Good Samaritan Medal",                  cat:"civil_service",prestige:7},
+  {v:"MC",   l:"Medal of Counselors",                   cat:"civil_service",prestige:8},
+  {v:"MH",   l:"Medal of Health",                       cat:"civil_service",prestige:9},
+  {v:"CEM",  l:"Civil Engineering Medal",               cat:"civil_service",prestige:10},
+  {v:"NIM",  l:"National Intelligence Medal",           cat:"civil_service",prestige:11},
+  {v:"ESM",  l:"Exemplary Service Medal",               cat:"civil_service",prestige:12},
+];
+const FAMILY_ROLES=[
+  {v:"emperor",          l:"Emperor"},
+  {v:"crown_prince",     l:"Crown Prince"},
+  {v:"imperial_prince",  l:"Imperial Prince"},
+  {v:"imperial_princess",l:"Imperial Princess"},
+  {v:"consort",          l:"Imperial Consort"},
+  {v:"other",            l:"Other Member"},
+];
+const PROC_TYPES=[
+  {v:"proclamation",  l:"Royal Proclamation"},
+  {v:"edict",         l:"Imperial Edict"},
+  {v:"letters_patent",l:"Letters Patent"},
+  {v:"warrant",       l:"Royal Warrant"},
+  {v:"rescript",      l:"Imperial Rescript"},
+];
+const CAL_TYPES=[
+  {v:"state",      l:"State Occasion",       color:"#C9A84C"},
+  {v:"ceremony",   l:"Ceremony",             color:"#9a44cc"},
+  {v:"anniversary",l:"Imperial Anniversary", color:"#cc2222"},
+  {v:"audience",   l:"Imperial Audience",    color:"#4a8aaa"},
+  {v:"other",      l:"Other",                color:"#7a7a7a"},
+];
+
+async function sha256(t){
+  const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
+async function sgetAll(){
+  try{
+    const r=await fetch(SCRIPT_URL+"?action=getall");
+    const d=await r.json();
+    if(!d.success) return {};
+    const out={};
+    Object.entries(d.data||{}).forEach(([k,v])=>{if(v){try{out[k]=JSON.parse(v);}catch{}}});
+    return out;
+  }catch{return{};}
+}
+async function sset(k,v){
+  try{
+    await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
+      body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v)})});
+    return true;
+  }catch{return false;}
+}
+
+// ── UI ────────────────────────────────────────────────────────────────────────
+function Btn({children,onClick,variant="primary",disabled,small,full,style:ex={}}){
+  const base={fontFamily:"'Cinzel',serif",letterSpacing:"0.1em",fontWeight:700,textTransform:"uppercase",
+    fontSize:small?10:11,padding:small?"4px 12px":"7px 18px",border:"1px solid",borderRadius:1,
+    cursor:disabled?"not-allowed":"pointer",opacity:disabled?.4:1,transition:"all .15s",width:full?"100%":"auto"};
+  const variants={
+    primary:{background:`linear-gradient(135deg,${C.goldD},${C.gold})`,borderColor:C.goldD,color:"#0e0806"},
+    danger: {background:"transparent",borderColor:C.crimsonD,color:C.crimsonL},
+    armed:  {background:`linear-gradient(135deg,${C.crimsonD},${C.crimson})`,borderColor:C.crimsonD,color:"#e8d0d0"},
+    ghost:  {background:"transparent",borderColor:C.border,color:C.textD},
+  };
+  const vs=variants[variant]||variants.primary;
+  return <button onClick={disabled?undefined:onClick} style={{...base,...vs,...ex}}>{children}</button>;
+}
+function ArmBtn({label,confirmLabel,onConfirm,variant="danger",small}){
+  const [armed,setArmed]=useState(false);
+  const t=useRef(null);
+  if(armed) return <Btn variant="armed" small={small} onClick={()=>{clearTimeout(t.current);setArmed(false);onConfirm();}}>{confirmLabel||"Confirm?"}</Btn>;
+  return <Btn variant={variant} small={small} onClick={()=>{setArmed(true);clearTimeout(t.current);t.current=setTimeout(()=>setArmed(false),4000);}}>{label}</Btn>;
+}
+function Inp({value,onChange,placeholder,type="text",style:ex={}}){
+  return <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+    style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:1,
+             padding:"8px 12px",color:C.text,fontSize:14,outline:"none",...ex}}
+    onFocus={e=>e.target.style.borderColor=C.gold}
+    onBlur={e=>e.target.style.borderColor=C.border}/>;
+}
+function TA({value,onChange,placeholder,rows=4}){
+  return <textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows}
+    style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:1,
+             padding:"8px 12px",color:C.text,fontSize:14,outline:"none",resize:"vertical",lineHeight:1.8}}
+    onFocus={e=>e.target.style.borderColor=C.gold}
+    onBlur={e=>e.target.style.borderColor=C.border}/>;
+}
+function DD({value,onChange,options,style:ex={}}){
+  return <select value={value} onChange={e=>onChange(e.target.value)}
+    style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:1,
+             padding:"8px 12px",color:C.text,fontSize:14,outline:"none",fontFamily:"'Crimson Text',serif",...ex}}>
+    {options.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+  </select>;
+}
+function FL({children}){
+  return <div className="mono" style={{fontSize:9,color:C.textD,letterSpacing:"0.15em",marginBottom:4}}>{children}</div>;
+}
+function STitle({children,color=C.gold,style:ex={}}){
+  return <div style={{fontFamily:"'Cinzel',serif",fontSize:10,fontWeight:700,letterSpacing:"0.35em",
+    textTransform:"uppercase",color,paddingBottom:10,borderBottom:`1px solid ${C.border}`,marginBottom:"1.5rem",...ex}}>
+    {children}
+  </div>;
+}
+function GoldRule(){
+  return <div style={{display:"flex",alignItems:"center",gap:12,margin:"2rem 0"}}>
+    <div style={{flex:1,height:1,background:`linear-gradient(to right,transparent,${C.goldD})`}}/>
+    <span style={{color:C.gold,fontSize:10}}>{"✦"}</span>
+    <div style={{flex:1,height:1,background:`linear-gradient(to left,transparent,${C.goldD})`}}/>
+  </div>;
+}
+function Toast({msg,color}){
+  if(!msg) return null;
+  return <div style={{position:"fixed",top:14,right:14,zIndex:9999,background:C.s2,
+    border:`1px solid ${color}55`,borderLeft:`3px solid ${color}`,padding:"8px 16px",
+    borderRadius:1,fontFamily:"'Cinzel',serif",fontSize:10,color,animation:"fadeIn .2s ease",maxWidth:360}}>{msg}</div>;
+}
+function Overlay({label}){
+  if(!label) return null;
+  return <div style={{position:"fixed",inset:0,zIndex:99999,background:"rgba(8,4,2,.97)",
+    display:"flex",alignItems:"center",justifyContent:"center"}}>
+    <div style={{textAlign:"center"}}>
+      <div style={{color:C.gold,fontSize:18,animation:"shimmer 1s infinite",marginBottom:8}}>{"✦"}</div>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:14,letterSpacing:"0.2em",color:C.text}}>{label}</div>
+    </div>
+  </div>;
+}
+
+// ── PEERAGE TAB ───────────────────────────────────────────────────────────────
+function PeerageTab({bundesherren}){
+  const peers=Object.values(bundesherren||{})
+    .sort((a,b)=>(RANK_ORDER[a.rank]??9)-(RANK_ORDER[b.rank]??9)||(a.name||"").localeCompare(b.name||""));
+  const royals=peers.filter(p=>PR(p.rank)?.royal);
+  const nobility=peers.filter(p=>!PR(p.rank)?.royal);
+  const grouped={};
+  nobility.forEach(p=>{const r=p.rank||"other";if(!grouped[r])grouped[r]=[];grouped[r].push(p);});
+  return <div className="fadeIn">
+    <div style={{textAlign:"center",marginBottom:"2.5rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.5em",color:C.goldD,marginBottom:8,textTransform:"uppercase"}}>Imperial Register of</div>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:22,fontWeight:700,color:C.text,letterSpacing:"0.1em"}}>The Peerage of Lech</div>
+      <GoldRule/>
+    </div>
+    {peers.length===0&&<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>
+      No peers registered. The Bundesherren register is maintained in the Imperial Bundeskongress.
+    </div>}
+    {royals.length>0&&<div style={{marginBottom:"2.5rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.4em",color:"#cc2222",textTransform:"uppercase",textAlign:"center",marginBottom:"1.25rem"}}>
+        Imperial Family {"&"} Royal Princes
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+        {royals.map(p=><PeerCard key={p.name} peer={p}/>)}
+      </div>
+      <GoldRule/>
+    </div>}
+    {PEERAGE_RANKS.filter(r=>!r.royal&&grouped[r.v]?.length>0).map(rd=>(
+      <div key={rd.v} style={{marginBottom:"2rem"}}>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.35em",color:rd.color,
+          textTransform:"uppercase",textAlign:"center",marginBottom:"1rem",opacity:.8}}>
+          {rd.l}s
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:"0.6rem"}}>
+          {(grouped[rd.v]||[]).map(p=><PeerCard key={p.name} peer={p}/>)}
+        </div>
+      </div>
+    ))}
+  </div>;
+}
+function PeerCard({peer}){
+  const rd=PR(peer.rank);
+  if(!rd) return null;
+  return <div style={{background:rd.bg||C.s1,border:`1px solid ${rd.border||C.border}`,borderRadius:2,
+    padding:"0.85rem 1.25rem",display:"flex",alignItems:"center",gap:"1rem",flexWrap:"wrap"}}>
+    <div style={{flex:1,minWidth:200}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:C.text,marginBottom:2}}>{peer.name}</div>
+      <div style={{fontSize:13,color:rd.color,fontStyle:"italic"}}>{rd.style} {" \u2014 "} {rd.l}</div>
+    </div>
+    {peer.title&&<div style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>{peer.title}</div>}
+  </div>;
+}
+
+// ── FAMILY TAB ────────────────────────────────────────────────────────────────
+function FamilyTab({family}){
+  const list=Object.values(family||{}).sort((a,b)=>{
+    const o={emperor:0,crown_prince:1,imperial_prince:2,imperial_princess:3,consort:4,other:5};
+    return (o[a.role]||5)-(o[b.role]||5);
+  });
+  return <div className="fadeIn">
+    <div style={{textAlign:"center",marginBottom:"2.5rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.5em",color:C.goldD,marginBottom:8,textTransform:"uppercase"}}>The</div>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:22,fontWeight:700,color:C.text,letterSpacing:"0.1em"}}>Imperial Family of Lech</div>
+      <GoldRule/>
+    </div>
+    {list.length===0&&<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No family members registered.</div>}
+    <div style={{display:"flex",flexDirection:"column",gap:"1rem"}}>
+      {list.map(m=>{
+        const ro=FAMILY_ROLES.find(r=>r.v===m.role)||FAMILY_ROLES[5];
+        const isEmp=m.role==="emperor";
+        return <div key={m.id} style={{background:isEmp?`linear-gradient(135deg,${C.s2},${C.s1})`:C.s1,
+          border:`1px solid ${isEmp?C.goldD:C.border}`,borderLeft:`4px solid ${isEmp?C.gold:C.crimsonD}`,
+          borderRadius:"0 3px 3px 0",padding:"1.25rem 1.5rem"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8}}>
+            <div>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:17,fontWeight:700,color:C.text,marginBottom:3}}>{m.name}</div>
+              <div style={{fontSize:14,color:isEmp?C.gold:C.crimsonL,fontStyle:"italic"}}>{ro.l}</div>
+              {m.style&&<div style={{fontSize:13,color:C.textD,marginTop:2}}>Style: <em>{m.style}</em></div>}
+            </div>
+            {isEmp&&<span style={{color:C.gold,fontSize:22}}>{"⚜"}</span>}
+          </div>
+          {m.bio&&<div style={{fontSize:14,color:C.textD,lineHeight:1.8,marginTop:"0.75rem",
+            borderTop:`1px solid ${C.border}`,paddingTop:"0.75rem"}}>{m.bio}</div>}
+          {m.since&&<div className="mono" style={{fontSize:9,color:C.textDD,marginTop:6}}>Since {m.since}</div>}
+        </div>;
+      })}
+    </div>
+  </div>;
+}
+
+// ── PROCLAMATIONS TAB ─────────────────────────────────────────────────────────
+function ProclamationsTab({proclamations}){
+  const list=Object.values(proclamations||{}).sort((a,b)=>(b.issued||0)-(a.issued||0));
+  return <div className="fadeIn">
+    <div style={{textAlign:"center",marginBottom:"2.5rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.5em",color:C.goldD,marginBottom:8,textTransform:"uppercase"}}>Imperial</div>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:22,fontWeight:700,color:C.text,letterSpacing:"0.1em"}}>Proclamations {"&"} Instruments</div>
+      <GoldRule/>
+    </div>
+    {list.length===0&&<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No proclamations issued.</div>}
+    <div style={{display:"flex",flexDirection:"column",gap:"1rem"}}>
+      {list.map(p=>{
+        const pt=PROC_TYPES.find(t=>t.v===p.type)||PROC_TYPES[0];
+        return <div key={p.id} style={{background:C.s1,border:`1px solid ${C.border}`,
+          borderTop:`3px solid ${C.gold}`,borderRadius:"0 0 3px 3px",padding:"1.5rem"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8,marginBottom:"0.85rem"}}>
+            <div>
+              <div className="mono" style={{fontSize:9,color:C.goldD,letterSpacing:"0.2em",marginBottom:4}}>{pt.l.toUpperCase()}</div>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:16,fontWeight:700,color:C.text}}>{p.title}</div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              {p.number&&<div className="mono" style={{fontSize:9,color:C.textDD}}>No. {p.number}</div>}
+              {p.issued&&<div className="mono" style={{fontSize:9,color:C.textDD,marginTop:2}}>
+                {new Date(p.issued).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})}
+              </div>}
+            </div>
+          </div>
+          <div style={{fontSize:14,color:C.text,lineHeight:1.9,fontStyle:"italic",
+            borderTop:`1px solid ${C.border}`,paddingTop:"0.85rem"}}>{p.body}</div>
+          {p.issuedBy&&<div style={{marginTop:"1rem",textAlign:"right",fontFamily:"'Cinzel',serif",
+            fontSize:12,color:C.gold}}>{"\u2014 "}{p.issuedBy}</div>}
+        </div>;
+      })}
+    </div>
+  </div>;
+}
+
+// ── HONOURS TAB ───────────────────────────────────────────────────────────────
+function HonoursTab({civilHonours,personnel}){
+  const [filter,setFilter]=useState("all");
+  const allHonours=useMemo(()=>{
+    const list=[];
+    Object.values(civilHonours||{}).forEach(h=>{
+      const mt=CIVIL_MEDAL_TYPES.find(m=>m.v===h.medal)||{l:h.medal,cat:"civil_service",prestige:99};
+      list.push({...h,medalLabel:mt.l,cat:mt.cat,prestige:mt.prestige,source:"civil"});
+    });
+    Object.values(personnel||{}).forEach(person=>{
+      (person.medals||[]).forEach(m=>{
+        const milType=MIL_MEDAL_TYPES.find(x=>x.v===m.type);
+        const civType=CIVIL_MEDAL_TYPES.find(x=>x.v===m.type);
+        const mt=milType||civType||null;
+        if(!mt) return;
+        const source=civType?"civil":"military";
+        list.push({id:`${person.id}_${m.type}`,recipient:person.name,medal:m.type,medalLabel:mt.l,
+          cat:mt.cat,prestige:mt.prestige,citation:m.citation,awarded:m.awarded,source});
+      });
+    });
+    return list.sort((a,b)=>a.prestige-b.prestige||(a.recipient||"").localeCompare(b.recipient||""));
+  },[civilHonours,personnel]);
+
+  const cats=[
+    {v:"all",           l:"All Honours"},
+    {v:"military_grand",l:"Grand Military Orders"},
+    {v:"military_valor",l:"Military Orders of Valor"},
+    {v:"military_service",l:"Military Service"},
+    {v:"campaign",      l:"Campaign Medals"},
+    {v:"civil_grand",   l:"Grand Civil Orders"},
+    {v:"civil_merit",   l:"Civil Orders of Merit"},
+    {v:"civil_service", l:"Civil Service"},
+  ];
+  const filtered=filter==="all"?allHonours:allHonours.filter(h=>h.cat===filter);
+  return <div className="fadeIn">
+    <div style={{textAlign:"center",marginBottom:"2.5rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.5em",color:C.goldD,marginBottom:8,textTransform:"uppercase"}}>Imperial Register of</div>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:22,fontWeight:700,color:C.text,letterSpacing:"0.1em"}}>Honours {"&"} Awards</div>
+      <GoldRule/>
+    </div>
+    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:"1.5rem"}}>
+      {cats.map(cat=><button key={cat.v} onClick={()=>setFilter(cat.v)}
+        style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",
+                 padding:"4px 12px",background:filter===cat.v?C.s2:"transparent",
+                 border:`1px solid ${filter===cat.v?C.gold:C.border}`,
+                 color:filter===cat.v?C.gold:C.textD,borderRadius:1,cursor:"pointer"}}>
+        {cat.l}
+      </button>)}
+    </div>
+    {filtered.length===0
+      ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No honours in this category.</div>
+      :<div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>
+        {filtered.map((h,i)=>{
+          const isMil=h.source==="military";
+          return <div key={h.id||i} style={{background:C.s1,border:`1px solid ${C.border}`,
+            borderLeft:`4px solid ${isMil?C.crimsonD:C.goldD}`,borderRadius:"0 3px 3px 0",
+            padding:"0.75rem 1.25rem",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+            <span style={{fontSize:16}}>{"🎖"}</span>
+            <div style={{flex:1,minWidth:200}}>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text,fontWeight:600}}>{h.medalLabel}</div>
+              {h.citation&&<div style={{fontSize:12,color:C.textD,fontStyle:"italic",marginTop:2}}>{h.citation}</div>}
+            </div>
+            <div style={{textAlign:"right",flexShrink:0}}>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:isMil?C.crimsonL:C.gold}}>{h.recipient}</div>
+              {h.awarded&&<div className="mono" style={{fontSize:9,color:C.textDD,marginTop:2}}>{h.awarded}</div>}
+              <div className="mono" style={{fontSize:8,color:C.textDD,marginTop:2}}>{isMil?"MILITARY":"CIVIL"}</div>
+            </div>
+          </div>;
+        })}
+      </div>
+    }
+  </div>;
+}
+
+// ── CALENDAR TAB ──────────────────────────────────────────────────────────────
+function CalendarTab({calendar}){
+  const now=new Date(); now.setHours(0,0,0,0);
+  const all=Object.values(calendar||{}).sort((a,b)=>new Date(a.date)-new Date(b.date));
+  const upcoming=all.filter(e=>new Date(e.date)>=now);
+  const past=all.filter(e=>new Date(e.date)<now).reverse().slice(0,8);
+  return <div className="fadeIn">
+    <div style={{textAlign:"center",marginBottom:"2.5rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.5em",color:C.goldD,marginBottom:8,textTransform:"uppercase"}}>Imperial</div>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:22,fontWeight:700,color:C.text,letterSpacing:"0.1em"}}>State Calendar</div>
+      <GoldRule/>
+    </div>
+    {upcoming.length===0&&past.length===0&&<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No events scheduled.</div>}
+    {upcoming.length>0&&<div style={{marginBottom:"2rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.35em",color:C.textD,textTransform:"uppercase",marginBottom:"1rem"}}>Upcoming</div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.6rem"}}>
+        {upcoming.map(e=><CalEvent key={e.id} event={e}/>)}
+      </div>
+    </div>}
+    {past.length>0&&<div>
+      <GoldRule/>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.35em",color:C.textDD,textTransform:"uppercase",marginBottom:"1rem"}}>Past Events</div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.5rem",opacity:.65}}>
+        {past.map(e=><CalEvent key={e.id} event={e} past/>)}
+      </div>
+    </div>}
+  </div>;
+}
+function CalEvent({event,past}){
+  const ct=CAL_TYPES.find(t=>t.v===event.type)||CAL_TYPES[4];
+  const d=new Date(event.date).toLocaleDateString("en-GB",{weekday:"long",day:"2-digit",month:"long",year:"numeric"});
+  return <div style={{background:C.s1,border:`1px solid ${past?C.border:ct.color+"44"}`,
+    borderLeft:`4px solid ${past?C.textDD:ct.color}`,borderRadius:"0 3px 3px 0",
+    padding:"0.85rem 1.25rem",display:"flex",alignItems:"center",gap:"1.5rem",flexWrap:"wrap"}}>
+    <div style={{minWidth:200}}>
+      <div className="mono" style={{fontSize:9,color:past?C.textDD:ct.color,marginBottom:3}}>{d}{event.time&&" \u2014 "+event.time}</div>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,fontWeight:600}}>{event.title}</div>
+    </div>
+    <div style={{flex:1}}>
+      {event.location&&<div style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>{event.location}</div>}
+      {event.description&&<div style={{fontSize:13,color:C.textD,marginTop:2}}>{event.description}</div>}
+    </div>
+    <span className="mono" style={{fontSize:9,color:past?C.textDD:ct.color,flexShrink:0}}>{ct.l}</span>
+  </div>;
+}
+
+// ── PANEL AUTH ────────────────────────────────────────────────────────────────
+function PanelAuth({onAuth,onCancel}){
+  const [username,setUsername]=useState("");
+  const [password,setPassword]=useState("");
+  const [err,setErr]=useState("");
+  const [loading,setLoading]=useState(false);
+  async function doAuth(){
+    if(!username.trim()||!password.trim()){setErr("Credentials required.");return;}
+    setLoading(true); setErr("");
+    try{
+      const raw=await sgetAll();
+      const accounts={};
+      Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v) accounts[v.username]=v;});
+      const user=Object.values(accounts).find(a=>a.username.toLowerCase()===username.trim().toLowerCase());
+      if(!user){setErr("ACCESS DENIED.");setLoading(false);return;}
+      const hash=await sha256(password);
+      if(hash!==user.passwordHash){setErr("ACCESS DENIED.");setLoading(false);return;}
+      if(user.role!=="emperor"){setErr("RESERVED FOR HIS IMPERIAL MAJESTY ONLY.");setLoading(false);return;}
+      onAuth(user,raw);
+    }catch(e){setErr("Connection error: "+e.message);}
+    setLoading(false);
+  }
+  return <div style={{maxWidth:420,margin:"0 auto"}}>
+    <STitle>Imperial Authentication</STitle>
+    <div style={{background:C.s1,border:`1px solid ${C.border}`,borderTop:`3px solid ${C.gold}`,padding:"1.75rem"}}>
+      <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.8,marginBottom:"1.25rem",textAlign:"center"}}>
+        This panel is reserved for the exclusive use of His Imperial Majesty.
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+        <div><FL>IMPERIAL USERNAME</FL><Inp value={username} onChange={setUsername} placeholder="Username"/></div>
+        <div><FL>PASSWORD</FL><Inp value={password} onChange={setPassword} type="password" placeholder="Password"/></div>
+        {err&&<div className="mono" style={{fontSize:10,color:C.crimsonL,background:"#1a0404",
+          border:`1px solid ${C.crimsonD}44`,padding:"7px 12px"}}>{err}</div>}
+        <Btn onClick={doAuth} disabled={loading||!username.trim()||!password.trim()}>
+          {loading?"Authenticating\u2026":"Authenticate"}
+        </Btn>
+        <Btn variant="ghost" onClick={onCancel}>Cancel</Btn>
+      </div>
+    </div>
+  </div>;
+}
+
+// ── EMPEROR PANEL ─────────────────────────────────────────────────────────────
+function EmperorPanel({family,proclamations,calendar,civilHonours,onAction,notify,setProcessing}){
+  const [sec,setSec]=useState("family");
+  const secs=[["family","Imperial Family"],["proclamations","Proclamations"],["calendar","Calendar"],["honours","Civil Honours"]];
+  return <div className="fadeIn">
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:"1.25rem"}}>
+      <STitle style={{marginBottom:0}}>Imperial Household Panel</STitle>
+      <span style={{color:C.gold,marginLeft:"auto",fontSize:18}}>{"⚜"}</span>
+    </div>
+    <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1.5rem",flexWrap:"wrap"}}>
+      {secs.map(([v,l])=><button key={v} onClick={()=>setSec(v)}
+        style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.15em",textTransform:"uppercase",
+                 padding:"0.6rem 1rem",background:"transparent",border:"none",cursor:"pointer",
+                 borderBottom:`2px solid ${sec===v?C.gold:"transparent"}`,
+                 color:sec===v?C.gold:C.textD}}>{l}</button>)}
+    </div>
+    {sec==="family"&&<PanelFamily family={family} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+    {sec==="proclamations"&&<PanelProclamations proclamations={proclamations} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+    {sec==="calendar"&&<PanelCalendar calendar={calendar} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+    {sec==="honours"&&<PanelHonours civilHonours={civilHonours} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+  </div>;
+}
+
+function PanelFamily({family,onAction,notify,setProcessing}){
+  const [name,setName]=useState("");const [role,setRole]=useState("imperial_prince");
+  const [style,setStyle]=useState("");const [bio,setBio]=useState("");
+  const [since,setSince]=useState("");const [saving,setSaving]=useState(false);
+  const list=Object.values(family||{}).sort((a,b)=>{
+    const o={emperor:0,crown_prince:1,imperial_prince:2,imperial_princess:3,consort:4,other:5};
+    return (o[a.role]||5)-(o[b.role]||5);
+  });
+  return <div>
+    <STitle>Imperial Family Register</STitle>
+    <div style={{background:C.s2,border:`1px solid ${C.border}`,padding:"1.25rem",marginBottom:"1.25rem"}}>
+      <div className="mono" style={{fontSize:9,color:C.textD,letterSpacing:"0.15em",marginBottom:"0.75rem"}}>ADD MEMBER</div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:2,minWidth:180}}><FL>NAME *</FL><Inp value={name} onChange={setName} placeholder="Full name"/></div>
+          <div style={{flex:1,minWidth:160}}><FL>ROLE</FL><DD value={role} onChange={setRole} options={FAMILY_ROLES.map(r=>({v:r.v,l:r.l}))}/></div>
+          <div style={{flex:1,minWidth:160}}><FL>STYLE OF ADDRESS</FL><Inp value={style} onChange={setStyle} placeholder="e.g. His Imperial Highness"/></div>
+        </div>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:2}}><FL>BIOGRAPHICAL NOTE</FL><TA value={bio} onChange={setBio} placeholder="Brief biography..." rows={2}/></div>
+          <div style={{flex:1,minWidth:140}}><FL>MEMBER SINCE</FL><Inp value={since} onChange={setSince} placeholder="e.g. 2024"/></div>
+        </div>
+        <Btn small disabled={!name.trim()||saving} onClick={async()=>{
+          setSaving(true); setProcessing("Registering...");
+          await onAction("createFamilyMember",{name:name.trim(),role,style:style.trim(),bio:bio.trim(),since:since.trim()});
+          setProcessing(null); setSaving(false); notify(name+" registered.",C.gold);
+          setName(""); setStyle(""); setBio(""); setSince("");
+        }}>{saving?"Registering...":"Add to Register"}</Btn>
+      </div>
+    </div>
+    <div style={{display:"flex",flexDirection:"column",gap:4}}>
+      {list.map(m=>{
+        const ro=FAMILY_ROLES.find(r=>r.v===m.role)||FAMILY_ROLES[5];
+        return <div key={m.id} style={{background:C.s1,border:`1px solid ${C.border}`,
+          borderLeft:`4px solid ${C.gold}`,borderRadius:"0 3px 3px 0",
+          padding:"0.65rem 1rem",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{m.name}</span>
+          <span style={{fontSize:12,color:C.crimsonL,fontStyle:"italic"}}>{ro.l}</span>
+          <ArmBtn small label="Remove" confirmLabel="Remove from register?" onConfirm={async()=>{
+            setProcessing("Removing..."); await onAction("deleteFamilyMember",{id:m.id});
+            setProcessing(null); notify(m.name+" removed.",C.textD);
+          }}/>
+        </div>;
+      })}
+    </div>
+  </div>;
+}
+
+function PanelProclamations({proclamations,onAction,notify,setProcessing}){
+  const [title,setTitle]=useState("");const [type,setType]=useState("proclamation");
+  const [body,setBody]=useState("");const [number,setNumber]=useState("");
+  const [issuedBy,setIssuedBy]=useState("His Imperial Majesty, the Emperor");
+  const [saving,setSaving]=useState(false);
+  const list=Object.values(proclamations||{}).sort((a,b)=>(b.issued||0)-(a.issued||0));
+  return <div>
+    <STitle>Issue Proclamation</STitle>
+    <div style={{background:C.s2,border:`1px solid ${C.border}`,padding:"1.25rem",marginBottom:"1.5rem"}}>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:2,minWidth:200}}><FL>TITLE *</FL><Inp value={title} onChange={setTitle} placeholder="Proclamation title"/></div>
+          <div style={{flex:1,minWidth:160}}><FL>INSTRUMENT TYPE</FL><DD value={type} onChange={setType} options={PROC_TYPES.map(t=>({v:t.v,l:t.l}))}/></div>
+          <div style={{flex:1,minWidth:100}}><FL>NUMBER</FL><Inp value={number} onChange={setNumber} placeholder="e.g. 2026-01"/></div>
+        </div>
+        <div><FL>BODY *</FL><TA value={body} onChange={setBody} placeholder="Text of the proclamation..." rows={5}/></div>
+        <div><FL>ISSUED BY</FL><Inp value={issuedBy} onChange={setIssuedBy}/></div>
+        <Btn small disabled={!title.trim()||!body.trim()||saving} onClick={async()=>{
+          setSaving(true); setProcessing("Issuing proclamation...");
+          await onAction("createProclamation",{title:title.trim(),type,body:body.trim(),number:number.trim(),issuedBy:issuedBy.trim(),issued:Date.now()});
+          setProcessing(null); setSaving(false); notify("Proclamation issued.",C.gold);
+          setTitle(""); setBody(""); setNumber("");
+        }}>{saving?"Issuing...":"Issue Proclamation"}</Btn>
+      </div>
+    </div>
+    <STitle>Issued Proclamations</STitle>
+    {list.map(p=>{
+      const pt=PROC_TYPES.find(t=>t.v===p.type)||PROC_TYPES[0];
+      return <div key={p.id} style={{background:C.s1,border:`1px solid ${C.border}`,
+        borderTop:`2px solid ${C.gold}`,padding:"1rem",marginBottom:"0.6rem",
+        display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+        <div style={{flex:1}}>
+          <div className="mono" style={{fontSize:9,color:C.goldD,marginBottom:2}}>{pt.l}</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text}}>{p.title}</div>
+        </div>
+        {p.issued&&<div className="mono" style={{fontSize:9,color:C.textDD}}>
+          {new Date(p.issued).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}
+        </div>}
+        <ArmBtn small label="Rescind" confirmLabel="Rescind proclamation?" onConfirm={async()=>{
+          setProcessing("Rescinding..."); await onAction("deleteProclamation",{id:p.id});
+          setProcessing(null); notify("Proclamation rescinded.",C.textD);
+        }}/>
+      </div>;
+    })}
+  </div>;
+}
+
+function PanelCalendar({calendar,onAction,notify,setProcessing}){
+  const [title,setTitle]=useState("");const [date,setDate]=useState(new Date().toISOString().slice(0,10));
+  const [time,setTime]=useState("");const [type,setType]=useState("state");
+  const [location,setLocation]=useState("");const [description,setDescription]=useState("");
+  const [saving,setSaving]=useState(false);
+  const now=new Date(); now.setHours(0,0,0,0);
+  const list=Object.values(calendar||{}).sort((a,b)=>new Date(a.date)-new Date(b.date));
+  return <div>
+    <STitle>Add to Calendar</STitle>
+    <div style={{background:C.s2,border:`1px solid ${C.border}`,padding:"1.25rem",marginBottom:"1.5rem"}}>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:2,minWidth:200}}><FL>EVENT TITLE *</FL><Inp value={title} onChange={setTitle} placeholder="Event title"/></div>
+          <div style={{flex:1,minWidth:140}}><FL>TYPE</FL><DD value={type} onChange={setType} options={CAL_TYPES.map(t=>({v:t.v,l:t.l}))}/></div>
+        </div>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:140}}><FL>DATE *</FL><Inp value={date} onChange={setDate} type="date"/></div>
+          <div style={{flex:1,minWidth:110}}><FL>TIME</FL><Inp value={time} onChange={setTime} placeholder="e.g. 14:00"/></div>
+          <div style={{flex:2,minWidth:180}}><FL>LOCATION</FL><Inp value={location} onChange={setLocation} placeholder="Location"/></div>
+        </div>
+        <div><FL>DESCRIPTION</FL><TA value={description} onChange={setDescription} placeholder="Event details..." rows={2}/></div>
+        <Btn small disabled={!title.trim()||saving} onClick={async()=>{
+          setSaving(true); setProcessing("Adding event...");
+          await onAction("createCalEvent",{title:title.trim(),date,time:time.trim(),type,location:location.trim(),description:description.trim()});
+          setProcessing(null); setSaving(false); notify("Event added.",C.gold);
+          setTitle(""); setTime(""); setLocation(""); setDescription("");
+        }}>{saving?"Adding...":"Add to Calendar"}</Btn>
+      </div>
+    </div>
+    <STitle>All Events</STitle>
+    {list.map(e=>{
+      const ct=CAL_TYPES.find(t=>t.v===e.type)||CAL_TYPES[4];
+      const isPast=new Date(e.date)<now;
+      return <div key={e.id} style={{background:C.s1,border:`1px solid ${C.border}`,
+        borderLeft:`4px solid ${isPast?C.textDD:ct.color}`,borderRadius:"0 3px 3px 0",
+        padding:"0.65rem 1rem",marginBottom:4,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",opacity:isPast?.6:1}}>
+        <div className="mono" style={{fontSize:9,color:isPast?C.textDD:ct.color,minWidth:100}}>
+          {new Date(e.date).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}
+        </div>
+        <span style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text,flex:1}}>{e.title}</span>
+        {e.location&&<span style={{fontSize:12,color:C.textD,fontStyle:"italic"}}>{e.location}</span>}
+        <ArmBtn small label="Remove" confirmLabel="Remove event?" onConfirm={async()=>{
+          setProcessing("Removing..."); await onAction("deleteCalEvent",{id:e.id});
+          setProcessing(null); notify("Event removed.",C.textD);
+        }}/>
+      </div>;
+    })}
+  </div>;
+}
+
+function PanelHonours({civilHonours,onAction,notify,setProcessing}){
+  const [recipient,setRecipient]=useState("");const [medal,setMedal]=useState("ICOGO");
+  const [citation,setCitation]=useState("");
+  const [awarded,setAwarded]=useState(new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"}));
+  const [saving,setSaving]=useState(false);
+  const list=Object.values(civilHonours||{}).sort((a,b)=>{
+    const ap=CIVIL_MEDAL_TYPES.find(m=>m.v===a.medal)?.prestige||99;
+    const bp=CIVIL_MEDAL_TYPES.find(m=>m.v===b.medal)?.prestige||99;
+    return ap-bp||(a.recipient||"").localeCompare(b.recipient||"");
+  });
+  const cats=[
+    {label:"Grand Civil Orders",    medals:CIVIL_MEDAL_TYPES.filter(m=>m.cat==="civil_grand")},
+    {label:"Civil Orders of Merit", medals:CIVIL_MEDAL_TYPES.filter(m=>m.cat==="civil_merit")},
+    {label:"Civil Medals",          medals:CIVIL_MEDAL_TYPES.filter(m=>m.cat==="civil_service")},
+  ];
+  return <div>
+    <STitle>Bestow Civil Honour</STitle>
+    <div style={{background:C.s2,border:`1px solid ${C.border}`,padding:"1.25rem",marginBottom:"1.5rem"}}>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:2,minWidth:180}}><FL>RECIPIENT *</FL><Inp value={recipient} onChange={setRecipient} placeholder="Name of recipient"/></div>
+          <div style={{flex:1,minWidth:200}}>
+            <FL>HONOUR</FL>
+            <select value={medal} onChange={e=>setMedal(e.target.value)}
+              style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,padding:"8px 12px",
+                       color:C.text,fontSize:14,outline:"none",fontFamily:"'Crimson Text',serif"}}>
+              {cats.map(cat=><optgroup key={cat.label} label={cat.label}>
+                {cat.medals.map(m=><option key={m.v} value={m.v}>{m.l}</option>)}
+              </optgroup>)}
+            </select>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:2}}><FL>CITATION</FL><Inp value={citation} onChange={setCitation} placeholder="Reason for bestowing this honour..."/></div>
+          <div style={{flex:1,minWidth:160}}><FL>DATE AWARDED</FL><Inp value={awarded} onChange={setAwarded}/></div>
+        </div>
+        <Btn small disabled={!recipient.trim()||saving} onClick={async()=>{
+          setSaving(true); setProcessing("Bestowing honour...");
+          await onAction("createHonour",{recipient:recipient.trim(),medal,citation:citation.trim(),awarded:awarded.trim()});
+          setProcessing(null); setSaving(false); notify("Honour bestowed upon "+recipient+".",C.gold);
+          setRecipient(""); setCitation("");
+        }}>{saving?"Bestowing...":"Bestow Honour"}</Btn>
+      </div>
+    </div>
+    <STitle>Civil Honours Register</STitle>
+    {list.length===0&&<div style={{fontSize:14,color:C.textDD,fontStyle:"italic"}}>No civil honours on record.</div>}
+    {list.map((h,i)=>{
+      const mt=CIVIL_MEDAL_TYPES.find(m=>m.v===h.medal)||{l:h.medal};
+      return <div key={h.id||i} style={{background:C.s1,border:`1px solid ${C.border}`,
+        borderLeft:`4px solid ${C.goldD}`,borderRadius:"0 3px 3px 0",padding:"0.65rem 1.25rem",
+        marginBottom:4,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+        <span style={{fontSize:14}}>{"🎖"}</span>
+        <div style={{flex:1}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text}}>{mt.l}</div>
+          {h.citation&&<div style={{fontSize:12,color:C.textD,fontStyle:"italic"}}>{h.citation}</div>}
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.gold}}>{h.recipient}</div>
+          {h.awarded&&<div className="mono" style={{fontSize:9,color:C.textDD,marginTop:2}}>{h.awarded}</div>}
+        </div>
+        <ArmBtn small label="Revoke" confirmLabel="Revoke honour?" onConfirm={async()=>{
+          setProcessing("Revoking..."); await onAction("deleteHonour",{id:h.id});
+          setProcessing(null); notify("Honour revoked.",C.textD);
+        }}/>
+      </div>;
+    })}
+  </div>;
+}
+
+// ── APP ───────────────────────────────────────────────────────────────────────
+function App(){
+  const [tab,setTab]=useState("peerage");
+  const [raw,setRaw]=useState({});
+  const [loaded,setLoaded]=useState(false);
+  const [panelUser,setPanelUser]=useState(null);
+  const [panelAuth,setPanelAuth]=useState(false);
+  const [toast,setToast]=useState({msg:"",color:""});
+  const [processing,setProcessing]=useState(null);
+
+  const notify=useCallback((msg,color=C.gold)=>{
+    setToast({msg,color}); setTimeout(()=>setToast(t=>t.msg===msg?{msg:"",color}:t),4000);
+  },[]);
+
+  useEffect(()=>{sgetAll().then(r=>{setRaw(r);setLoaded(true);});},[]);
+
+  const bundesherren=useMemo(()=>raw["bk_bh"]||{},[raw]);
+  const family=useMemo(()=>raw["ih_family"]||{},[raw]);
+  const proclamations=useMemo(()=>raw["ih_proclamations"]||{},[raw]);
+  const calendar=useMemo(()=>raw["ih_calendar"]||{},[raw]);
+  const civilHonours=useMemo(()=>raw["ih_honours"]||{},[raw]);
+  const personnel=useMemo(()=>raw["mow_personnel"]||{},[raw]);
+
+  const onAction=useCallback(async(type,payload)=>{
+    if(type==="createFamilyMember"){
+      const id="fam_"+uid();
+      const next={...family,[id]:{...payload,id}};
+      setRaw(r=>({...r,ih_family:next})); await sset("ih_family",next);
+    } else if(type==="deleteFamilyMember"){
+      const next={...family}; delete next[payload.id];
+      setRaw(r=>({...r,ih_family:next})); await sset("ih_family",next);
+    } else if(type==="createProclamation"){
+      const id="proc_"+uid();
+      const next={...proclamations,[id]:{...payload,id}};
+      setRaw(r=>({...r,ih_proclamations:next})); await sset("ih_proclamations",next);
+    } else if(type==="deleteProclamation"){
+      const next={...proclamations}; delete next[payload.id];
+      setRaw(r=>({...r,ih_proclamations:next})); await sset("ih_proclamations",next);
+    } else if(type==="createCalEvent"){
+      const id="cal_"+uid();
+      const next={...calendar,[id]:{...payload,id}};
+      setRaw(r=>({...r,ih_calendar:next})); await sset("ih_calendar",next);
+    } else if(type==="deleteCalEvent"){
+      const next={...calendar}; delete next[payload.id];
+      setRaw(r=>({...r,ih_calendar:next})); await sset("ih_calendar",next);
+    } else if(type==="createHonour"){
+      const id="hon_"+uid();
+      const next={...civilHonours,[id]:{...payload,id}};
+      setRaw(r=>({...r,ih_honours:next})); await sset("ih_honours",next);
+    } else if(type==="deleteHonour"){
+      const next={...civilHonours}; delete next[payload.id];
+      setRaw(r=>({...r,ih_honours:next})); await sset("ih_honours",next);
+    }
+  },[raw,family,proclamations,calendar,civilHonours]);
+
+  const TABS=[
+    {v:"peerage",      l:"Peerage Register",  icon:"⚜"},
+    {v:"family",       l:"Imperial Family",   icon:"👑"},
+    {v:"proclamations",l:"Proclamations",     icon:"📜"},
+    {v:"honours",      l:"Honours & Awards",  icon:"🎖"},
+    {v:"calendar",     l:"State Calendar",    icon:"📅"},
+    {v:"panel",        l:"Imperial Panel",    icon:"✦"},
+  ];
+
+  function handleTab(v){
+    if(v==="panel"&&!panelUser){setPanelAuth(true);return;}
+    setTab(v); setPanelAuth(false);
+  }
+
+  return <div style={{background:C.bg,minHeight:"100vh",color:C.text}}>
+    <Toast msg={toast.msg} color={toast.color}/>
+    <Overlay label={processing}/>
+
+    <div style={{background:`linear-gradient(180deg,${C.s1} 0%,${C.bg} 100%)`,
+      borderBottom:`1px solid ${C.border}`,padding:"1.25rem 1.25rem 0"}}>
+      <div style={{maxWidth:1100,margin:"0 auto"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,paddingBottom:"1rem",borderBottom:`1px solid ${C.border}`}}>
+          <a href="index.html" style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",
+            color:C.textD,textDecoration:"none",border:`1px solid ${C.border}`,
+            borderRadius:1,padding:"3px 10px",flexShrink:0}}>{"← Network"}</a>
+          <div style={{flex:1,textAlign:"center"}}>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.5em",color:C.goldD,marginBottom:4,textTransform:"uppercase"}}>Empire of Lech</div>
+            <div style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:20,letterSpacing:"0.12em",color:C.text,lineHeight:1}}>Imperial Household Office</div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginTop:6}}>
+              <div style={{height:1,width:40,background:`linear-gradient(to right,transparent,${C.goldD})`}}/>
+              <span style={{color:C.gold,fontSize:10}}>{"✦"}</span>
+              <div style={{height:1,width:40,background:`linear-gradient(to left,transparent,${C.goldD})`}}/>
+            </div>
+          </div>
+          <div style={{width:80}}/>
+        </div>
+        <div style={{display:"flex",overflowX:"auto"}}>
+          {TABS.map(t=><button key={t.v} onClick={()=>handleTab(t.v)}
+            style={{fontFamily:"'Cinzel',serif",fontSize:10,fontWeight:700,letterSpacing:"0.15em",
+                     textTransform:"uppercase",padding:"0.7rem 1rem",background:"transparent",
+                     border:"none",whiteSpace:"nowrap",cursor:"pointer",flexShrink:0,
+                     borderBottom:`2px solid ${tab===t.v&&!panelAuth?C.gold:"transparent"}`,
+                     color:tab===t.v&&!panelAuth?C.gold:C.textD}}>
+            {t.icon}{" "}{t.l}
+          </button>)}
+        </div>
+      </div>
+    </div>
+
+    <div style={{maxWidth:1100,margin:"0 auto",padding:"2rem 1.25rem"}}>
+      {!loaded&&<div style={{textAlign:"center",padding:"5rem",color:C.textDD}}>
+        <div style={{color:C.gold,fontSize:24,animation:"shimmer 1.5s infinite",marginBottom:"1rem"}}>{"✦"}</div>
+        <div className="mono" style={{fontSize:10,letterSpacing:"0.3em"}}>{"Loading\u2026"}</div>
+      </div>}
+      {loaded&&panelAuth&&!panelUser&&<PanelAuth
+        onAuth={(u,r)=>{setPanelUser(u);setRaw(prev=>({...prev,...r}));setPanelAuth(false);setTab("panel");notify("Authenticated.",C.gold);}}
+        onCancel={()=>setPanelAuth(false)}/>}
+      {loaded&&!panelAuth&&tab==="peerage"&&<PeerageTab bundesherren={bundesherren}/>}
+      {loaded&&!panelAuth&&tab==="family"&&<FamilyTab family={family}/>}
+      {loaded&&!panelAuth&&tab==="proclamations"&&<ProclamationsTab proclamations={proclamations}/>}
+      {loaded&&!panelAuth&&tab==="honours"&&<HonoursTab civilHonours={civilHonours} personnel={personnel}/>}
+      {loaded&&!panelAuth&&tab==="calendar"&&<CalendarTab calendar={calendar}/>}
+      {loaded&&!panelAuth&&tab==="panel"&&panelUser&&<EmperorPanel family={family} proclamations={proclamations}
+        calendar={calendar} civilHonours={civilHonours} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+      {loaded&&!panelAuth&&tab==="panel"&&!panelUser&&<div style={{textAlign:"center",padding:"4rem",color:C.textDD,fontStyle:"italic"}}>
+        Reserved for His Imperial Majesty. Click Imperial Panel to authenticate.
+      </div>}
+    </div>
+
+    <div style={{borderTop:`1px solid ${C.border}`,padding:"0.75rem 1.25rem",marginTop:"3rem",
+      background:`linear-gradient(180deg,transparent,${C.s1})`}}>
+      <div className="mono" style={{maxWidth:1100,margin:"0 auto",fontSize:9,color:C.textDD,
+        letterSpacing:"0.15em",textAlign:"center"}}>
+        {"Imperial Household Office \u00B7 Empire of Lech \u00B7 By Imperial Warrant"}
+      </div>
+    </div>
+  </div>;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

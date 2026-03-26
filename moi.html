@@ -1,0 +1,1611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Ministry of the Interior — Empire of Lech</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{background:#0a0808;color:#e0d4c8;font-family:'Crimson Text',Georgia,serif;min-height:100vh;}
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:#0a0808;}
+::-webkit-scrollbar-thumb{background:#1e3a5a;border-radius:2px;}
+input,select,textarea{font-family:'Crimson Text',Georgia,serif;}
+a{color:#4a9acc;text-decoration:none;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+@keyframes scanline{0%{transform:translateY(-100%);}100%{transform:translateY(100vh);}}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:0;}}
+@keyframes pulse{0%,100%{opacity:.6;}50%{opacity:1;}}
+@keyframes shimmer{0%,100%{opacity:.7;}50%{opacity:1;}}
+.fadeIn{animation:fadeIn .3s ease both;}
+.mono{font-family:'Share Tech Mono',monospace;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback,useMemo}=React;
+
+// ── CONFIG ────────────────────────────────────────────────────────────────────
+const SCRIPT_URL="https://script.google.com/macros/s/AKfycbxLu8jQehAZJEvMEeCLoHc9S2C4FM8o9fQh8Pp4gMzDNwwIG0S9qLJ5-1gyGM1c_InUfQ/exec";
+
+// ── CLEARANCE ─────────────────────────────────────────────────────────────────
+const CLEARANCE=[
+  {level:0,code:"UNCLASSIFIED",short:"UC",  color:"#2a9a4a",bg:"#0a1a0e",border:"#1a4a2a"},
+  {level:1,code:"CONFIDENTIAL",short:"C",   color:"#2a6acc",bg:"#0a1228",border:"#1a3a6a"},
+  {level:2,code:"SECRET",       short:"S",  color:"#cc7a10",bg:"#1a1000",border:"#6a3a00"},
+  {level:3,code:"TOP SECRET",   short:"TS", color:"#cc2222",bg:"#1a0808",border:"#6a1010"},
+  {level:4,code:"TS/SCI",       short:"SCI",color:"#9a22cc",bg:"#150a1a",border:"#5a1a6a"},
+];
+const CL=(level)=>CLEARANCE[Math.max(0,Math.min(4,level||0))];
+
+// ── ROLES ─────────────────────────────────────────────────────────────────────
+const ROLES=[
+  {v:"citizen",      l:"Civilian",                   rank:0},
+  {v:"lss_agent",    l:"LSS Agent",                  rank:1},
+  {v:"lfp_officer",  l:"LFP Officer",                rank:1},
+  {v:"lss_director", l:"LSS Director",               rank:2},
+  {v:"lfp_director", l:"LFP Director",               rank:2},
+  {v:"minister",     l:"Minister of the Interior",   rank:3},
+  {v:"emperor",      l:"Emperor",                    rank:4},
+];
+const roleLabel=(v)=>ROLES.find(r=>r.v===v)?.l||v;
+const roleRank=(v)=>ROLES.find(r=>r.v===v)?.rank||0;
+const hasRole=(user,role)=>roleRank(user?.role)>=roleRank(role);
+const canSeeLSS=(u)=>u&&(u.role==="lss_agent"||u.role==="lss_director"||u.role==="minister"||u.role==="emperor"||u.agentAssigned);
+const canSeeLFP=(u)=>u&&(u.role==="lfp_officer"||u.role==="lfp_director"||u.role==="minister"||u.role==="emperor"||u.officerAssigned);
+
+const MINISTRIES=["Chancellery","Colonies","Interior","Finance","War","Infrastructure","Health","Foreign Affairs","External Contractor","Civilian"];
+
+const OP_STATUSES=[
+  {v:"planning",   l:"Planning",   color:"#4a7aaa"},
+  {v:"active",     l:"Active",     color:"#2a9a4a"},
+  {v:"suspended",  l:"Suspended",  color:"#cc7a10"},
+  {v:"completed",  l:"Completed",  color:"#888"},
+  {v:"cancelled",  l:"Cancelled",  color:"#cc2222"},
+];
+
+const ARREST_STATUSES=[
+  {v:"detained",       l:"Detained",        color:"#cc7a10"},
+  {v:"pending_trial",  l:"Pending Trial",   color:"#4a7aaa"},
+  {v:"convicted",      l:"Convicted",       color:"#cc2222"},
+  {v:"released",       l:"Released",        color:"#2a9a4a"},
+  {v:"charges_dropped",l:"Charges Dropped", color:"#888"},
+];
+
+const LFP_OP_TYPES=[
+  {v:"investigation",l:"Investigation"},
+  {v:"raid",         l:"Raid"},
+  {v:"surveillance", l:"Surveillance"},
+  {v:"patrol",       l:"Patrol"},
+  {v:"response",     l:"Emergency Response"},
+  {v:"other",        l:"Other"},
+];
+
+// ── BACKEND ───────────────────────────────────────────────────────────────────
+async function sha256(t){
+  const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
+async function sgetAll(){
+  try{
+    const r=await fetch(SCRIPT_URL+"?action=getall");
+    const d=await r.json();
+    if(!d.success) return {};
+    const out={};
+    Object.entries(d.data||{}).forEach(([k,v])=>{
+      if(v){try{out[k]=JSON.parse(v);}catch{}}
+    });
+    return out;
+  }catch{return{};}
+}
+async function sset(k,v){
+  try{
+    await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
+      body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v)})});
+    return true;
+  }catch{return false;}
+}
+async function sdel(k){
+  try{await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
+    body:JSON.stringify({action:"del",key:k})});}catch{}
+}
+
+// ── COLORS / DESIGN TOKENS ────────────────────────────────────────────────────
+const C={
+  bg:"#0a0808",
+  s1:"#140e0e",
+  s2:"#1a1010",
+  s3:"#201414",
+  border:"#3a1a1a",
+  borderL:"#5a2a2a",
+  text:"#e0d4c8",
+  textD:"#9a8070",
+  textDD:"#5a3a30",
+  accent:"#C9A84C",
+  accentD:"#8a6a20",
+  red:"#8b1a1a",
+  redD:"#6a0808",
+  redL:"#c05050",
+  green:"#2a7a3a",
+  gold:"#C9A84C",
+};
+
+// ── SHARED COMPONENTS ─────────────────────────────────────────────────────────
+function ClearanceBadge({level,style:extra={}}){
+  const cl=CL(level);
+  return(
+    <span className="mono" style={{fontSize:9,letterSpacing:"0.15em",padding:"2px 8px",
+      background:cl.bg,border:`1px solid ${cl.border}`,color:cl.color,
+      borderRadius:1,...extra}}>
+      {cl.code}
+    </span>
+  );
+}
+
+function RoleBadge({role,style:extra={}}){
+  const color=role==="emperor"?C.gold:role==="minister"?"#8a6acc":
+    role==="lss_director"||role==="lfp_director"?C.accent:
+    role==="lss_agent"||role==="lfp_officer"?"#5a9a7a":C.textDD;
+  return(
+    <span className="mono" style={{fontSize:9,letterSpacing:"0.1em",padding:"2px 7px",
+      background:C.s1,border:`1px solid ${color}44`,color,...extra}}>
+      {roleLabel(role)}
+    </span>
+  );
+}
+
+function Btn({children,onClick,variant="primary",disabled,small,style:extra={}}){
+  const base={fontFamily:"'Cinzel',serif",letterSpacing:"0.12em",fontWeight:700,
+    textTransform:"uppercase",fontSize:small?11:12,padding:small?"4px 14px":"7px 20px",
+    border:"1px solid",borderRadius:2,cursor:disabled?"not-allowed":"pointer",
+    opacity:disabled?.4:1,transition:"all .15s"};
+  const vars={
+    primary:{background:`linear-gradient(135deg,${C.accentD},${C.accent})`,borderColor:C.accentD,color:"#fff"},
+    danger: {background:"transparent",borderColor:C.redD,color:C.redL},
+    armed:  {background:`linear-gradient(135deg,${C.redD},${C.red})`,borderColor:C.redD,color:"#fff"},
+    ghost:  {background:"transparent",borderColor:C.border,color:C.textD},
+    gold:   {background:"linear-gradient(135deg,#3a2a00,#5a4400)",borderColor:"#5a4000",color:C.gold},
+    green:  {background:"linear-gradient(135deg,#0a2a14,#1a5a28)",borderColor:"#1a4a20",color:"#5ad47a"},
+  };
+  return<button onClick={disabled?undefined:onClick} style={{...base,...(vars[variant]||vars.primary),...extra}}>{children}</button>;
+}
+function ArmBtn({label,confirmLabel,onConfirm,variant="danger",small}){
+  const [armed,setArmed]=useState(false);
+  const t=useRef(null);
+  return armed
+    ?<Btn variant="armed" small={small} onClick={()=>{clearTimeout(t.current);setArmed(false);onConfirm();}}>
+      {confirmLabel||"Confirm?"}
+     </Btn>
+    :<Btn variant={variant} small={small} onClick={()=>{setArmed(true);clearTimeout(t.current);t.current=setTimeout(()=>setArmed(false),4000);}}>
+      {label}
+     </Btn>;
+}
+function Inp({value,onChange,placeholder,type="text",style:extra={}}){
+  return<input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+    style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
+             padding:"8px 12px",color:C.text,fontSize:14,outline:"none",...extra}}
+    onFocus={e=>e.target.style.borderColor=C.accent}
+    onBlur={e=>e.target.style.borderColor=C.border}/>;
+}
+function TA({value,onChange,placeholder,rows=4}){
+  return<textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows}
+    style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
+             padding:"8px 12px",color:C.text,fontSize:14,outline:"none",resize:"vertical",lineHeight:1.6}}
+    onFocus={e=>e.target.style.borderColor=C.accent}
+    onBlur={e=>e.target.style.borderColor=C.border}/>;
+}
+function DD({value,onChange,options}){
+  return<select value={value} onChange={e=>onChange(e.target.value)}
+    style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
+             padding:"8px 12px",color:C.text,fontSize:14,outline:"none",fontFamily:"'Crimson Text',serif"}}>
+    {options.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+  </select>;
+}
+function FL({children}){
+  return<div className="mono" style={{fontSize:10,color:C.textD,letterSpacing:"0.12em",marginBottom:4}}>{children}</div>;
+}
+function STitle({children,color,style:extra={}}){
+  return<div style={{fontFamily:"'Cinzel',serif",fontSize:11,fontWeight:700,
+    letterSpacing:"0.35em",textTransform:"uppercase",color:color||C.accent,
+    paddingBottom:8,borderBottom:`1px solid ${C.border}`,marginBottom:"1.25rem",...extra}}>
+    {children}
+  </div>;
+}
+function Card({children,style:extra={}}){
+  return<div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:3,padding:"1.25rem",...extra}}>
+    {children}
+  </div>;
+}
+function Toast({msg,color}){
+  if(!msg) return null;
+  return<div style={{position:"fixed",top:14,right:14,zIndex:9999,background:C.s2,
+    border:`1px solid ${color}55`,borderLeft:`3px solid ${color}`,padding:"8px 16px",borderRadius:2,
+    fontFamily:"'Cinzel',serif",fontSize:11,letterSpacing:"0.1em",color,
+    animation:"fadeIn .2s ease",maxWidth:360}}>{msg}</div>;
+}
+function Overlay({label}){
+  if(!label) return null;
+  return<div style={{position:"fixed",inset:0,zIndex:99999,background:"rgba(4,8,16,.95)",
+    display:"flex",alignItems:"center",justifyContent:"center"}}>
+    <div style={{textAlign:"center"}}>
+      <div className="mono" style={{color:C.accent,fontSize:11,letterSpacing:"0.3em",marginBottom:8,
+        animation:"pulse 1s infinite"}}>PROCESSING</div>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:18,letterSpacing:"0.15em",color:C.text}}>{label}</div>
+    </div>
+  </div>;
+}
+
+// ── LOGIN SCREEN ──────────────────────────────────────────────────────────────
+function LoginScreen({onLogin}){
+  const [username,setUsername]=useState("");
+  const [password,setPassword]=useState("");
+  const [err,setErr]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [scanPos,setScanPos]=useState(0);
+
+  useEffect(()=>{
+    const id=setInterval(()=>setScanPos(p=>(p+0.4)%100),30);
+    return()=>clearInterval(id);
+  },[]);
+
+  const doLogin=async()=>{
+    if(!username.trim()||!password.trim()){setErr("Credentials required.");return;}
+    setLoading(true); setErr("");
+    try{
+      console.log("Fetching from:", SCRIPT_URL+"?action=getall");
+      const raw=await sgetAll();
+      // Build accounts from per-row keys (mi_acc_<username>)
+      const accounts={};
+      Object.entries(raw).forEach(([k,v])=>{ if(k.startsWith("mi_acc_")&&v) accounts[v.username]=v; });
+      // Fallback: also check legacy mi_accounts blob
+      Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{ if(!accounts[k]) accounts[k]=v; });
+      const user=Object.values(accounts).find(a=>a.username.toLowerCase()===username.trim().toLowerCase());
+      if(!user){setErr("ACCESS DENIED — Invalid credentials.");setLoading(false);return;}
+      const hash=await sha256(password);
+      if(hash!==user.passwordHash){setErr("ACCESS DENIED — Invalid credentials.");setLoading(false);return;}
+      setErr("");
+      // Inject merged accounts into raw for downstream use
+      onLogin(user,{...raw,"mi_accounts":accounts});
+    }catch(e){
+      console.error("Login error:", e);
+      setErr("Connection error — check network: "+e.message);
+    }
+    setLoading(false);
+  };
+
+  return(
+    <div style={{minHeight:"100vh",background:"#04080f",display:"flex",alignItems:"center",
+                  justifyContent:"center",position:"relative",overflow:"hidden"}}>
+      {/* Background grid */}
+      <div style={{position:"absolute",inset:0,
+        backgroundImage:"linear-gradient(#0d1a2a22 1px,transparent 1px),linear-gradient(90deg,#0d1a2a22 1px,transparent 1px)",
+        backgroundSize:"40px 40px"}}/>
+      {/* Scan line */}
+      <div style={{position:"absolute",left:0,right:0,height:2,
+        background:"linear-gradient(to right,transparent,#C9A84C22,transparent)",
+        top:`${scanPos}%`,transition:"top 0.03s linear",zIndex:1,pointerEvents:"none"}}/>
+      {/* Corner brackets */}
+      {[{t:20,l:20,r:"auto",b:"auto"},{t:20,r:20,l:"auto",b:"auto"},
+        {b:20,l:20,t:"auto",r:"auto"},{b:20,r:20,t:"auto",l:"auto"}].map((pos,i)=>(
+        <div key={i} style={{position:"absolute",width:30,height:30,...pos,zIndex:2,
+          borderTop:i<2?"2px solid #3399cc44":"none",
+          borderBottom:i>=2?"2px solid #3399cc44":"none",
+          borderLeft:i%2===0?"2px solid #3399cc44":"none",
+          borderRight:i%2===1?"2px solid #3399cc44":"none"}}/>
+      ))}
+
+      <div className="fadeIn" style={{position:"relative",zIndex:10,width:"100%",maxWidth:420,padding:"0 20px"}}>
+        {/* Header */}
+        <div style={{textAlign:"center",marginBottom:"2.5rem"}}>
+          <div className="mono" style={{fontSize:9,letterSpacing:"0.5em",color:C.accent,marginBottom:12,
+            animation:"pulse 3s infinite"}}>Empire of Lech — Classified Network</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:26,
+            letterSpacing:"0.1em",color:"#e8d4bc",lineHeight:1.2,marginBottom:4}}>
+            Ministry of<br/>the Interior
+          </div>
+          <div className="mono" style={{fontSize:9,letterSpacing:"0.3em",color:"#5a3a30",marginTop:8}}>
+            Secure Intranet — Authorised Access Only
+          </div>
+          {/* Redaction bars for flavor */}
+          <div style={{display:"flex",gap:6,justifyContent:"center",marginTop:16}}>
+            {[60,40,80,30].map((w,i)=>(
+              <div key={i} style={{height:8,width:w,background:"#2a1a10",borderRadius:1}}/>
+            ))}
+          </div>
+        </div>
+
+        {/* Login card */}
+        <div style={{background:"#0d1520",border:"1px solid #1e3a5a",borderRadius:3,padding:"2rem"}}>
+          <div className="mono" style={{fontSize:9,letterSpacing:"0.25em",color:C.accent,marginBottom:"1.5rem",
+            borderBottom:"1px solid #1e2d3d",paddingBottom:8}}>
+            Authentication Required
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:"1rem"}}>
+            <div>
+              <FL>USERNAME</FL>
+              <Inp value={username} onChange={setUsername} placeholder="Enter username"
+                style={{letterSpacing:"0.08em"}}/>
+            </div>
+            <div>
+              <FL>PASSWORD</FL>
+              <Inp value={password} onChange={setPassword} placeholder="Enter password" type="password"
+                style={{letterSpacing:"0.15em"}}/>
+            </div>
+            {err&&(
+              <div className="mono" style={{fontSize:10,letterSpacing:"0.08em",color:C.redL,
+                background:C.s3,border:`1px solid ${C.redD}44`,padding:"8px 12px",borderRadius:2}}>
+                {err}
+              </div>
+            )}
+            <Btn onClick={doLogin} disabled={loading||!username.trim()||!password.trim()}>
+              {loading?"AUTHENTICATING…":"AUTHENTICATE"}
+            </Btn>
+          </div>
+          <div className="mono" style={{fontSize:9,color:C.textDD,marginTop:"1.25rem",lineHeight:1.7,
+            borderTop:`1px solid ${C.border}`,paddingTop:"0.85rem"}}>
+            Unauthorised access is logged and prosecuted under Imperial law.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── CLEARANCE TRACKER ─────────────────────────────────────────────────────────
+function ClearanceTracker({accounts,currentUser,onUpdate,notify,setProcessing}){
+  const [search,setSearch]=useState("");
+  const [filterCl,setFilterCl]=useState("all");
+  const [expanded,setExpanded]=useState(null);
+
+  const isAdmin=hasRole(currentUser,"minister");
+
+  const list=Object.values(accounts||{})
+    .filter(a=>{
+      const q=search.toLowerCase();
+      const matchQ=!q||a.displayName?.toLowerCase().includes(q)||a.username.toLowerCase().includes(q)||a.ministry?.toLowerCase().includes(q);
+      const matchCl=filterCl==="all"||String(a.clearance)===filterCl;
+      return matchQ&&matchCl;
+    })
+    .sort((a,b)=>(b.clearance||0)-(a.clearance||0)||(a.displayName||a.username).localeCompare(b.displayName||b.username));
+
+  return(
+    <div className="fadeIn">
+      <STitle>Clearance Tracker</STitle>
+      <div style={{display:"flex",gap:"0.75rem",marginBottom:"1.25rem",flexWrap:"wrap"}}>
+        <div style={{flex:2,minWidth:200}}>
+          <FL>SEARCH</FL>
+          <Inp value={search} onChange={setSearch} placeholder="Name, username, ministry…"/>
+        </div>
+        <div style={{flex:1,minWidth:140}}>
+          <FL>CLEARANCE</FL>
+          <DD value={filterCl} onChange={setFilterCl} options={[{v:"all",l:"All Levels"},...CLEARANCE.map(c=>({v:String(c.level),l:c.code}))]}/>
+        </div>
+      </div>
+
+      {list.length===0?(
+        <div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No records matching criteria.</div>
+      ):(
+        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+          {list.map(acc=>{
+            const cl=CL(acc.clearance||0);
+            const isOpen=expanded===acc.username;
+            return(
+              <div key={acc.username} style={{background:C.s1,border:`1px solid ${isOpen?cl.border:C.border}`,
+                borderLeft:`4px solid ${cl.color}`,borderRadius:"0 3px 3px 0",overflow:"hidden"}}>
+                <div onClick={()=>setExpanded(isOpen?null:acc.username)}
+                  style={{display:"flex",alignItems:"center",gap:12,padding:"0.75rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
+                  <ClearanceBadge level={acc.clearance||0}/>
+                  <span style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:600,
+                    color:C.text,flex:1,minWidth:120}}>{acc.username}</span>
+                  <span style={{fontSize:12,color:C.textD,fontStyle:"italic"}}>{acc.displayName||""}</span>
+                  <span style={{fontSize:12,color:C.textDD,fontStyle:"italic"}}>{acc.ministry||"—"}</span>
+                  <span style={{fontSize:11,color:C.textDD}}>{isOpen?"▲":"▼"}</span>
+                </div>
+                {isOpen&&(
+                  <div style={{borderTop:`1px solid ${C.border}`,padding:"1rem",background:C.s2}}>
+                    <div style={{display:"flex",gap:"2rem",flexWrap:"wrap",marginBottom:"0.85rem"}}>
+                      <div>
+                        <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>ROLE</div>
+                        <RoleBadge role={acc.role}/>
+                      </div>
+                      <div>
+                        <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>MINISTRY</div>
+                        <span style={{fontSize:13,color:C.text}}>{acc.ministry||"—"}</span>
+                        {acc.isContractor&&<span className="mono" style={{fontSize:9,color:"#aa6622",marginLeft:8}}>CONTRACTOR</span>}
+                      </div>
+                      {acc.agentAssigned&&<div>
+                        <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>LSS</div>
+                        <span className="mono" style={{fontSize:10,color:"#5a9a7a"}}>AGENT ASSIGNED</span>
+                      </div>}
+                      {acc.officerAssigned&&<div>
+                        <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>LFP</div>
+                        <span className="mono" style={{fontSize:10,color:"#5a7a9a"}}>OFFICER ASSIGNED</span>
+                      </div>}
+                    </div>
+                    {acc.notes&&(
+                      <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`3px solid ${cl.color}`,
+                        borderRadius:"0 3px 3px 0",padding:"0.6rem 0.85rem",marginBottom:"0.75rem"}}>
+                        <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:4}}>CLEARANCE JUSTIFICATION</div>
+                        <div style={{fontSize:13,color:C.textD,lineHeight:1.7,fontStyle:"italic"}}>{acc.notes}</div>
+                      </div>
+                    )}
+                    {isAdmin&&(
+                      <ClearanceEditor acc={acc} onUpdate={onUpdate} notify={notify} setProcessing={setProcessing}/>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ClearanceEditor({acc,onUpdate,notify,setProcessing}){
+  const [cl,setCl]=useState(String(acc.clearance||0));
+  const [notes,setNotes]=useState(acc.notes||"");
+  const [saving,setSaving]=useState(false);
+  const changed=parseInt(cl)!==acc.clearance||notes!==acc.notes;
+  return(
+    <div style={{borderTop:`1px solid ${C.border}`,paddingTop:"0.75rem",display:"flex",gap:"0.75rem",flexWrap:"wrap",alignItems:"flex-end"}}>
+      <div style={{flex:1,minWidth:160}}>
+        <FL>CLEARANCE LEVEL</FL>
+        <DD value={cl} onChange={setCl} options={CLEARANCE.map(c=>({v:String(c.level),l:c.code}))}/>
+      </div>
+      <div style={{flex:3,minWidth:200}}>
+        <FL>JUSTIFICATION NOTES</FL>
+        <Inp value={notes} onChange={setNotes} placeholder="Basis for clearance level…"/>
+      </div>
+      <Btn variant="gold" disabled={!changed||saving} small onClick={async()=>{
+        setSaving(true); setProcessing("Updating clearance…");
+        await onUpdate(acc.username,{clearance:parseInt(cl),notes});
+        setProcessing(null); setSaving(false);
+        notify("Clearance updated for "+acc.displayName+".",C.gold);
+      }}>{saving?"Saving…":"Update"}</Btn>
+    </div>
+  );
+}
+
+// ── LSS OPERATIONS ────────────────────────────────────────────────────────────
+function OperationCard({op,accounts,currentUser,onAction,notify,setProcessing,chamber}){
+  const [open,setOpen]=useState(false);
+  const [addNote,setAddNote]=useState("");
+  const [saving,setSaving]=useState(false);
+  const st=OP_STATUSES.find(s=>s.v===op.status)||OP_STATUSES[0];
+  const cl=CL(op.clearance||0);
+  const canEdit=hasRole(currentUser,(chamber==="lss"?"lss_director":"lfp_director"))||hasRole(currentUser,"minister");
+
+  if((op.clearance||0)>(currentUser.clearance||0)) return null;
+
+  return(
+    <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${st.color}`,
+                  borderRadius:"0 3px 3px 0",marginBottom:"0.6rem",overflow:"hidden"}}>
+      <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",justifyContent:"space-between",
+        alignItems:"center",padding:"0.85rem 1rem",cursor:"pointer",gap:8,flexWrap:"wrap"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,flex:1}}>
+          <span className="mono" style={{fontSize:9,padding:"2px 8px",background:C.s3,
+            border:`1px solid ${st.color}44`,color:st.color}}>{op.status?.toUpperCase()}</span>
+          <span style={{fontFamily:"'Cinzel',serif",fontSize:16,fontWeight:700,color:C.text}}>{op.name}</span>
+          {op.codename&&<span className="mono" style={{fontSize:10,color:C.textD}}>// {op.codename}</span>}
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <ClearanceBadge level={op.clearance||0}/>
+          <span style={{fontSize:11,color:C.textDD}}>{open?"▲":"▼"}</span>
+        </div>
+      </div>
+      {open&&(
+        <div style={{borderTop:`1px solid ${C.border}`,padding:"1rem"}}>
+          {op.description&&<div style={{fontSize:14,color:C.textD,lineHeight:1.7,marginBottom:"1rem",fontStyle:"italic"}}>{op.description}</div>}
+
+          {/* Progress */}
+          {op.progress!=null&&(
+            <div style={{marginBottom:"1rem"}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                <span className="mono" style={{fontSize:9,color:C.textDD}}>PROGRESS</span>
+                <span className="mono" style={{fontSize:9,color:C.accent}}>{op.progress}%</span>
+              </div>
+              <div style={{height:6,background:C.s3,borderRadius:3,overflow:"hidden"}}>
+                <div style={{width:op.progress+"%",height:"100%",
+                  background:`linear-gradient(to right,${C.accentD},${C.accent})`,borderRadius:3}}/>
+              </div>
+            </div>
+          )}
+
+          {/* Documents */}
+          {(op.opord_text||op.opord_url)&&(
+            <div style={{background:C.s2,border:`1px solid ${cl.border}`,borderLeft:`3px solid ${cl.color}`,
+              borderRadius:"0 3px 3px 0",padding:"0.75rem 1rem",marginBottom:"1rem"}}>
+              <div className="mono" style={{fontSize:9,color:cl.color,marginBottom:6}}>OPERATION ORDER (OPORD)</div>
+              {op.opord_url&&<a href={op.opord_url} target="_blank" rel="noopener noreferrer"
+                style={{display:"inline-block",fontFamily:"'Cinzel',serif",fontSize:11,
+                  letterSpacing:"0.1em",color:C.accent,border:`1px solid ${C.accentD}44`,
+                  padding:"4px 12px",borderRadius:2,marginBottom:op.opord_text?"0.5rem":"0"}}>
+                OPEN DOCUMENT →
+              </a>}
+              {op.opord_text&&<div style={{fontSize:13,color:C.text,lineHeight:1.8,whiteSpace:"pre-wrap",marginTop:4}}>{op.opord_text}</div>}
+            </div>
+          )}
+
+          {/* Notes log */}
+          {(op.notes||[]).length>0&&(
+            <div style={{marginBottom:"1rem"}}>
+              <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:6}}>FIELD NOTES / UPDATES</div>
+              {[...(op.notes||[])].reverse().map((n,i)=>(
+                <div key={i} style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:2,
+                  padding:"0.6rem 0.85rem",marginBottom:4}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                    <span className="mono" style={{fontSize:9,color:C.textD}}>{n.author}</span>
+                    <span className="mono" style={{fontSize:9,color:C.textDD}}>{new Date(n.ts).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}</span>
+                  </div>
+                  <div style={{fontSize:13,color:C.text,lineHeight:1.6}}>{n.text}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add note */}
+          {(canEdit||currentUser.agentAssigned||currentUser.officerAssigned||
+            currentUser.role==="lss_agent"||currentUser.role==="lfp_officer")&&(
+            <div style={{display:"flex",gap:8}}>
+              <Inp value={addNote} onChange={setAddNote} placeholder="Add field note or update…" style={{flex:1}}/>
+              <Btn small disabled={!addNote.trim()||saving} onClick={async()=>{
+                setSaving(true); setProcessing("Adding note…");
+                const note={text:addNote.trim(),author:currentUser.displayName||currentUser.username,ts:Date.now()};
+                await onAction("addOpNote",{opId:op.id,chamber,note});
+                setProcessing(null); setSaving(false); setAddNote("");
+                notify("Note added.",C.accent);
+              }}>{saving?"…":"Add Note"}</Btn>
+            </div>
+          )}
+
+          {canEdit&&<OperationEditor op={op} chamber={chamber} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OperationEditor({op,chamber,onAction,notify,setProcessing}){
+  const [open,setOpen]=useState(false);
+  const [status,setStatus]=useState(op.status||"planning");
+  const [progress,setProgress]=useState(String(op.progress||0));
+  const [saving,setSaving]=useState(false);
+  if(!open) return<div style={{marginTop:6,borderTop:`1px solid ${C.border}`,paddingTop:6,display:"flex",justifyContent:"flex-end",gap:6}}>
+    <Btn small variant="ghost" onClick={()=>setOpen(true)}>✎ Edit Status</Btn>
+    <ArmBtn small label="Delete" confirmLabel="Delete operation?" onConfirm={async()=>{
+      setProcessing("Deleting operation…");
+      await onAction("deleteOp",{opId:op.id,chamber});
+      setProcessing(null); notify("Operation deleted.",C.textD);
+    }}/>
+  </div>;
+
+  return(
+    <div style={{marginTop:8,borderTop:`1px solid ${C.border}`,paddingTop:"0.75rem",display:"flex",gap:"0.75rem",flexWrap:"wrap",alignItems:"flex-end"}}>
+      <div style={{flex:1,minWidth:140}}>
+        <FL>STATUS</FL>
+        <DD value={status} onChange={setStatus} options={OP_STATUSES.map(s=>({v:s.v,l:s.l}))}/>
+      </div>
+      <div style={{flex:1,minWidth:100}}>
+        <FL>PROGRESS %</FL>
+        <Inp value={progress} onChange={setProgress} placeholder="0-100" style={{textAlign:"right"}}/>
+      </div>
+      <Btn small variant="gold" disabled={saving} onClick={async()=>{
+        setSaving(true); setProcessing("Updating operation…");
+        await onAction("updateOpStatus",{opId:op.id,chamber,status,progress:parseInt(progress)||0});
+        setProcessing(null); setSaving(false); setOpen(false);
+        notify("Operation updated.",C.gold);
+      }}>{saving?"Saving…":"Save"}</Btn>
+      <Btn small variant="ghost" onClick={()=>setOpen(false)}>Cancel</Btn>
+    </div>
+  );
+}
+
+// ── CREATE OPERATION FORM ─────────────────────────────────────────────────────
+function CreateOperationForm({chamber,onAction,notify,setProcessing,onClose}){
+  const [name,setName]=useState("");
+  const [codename,setCodename]=useState("");
+  const [description,setDescription]=useState("");
+  const [opordText,setOpordText]=useState("");
+  const [opordUrl,setOpordUrl]=useState("");
+  const [clearance,setClearance]=useState("2");
+  const [saving,setSaving]=useState(false);
+  return(
+    <div style={{background:C.s2,border:`1px solid ${C.accentD}`,borderRadius:3,padding:"1.25rem",marginBottom:"1.25rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:11,letterSpacing:"0.25em",
+        color:C.accent,marginBottom:"1rem",display:"flex",justifyContent:"space-between"}}>
+        NEW OPERATION
+        <button onClick={onClose} style={{background:"transparent",border:"none",color:C.textD,cursor:"pointer",fontSize:14}}>✕</button>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.85rem"}}>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:2,minWidth:180}}><FL>OPERATION NAME *</FL><Inp value={name} onChange={setName} placeholder="Operation name"/></div>
+          <div style={{flex:1,minWidth:140}}><FL>CODENAME</FL><Inp value={codename} onChange={setCodename} placeholder="e.g. IRON FALCON"/></div>
+          <div style={{flex:1,minWidth:140}}>
+            <FL>CLASSIFICATION *</FL>
+            <DD value={clearance} onChange={setClearance} options={CLEARANCE.map(c=>({v:String(c.level),l:c.code}))}/>
+          </div>
+        </div>
+        <div><FL>DESCRIPTION</FL><TA value={description} onChange={setDescription} placeholder="Operation overview…" rows={3}/></div>
+        <div><FL>OPORD — DOCUMENT LINK (optional)</FL><Inp value={opordUrl} onChange={setOpordUrl} placeholder="https://docs.google.com/…"/></div>
+        <div><FL>OPORD — TEXT (optional)</FL><TA value={opordText} onChange={setOpordText} placeholder="Paste OPORD text here if no document…" rows={4}/></div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn disabled={!name.trim()||saving} onClick={async()=>{
+            setSaving(true); setProcessing("Creating operation…");
+            await onAction("createOp",{chamber,op:{
+              name:name.trim(),codename:codename.trim(),description:description.trim(),
+              opord_text:opordText.trim(),opord_url:opordUrl.trim(),
+              clearance:parseInt(clearance),status:"planning",progress:0,notes:[],
+            }});
+            setProcessing(null); setSaving(false);
+            notify("Operation created.",C.accent); onClose();
+          }}>{saving?"Creating…":"Create Operation"}</Btn>
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── LSS SECTION ───────────────────────────────────────────────────────────────
+function LSSSection({currentUser,accounts,lssOps,lssDocs,onAction,notify,setProcessing}){
+  const [sub,setSub]=useState("ops");
+  const isAgent=currentUser.role==="lss_agent"||currentUser.agentAssigned;
+  const isDirector=hasRole(currentUser,"lss_director");
+  const isAdmin=hasRole(currentUser,"minister");
+
+  const SUBTABS=[
+    {v:"ops",  l:"Operations"},
+    {v:"docs", l:"Documents"},
+    ...(isAgent||isDirector||isAdmin?[{v:"agent",l:"Agent Panel"}]:[]),
+    ...(isDirector||isAdmin?[{v:"director",l:"Director Panel"}]:[]),
+  ];
+
+  return(
+    <div className="fadeIn">
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:"1.5rem"}}>
+        <div style={{flex:1}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontWeight:900,fontSize:22,
+            letterSpacing:"0.15em",color:C.text}}>Lech Security Service</div>
+          <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.2em",marginTop:2}}>
+            Internal Intelligence — Classified
+          </div>
+        </div>
+        <ClearanceBadge level={currentUser.clearance||0}/>
+      </div>
+      <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1.5rem"}}>
+        {SUBTABS.map(t=>(
+          <button key={t.v} onClick={()=>setSub(t.v)}
+            style={{fontFamily:"'Cinzel',serif",fontSize:11,fontWeight:700,
+                     letterSpacing:"0.18em",textTransform:"uppercase",padding:"0.6rem 1.1rem",
+                     background:"transparent",border:"none",cursor:"pointer",
+                     borderBottom:`2px solid ${sub===t.v?C.accent:"transparent"}`,
+                     color:sub===t.v?C.accent:C.textD}}>
+            {t.l}
+          </button>
+        ))}
+      </div>
+      {sub==="ops"&&<LSSOperations currentUser={currentUser} lssOps={lssOps} onAction={onAction} notify={notify} setProcessing={setProcessing} canCreate={isDirector||isAdmin}/>}
+      {sub==="docs"&&<LSSDocuments currentUser={currentUser} lssDocs={lssDocs} onAction={onAction} notify={notify} setProcessing={setProcessing} canCreate={isAgent||isDirector||isAdmin}/>}
+      {sub==="agent"&&(isAgent||isDirector||isAdmin)&&<LSSAgentPanel currentUser={currentUser} lssOps={lssOps} lssDocs={lssDocs} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+      {sub==="director"&&(isDirector||isAdmin)&&<LSSDirectorPanel currentUser={currentUser} accounts={accounts} lssOps={lssOps} lssDocs={lssDocs} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+    </div>
+  );
+}
+
+function LSSOperations({currentUser,lssOps,onAction,notify,setProcessing,canCreate}){
+  const [creating,setCreating]=useState(false);
+  const ops=Object.values(lssOps||{})
+    .filter(op=>(op.clearance||0)<=(currentUser.clearance||0))
+    .sort((a,b)=>(b.created||0)-(a.created||0));
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1rem"}}>
+        <STitle style={{marginBottom:0}}>Active Operations</STitle>
+        {canCreate&&!creating&&<Btn small onClick={()=>setCreating(true)}>+ New Operation</Btn>}
+      </div>
+      {creating&&<CreateOperationForm chamber="lss" onAction={onAction} notify={notify} setProcessing={setProcessing} onClose={()=>setCreating(false)}/>}
+      {ops.length===0?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No operations at your clearance level.</div>
+        :ops.map(op=><OperationCard key={op.id} op={op} currentUser={currentUser} onAction={onAction} notify={notify} setProcessing={setProcessing} chamber="lss"/>)}
+    </div>
+  );
+}
+
+// ── LSS DOCUMENTS ─────────────────────────────────────────────────────────────
+function LSSDocuments({currentUser,lssDocs,onAction,notify,setProcessing,canCreate}){
+  const [creating,setCreating]=useState(false);
+  const [filterCl,setFilterCl]=useState("all");
+  const userCl=currentUser.clearance||0;
+  const docs=Object.values(lssDocs||{})
+    .filter(d=>(d.clearance||0)<=userCl&&(filterCl==="all"||String(d.clearance)===filterCl))
+    .sort((a,b)=>(b.created||0)-(a.created||0));
+  const allLevels=[...new Set(Object.values(lssDocs||{}).filter(d=>(d.clearance||0)<=userCl).map(d=>d.clearance||0))].sort();
+
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1rem",gap:8,flexWrap:"wrap"}}>
+        <STitle style={{marginBottom:0}}>Classified Documents</STitle>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <select value={filterCl} onChange={e=>setFilterCl(e.target.value)}
+            style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:2,padding:"6px 10px",color:C.text,fontSize:13,fontFamily:"'Crimson Text',serif"}}>
+            <option value="all">All Levels</option>
+            {allLevels.map(l=><option key={l} value={String(l)}>{CL(l).code}</option>)}
+          </select>
+          {canCreate&&!creating&&<Btn small onClick={()=>setCreating(true)}>+ New Document</Btn>}
+        </div>
+      </div>
+      {creating&&<CreateDocumentForm chamber="lss" onAction={onAction} notify={notify} setProcessing={setProcessing} onClose={()=>setCreating(false)} currentUser={currentUser}/>}
+      {/* Show locked levels */}
+      {CLEARANCE.filter(c=>c.level>userCl).map(c=>(
+        <div key={c.level} style={{background:C.s1,border:`1px solid ${c.border}`,borderLeft:`4px solid ${c.color}`,
+          borderRadius:"0 3px 3px 0",padding:"0.75rem 1rem",marginBottom:4,display:"flex",alignItems:"center",gap:10,opacity:0.5}}>
+          <span className="mono" style={{fontSize:10,color:c.color}}>🔒</span>
+          <span className="mono" style={{fontSize:10,letterSpacing:"0.1em",color:c.color}}>{c.code} — INSUFFICIENT CLEARANCE</span>
+          <span className="mono" style={{fontSize:9,color:C.textDD,marginLeft:"auto"}}>
+            {Object.values(lssDocs||{}).filter(d=>d.clearance===c.level).length} DOCUMENT(S) REDACTED
+          </span>
+        </div>
+      ))}
+      {docs.length===0?<div style={{padding:"2rem",textAlign:"center",color:C.textDD,fontStyle:"italic"}}>No documents at your clearance level.</div>
+        :docs.map(doc=><DocCard key={doc.id} doc={doc} onAction={onAction} notify={notify} setProcessing={setProcessing} chamber="lss" canEdit={canCreate}/>)}
+    </div>
+  );
+}
+
+function DocCard({doc,onAction,notify,setProcessing,chamber,canEdit}){
+  const [open,setOpen]=useState(false);
+  const cl=CL(doc.clearance||0);
+  return(
+    <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${cl.color}`,
+      borderRadius:"0 3px 3px 0",marginBottom:"0.5rem",overflow:"hidden"}}>
+      <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,
+        padding:"0.75rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
+        <ClearanceBadge level={doc.clearance||0}/>
+        <span style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:600,color:C.text,flex:1}}>{doc.title}</span>
+        {doc.type&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{doc.type?.toUpperCase()}</span>}
+        <span className="mono" style={{fontSize:9,color:C.textDD}}>{doc.author}</span>
+        <span style={{fontSize:11,color:C.textDD}}>{open?"▲":"▼"}</span>
+      </div>
+      {open&&(
+        <div style={{borderTop:`1px solid ${C.border}`,padding:"1rem"}}>
+          {doc.gdoc_url&&<a href={doc.gdoc_url} target="_blank" rel="noopener noreferrer"
+            style={{display:"inline-block",fontFamily:"'Cinzel',serif",fontSize:11,
+              letterSpacing:"0.1em",color:C.accent,border:`1px solid ${C.accentD}44`,
+              padding:"5px 14px",borderRadius:2,marginBottom:doc.content?"0.75rem":"0"}}>
+            OPEN DOCUMENT →
+          </a>}
+          {doc.content&&<div style={{fontSize:14,color:C.text,lineHeight:1.8,whiteSpace:"pre-wrap",
+            background:C.s2,border:`1px solid ${cl.border}`,borderRadius:2,padding:"0.85rem 1rem",marginTop:doc.gdoc_url?"0":"0"}}>
+            {doc.content}
+          </div>}
+          <div className="mono" style={{fontSize:9,color:C.textDD,marginTop:8}}>
+            CREATED {new Date(doc.created||0).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})} · BY {doc.author}
+          </div>
+          {canEdit&&<div style={{marginTop:8,display:"flex",justifyContent:"flex-end"}}>
+            <ArmBtn small label="Delete" confirmLabel="Delete document?" onConfirm={async()=>{
+              setProcessing("Deleting document…");
+              await onAction("deleteDoc",{docId:doc.id,chamber});
+              setProcessing(null); notify("Document deleted.",C.textD);
+            }}/>
+          </div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CreateDocumentForm({chamber,onAction,notify,setProcessing,onClose,currentUser}){
+  const [title,setTitle]=useState("");
+  const [type,setType]=useState("intel");
+  const [clearance,setClearance]=useState(String(Math.min(currentUser.clearance||0,2)));
+  const [gdocUrl,setGdocUrl]=useState("");
+  const [content,setContent]=useState("");
+  const [saving,setSaving]=useState(false);
+  const DOC_TYPES=[{v:"intel",l:"Intelligence Report"},{v:"assessment",l:"Threat Assessment"},
+    {v:"profile",l:"Subject Profile"},{v:"brief",l:"Briefing"},{v:"memo",l:"Memorandum"},{v:"other",l:"Other"}];
+  return(
+    <div style={{background:C.s2,border:`1px solid ${C.accentD}`,borderRadius:3,padding:"1.25rem",marginBottom:"1.25rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:11,letterSpacing:"0.25em",
+        color:C.accent,marginBottom:"1rem",display:"flex",justifyContent:"space-between"}}>
+        NEW DOCUMENT
+        <button onClick={onClose} style={{background:"transparent",border:"none",color:C.textD,cursor:"pointer",fontSize:14}}>✕</button>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.85rem"}}>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:3,minWidth:200}}><FL>TITLE *</FL><Inp value={title} onChange={setTitle} placeholder="Document title"/></div>
+          <div style={{flex:1,minWidth:140}}><FL>TYPE</FL><DD value={type} onChange={setType} options={DOC_TYPES}/></div>
+          <div style={{flex:1,minWidth:140}}>
+            <FL>CLASSIFICATION *</FL>
+            <DD value={clearance} onChange={setClearance}
+              options={CLEARANCE.filter(c=>c.level<=(currentUser.clearance||0)).map(c=>({v:String(c.level),l:c.code}))}/>
+          </div>
+        </div>
+        <div><FL>GOOGLE DOC LINK (optional)</FL><Inp value={gdocUrl} onChange={setGdocUrl} placeholder="https://docs.google.com/…"/></div>
+        <div><FL>DOCUMENT CONTENT (optional)</FL><TA value={content} onChange={setContent} placeholder="Write document content here…" rows={5}/></div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn disabled={!title.trim()||saving} onClick={async()=>{
+            setSaving(true); setProcessing("Creating document…");
+            await onAction("createDoc",{chamber,doc:{
+              title:title.trim(),type,clearance:parseInt(clearance),
+              gdoc_url:gdocUrl.trim(),content:content.trim(),
+              author:currentUser.displayName||currentUser.username,
+            }});
+            setProcessing(null); setSaving(false);
+            notify("Document created.",C.accent); onClose();
+          }}>{saving?"Creating…":"Create Document"}</Btn>
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── LSS AGENT PANEL ───────────────────────────────────────────────────────────
+function LSSAgentPanel({currentUser,lssOps,lssDocs,onAction,notify,setProcessing}){
+  const [tab,setTab]=useState("ops");
+  return(
+    <div>
+      <STitle>Agent Panel</STitle>
+      <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1.25rem"}}>
+        {[["ops","My Operations"],["docs","Create Document"]].map(([v,l])=>(
+          <button key={v} onClick={()=>setTab(v)}
+            style={{fontFamily:"'Cinzel',serif",fontSize:11,fontWeight:700,
+                     letterSpacing:"0.15em",textTransform:"uppercase",padding:"0.5rem 1rem",
+                     background:"transparent",border:"none",cursor:"pointer",
+                     borderBottom:`2px solid ${tab===v?"#5a9a7a":"transparent"}`,
+                     color:tab===v?"#5a9a7a":C.textD}}>
+            {l}
+          </button>
+        ))}
+      </div>
+      {tab==="ops"&&(
+        <div>
+          <div style={{fontSize:14,color:C.textD,fontStyle:"italic",marginBottom:"1rem"}}>
+            Operations you have access to. Add field notes and progress updates below.
+          </div>
+          {Object.values(lssOps||{}).filter(op=>(op.clearance||0)<=(currentUser.clearance||0)).length===0
+            ?<div style={{color:C.textDD,fontStyle:"italic"}}>No operations at your clearance level.</div>
+            :Object.values(lssOps||{}).filter(op=>(op.clearance||0)<=(currentUser.clearance||0))
+              .map(op=><OperationCard key={op.id} op={op} currentUser={currentUser} onAction={onAction} notify={notify} setProcessing={setProcessing} chamber="lss"/>)
+          }
+        </div>
+      )}
+      {tab==="docs"&&<CreateDocumentForm chamber="lss" onAction={onAction} notify={notify} setProcessing={setProcessing} onClose={()=>setTab("ops")} currentUser={currentUser}/>}
+    </div>
+  );
+}
+
+// ── LSS DIRECTOR PANEL ────────────────────────────────────────────────────────
+function LSSDirectorPanel({currentUser,accounts,lssOps,lssDocs,onAction,notify,setProcessing}){
+  const [sub,setSub]=useState("ops");
+  return(
+    <div>
+      <STitle color={C.accent}>LSS Director Panel</STitle>
+      <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1.25rem"}}>
+        {[["ops","Operations"],["docs","Documents"]].map(([v,l])=>(
+          <button key={v} onClick={()=>setSub(v)}
+            style={{fontFamily:"'Cinzel',serif",fontSize:11,fontWeight:700,
+                     letterSpacing:"0.15em",textTransform:"uppercase",padding:"0.5rem 1rem",
+                     background:"transparent",border:"none",cursor:"pointer",
+                     borderBottom:`2px solid ${sub===v?C.accent:"transparent"}`,
+                     color:sub===v?C.accent:C.textD}}>
+            {l}
+          </button>
+        ))}
+      </div>
+      {sub==="ops"&&<LSSOperations currentUser={currentUser} lssOps={lssOps} onAction={onAction} notify={notify} setProcessing={setProcessing} canCreate={true}/>}
+      {sub==="docs"&&<LSSDocuments currentUser={currentUser} lssDocs={lssDocs} onAction={onAction} notify={notify} setProcessing={setProcessing} canCreate={true}/>}
+    </div>
+  );
+}
+
+// ── LFP ARREST LOG ────────────────────────────────────────────────────────────
+function ArrestCard({arrest,canEdit,onAction,notify,setProcessing}){
+  const [open,setOpen]=useState(false);
+  const [note,setNote]=useState("");
+  const [saving,setSaving]=useState(false);
+  const st=ARREST_STATUSES.find(s=>s.v===arrest.status)||ARREST_STATUSES[0];
+  return(
+    <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${st.color}`,
+      borderRadius:"0 3px 3px 0",marginBottom:"0.5rem",overflow:"hidden"}}>
+      <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,
+        padding:"0.75rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
+        <span className="mono" style={{fontSize:9,padding:"2px 8px",background:C.s3,
+          border:`1px solid ${st.color}44`,color:st.color}}>{arrest.status?.replace("_"," ").toUpperCase()}</span>
+        <span style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:C.text,flex:1}}>{arrest.suspect}</span>
+        <span className="mono" style={{fontSize:9,color:C.textDD}}>CASE {arrest.caseNumber}</span>
+        <span className="mono" style={{fontSize:9,color:C.textDD}}>{arrest.date}</span>
+        <span style={{fontSize:11,color:C.textDD}}>{open?"▲":"▼"}</span>
+      </div>
+      {open&&(
+        <div style={{borderTop:`1px solid ${C.border}`,padding:"1rem"}}>
+          <div style={{display:"flex",gap:"2rem",flexWrap:"wrap",marginBottom:"0.85rem"}}>
+            <div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>CHARGES</div>
+              <div style={{fontSize:13,color:C.text}}>{arrest.charges}</div></div>
+            <div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>ARRESTING OFFICER</div>
+              <div style={{fontSize:13,color:C.text}}>{arrest.officer}</div></div>
+            <div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>DATE</div>
+              <div style={{fontSize:13,color:C.text}}>{arrest.date}</div></div>
+          </div>
+          {(arrest.notes||[]).length>0&&(
+            <div style={{marginBottom:"1rem"}}>
+              <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:6}}>CASE NOTES</div>
+              {[...(arrest.notes||[])].reverse().map((n,i)=>(
+                <div key={i} style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:2,padding:"0.6rem",marginBottom:3}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                    <span className="mono" style={{fontSize:9,color:C.textD}}>{n.author}</span>
+                    <span className="mono" style={{fontSize:9,color:C.textDD}}>{new Date(n.ts).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}</span>
+                  </div>
+                  <div style={{fontSize:13,color:C.text}}>{n.text}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{display:"flex",gap:8,marginBottom:canEdit?"0.75rem":0}}>
+            <Inp value={note} onChange={setNote} placeholder="Add case note…" style={{flex:1}}/>
+            <Btn small disabled={!note.trim()||saving} onClick={async()=>{
+              setSaving(true); setProcessing("Adding note…");
+              await onAction("addArrestNote",{arrestId:arrest.id,note:{text:note.trim(),author:currentUser?.displayName||"Officer",ts:Date.now()}});
+              setProcessing(null); setSaving(false); setNote("");
+              notify("Note added.",C.accent);
+            }}>{saving?"…":"Add"}</Btn>
+          </div>
+          {canEdit&&<ArrestStatusEditor arrest={arrest} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ArrestStatusEditor({arrest,onAction,notify,setProcessing}){
+  const [status,setStatus]=useState(arrest.status||"detained");
+  const [saving,setSaving]=useState(false);
+  return(
+    <div style={{display:"flex",gap:8,alignItems:"flex-end",flexWrap:"wrap",borderTop:`1px solid ${C.border}`,paddingTop:"0.75rem"}}>
+      <div style={{flex:1,minWidth:160}}>
+        <FL>UPDATE STATUS</FL>
+        <DD value={status} onChange={setStatus} options={ARREST_STATUSES.map(s=>({v:s.v,l:s.l}))}/>
+      </div>
+      <Btn small variant="gold" disabled={status===arrest.status||saving} onClick={async()=>{
+        setSaving(true); setProcessing("Updating arrest record…");
+        await onAction("updateArrestStatus",{arrestId:arrest.id,status});
+        setProcessing(null); setSaving(false);
+        notify("Record updated.",C.gold);
+      }}>{saving?"Saving…":"Update Status"}</Btn>
+      <ArmBtn small label="Delete Record" confirmLabel="Permanently delete?" onConfirm={async()=>{
+        setProcessing("Deleting record…");
+        await onAction("deleteArrest",{arrestId:arrest.id});
+        setProcessing(null); notify("Record deleted.",C.textD);
+      }}/>
+    </div>
+  );
+}
+
+function CreateArrestForm({onAction,notify,setProcessing,onClose,currentUser}){
+  const [suspect,setSuspect]=useState("");
+  const [charges,setCharges]=useState("");
+  const [date,setDate]=useState(new Date().toISOString().slice(0,10));
+  const [officer,setOfficer]=useState(currentUser?.displayName||currentUser?.username||"");
+  const [saving,setSaving]=useState(false);
+  return(
+    <div style={{background:C.s2,border:`1px solid ${C.accentD}`,borderRadius:3,padding:"1.25rem",marginBottom:"1.25rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:11,letterSpacing:"0.25em",
+        color:C.accent,marginBottom:"1rem",display:"flex",justifyContent:"space-between"}}>
+        NEW ARREST RECORD
+        <button onClick={onClose} style={{background:"transparent",border:"none",color:C.textD,cursor:"pointer",fontSize:14}}>✕</button>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.85rem"}}>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:2,minWidth:180}}><FL>SUSPECT NAME *</FL><Inp value={suspect} onChange={setSuspect} placeholder="Full in-game name"/></div>
+          <div style={{flex:1,minWidth:140}}><FL>DATE OF ARREST *</FL><Inp value={date} onChange={setDate} type="date"/></div>
+        </div>
+        <div><FL>CHARGES *</FL><TA value={charges} onChange={setCharges} placeholder="List all charges…" rows={3}/></div>
+        <div><FL>ARRESTING OFFICER</FL><Inp value={officer} onChange={setOfficer} placeholder="Officer name"/></div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn disabled={!suspect.trim()||!charges.trim()||saving} onClick={async()=>{
+            setSaving(true); setProcessing("Creating arrest record…");
+            await onAction("createArrest",{arrest:{
+              suspect:suspect.trim(),charges:charges.trim(),date,
+              officer:officer.trim(),status:"detained",notes:[],
+            }});
+            setProcessing(null); setSaving(false);
+            notify("Arrest record created.",C.accent); onClose();
+          }}>{saving?"Creating…":"Create Record"}</Btn>
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── PROSECUTIONS SECTION ─────────────────────────────────────────────────────
+function ProsecutionsSection({currentUser,arrests,onAction,notify,setProcessing}){
+  const canCreate=currentUser.role==="lss_agent"||currentUser.agentAssigned||
+    currentUser.role==="lfp_officer"||currentUser.officerAssigned||
+    hasRole(currentUser,"lss_director")||hasRole(currentUser,"lfp_director")||
+    hasRole(currentUser,"minister");
+  return(
+    <div className="fadeIn">
+      <div style={{marginBottom:"1.5rem"}}>
+        <div style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:22,
+          letterSpacing:"0.15em",color:C.text,marginBottom:4}}>Prosecutions</div>
+        <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.2em"}}>
+          Federal Arrest & Prosecution Registry — LSS & LFP
+        </div>
+      </div>
+      <LFPArrestLog currentUser={currentUser} arrests={arrests} onAction={onAction}
+        notify={notify} setProcessing={setProcessing} canCreate={canCreate}/>
+    </div>
+  );
+}
+
+// ── LFP SECTION ───────────────────────────────────────────────────────────────
+function LFPSection({currentUser,accounts,lfpOps,arrests,onAction,notify,setProcessing}){
+  const [sub,setSub]=useState("ops");
+  const isOfficer=currentUser.role==="lfp_officer"||currentUser.officerAssigned;
+  const isDirector=hasRole(currentUser,"lfp_director");
+  const isAdmin=hasRole(currentUser,"minister");
+  const SUBTABS=[
+    {v:"ops",    l:"Operations"},
+    ...(isOfficer||isDirector||isAdmin?[{v:"officer",l:"Officer Panel"}]:[]),
+    ...(isDirector||isAdmin?[{v:"director",l:"Director Panel"}]:[]),
+  ];
+  return(
+    <div className="fadeIn">
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:"1.5rem"}}>
+        <div style={{flex:1}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontWeight:900,fontSize:22,
+            letterSpacing:"0.15em",color:C.text}}>Lech Federal Police</div>
+          <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.2em",marginTop:2}}>
+            Law Enforcement — Federal Jurisdiction
+          </div>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1.5rem"}}>
+        {SUBTABS.map(t=>(
+          <button key={t.v} onClick={()=>setSub(t.v)}
+            style={{fontFamily:"'Cinzel',serif",fontSize:11,fontWeight:700,
+                     letterSpacing:"0.18em",textTransform:"uppercase",padding:"0.6rem 1.1rem",
+                     background:"transparent",border:"none",cursor:"pointer",
+                     borderBottom:`2px solid ${sub===t.v?"#8a6a20":"transparent"}`,
+                     color:sub===t.v?"#C9A84C":C.textD}}>
+            {t.l}
+          </button>
+        ))}
+      </div>
+      {sub==="ops"&&<LFPOperations currentUser={currentUser} lfpOps={lfpOps} onAction={onAction} notify={notify} setProcessing={setProcessing} canCreate={isDirector||isAdmin}/>}
+      {sub==="officer"&&(isOfficer||isDirector||isAdmin)&&<LFPOfficerPanel currentUser={currentUser} arrests={arrests} lfpOps={lfpOps} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+      {sub==="director"&&(isDirector||isAdmin)&&<LFPDirectorPanel currentUser={currentUser} accounts={accounts} arrests={arrests} lfpOps={lfpOps} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+    </div>
+  );
+}
+
+function LFPArrestLog({currentUser,arrests,onAction,notify,setProcessing,canCreate}){
+  const [creating,setCreating]=useState(false);
+  const [filterSt,setFilterSt]=useState("all");
+  const [search,setSearch]=useState("");
+  const list=Object.values(arrests||{})
+    .filter(a=>{
+      const matchSt=filterSt==="all"||a.status===filterSt;
+      const q=search.toLowerCase();
+      const matchQ=!q||a.suspect?.toLowerCase().includes(q)||a.charges?.toLowerCase().includes(q)||a.caseNumber?.toLowerCase().includes(q);
+      return matchSt&&matchQ;
+    })
+    .sort((a,b)=>(b.created||0)-(a.created||0));
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1rem",gap:8,flexWrap:"wrap"}}>
+        <STitle style={{marginBottom:0}}>Arrest Log</STitle>
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <Inp value={search} onChange={setSearch} placeholder="Search…" style={{width:180}}/>
+          <select value={filterSt} onChange={e=>setFilterSt(e.target.value)}
+            style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:2,padding:"6px 10px",color:C.text,fontSize:13,fontFamily:"'Crimson Text',serif"}}>
+            <option value="all">All Status</option>
+            {ARREST_STATUSES.map(s=><option key={s.v} value={s.v}>{s.l}</option>)}
+          </select>
+          {canCreate&&!creating&&<Btn small onClick={()=>setCreating(true)}>+ New Arrest</Btn>}
+        </div>
+      </div>
+      {creating&&<CreateArrestForm onAction={onAction} notify={notify} setProcessing={setProcessing} onClose={()=>setCreating(false)} currentUser={currentUser}/>}
+      {list.length===0?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No arrest records.</div>
+        :list.map(a=><ArrestCard key={a.id} arrest={a} canEdit={canCreate} onAction={onAction} notify={notify} setProcessing={setProcessing}/>)}
+    </div>
+  );
+}
+
+function LFPOperations({currentUser,lfpOps,onAction,notify,setProcessing,canCreate}){
+  const [creating,setCreating]=useState(false);
+  const ops=Object.values(lfpOps||{}).sort((a,b)=>(b.created||0)-(a.created||0));
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1rem"}}>
+        <STitle style={{marginBottom:0}}>Police Operations</STitle>
+        {canCreate&&!creating&&<Btn small onClick={()=>setCreating(true)}>+ New Operation</Btn>}
+      </div>
+      {creating&&<CreateOperationForm chamber="lfp" onAction={onAction} notify={notify} setProcessing={setProcessing} onClose={()=>setCreating(false)}/>}
+      {ops.length===0?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No operations logged.</div>
+        :ops.map(op=><OperationCard key={op.id} op={op} currentUser={currentUser} onAction={onAction} notify={notify} setProcessing={setProcessing} chamber="lfp"/>)}
+    </div>
+  );
+}
+
+function LFPOfficerPanel({currentUser,arrests,lfpOps,onAction,notify,setProcessing}){
+  return(
+    <div>
+      <STitle color="#8a6a20">Officer Panel</STitle>
+      <div style={{fontSize:14,color:C.textD,fontStyle:"italic",marginBottom:"1.25rem"}}>
+        Log arrests and add notes to active operations.
+      </div>
+      <div style={{fontSize:14,color:C.textD,fontStyle:"italic",marginBottom:"1.25rem"}}>
+        Log arrests via the Prosecutions tab in the main navigation.
+      </div>
+    </div>
+  );
+}
+
+function LFPDirectorPanel({currentUser,accounts,arrests,lfpOps,onAction,notify,setProcessing}){
+  return(
+    <div>
+      <STitle color="#8a6a20">LFP Director Panel</STitle>
+      <LFPOperations currentUser={currentUser} lfpOps={lfpOps} onAction={onAction} notify={notify} setProcessing={setProcessing} canCreate={true}/>
+    </div>
+  );
+}
+
+// ── MINISTER PANEL ────────────────────────────────────────────────────────────
+function MinisterPanel({currentUser,accounts,onUpdate,notify,setProcessing}){
+  const [sub,setSub]=useState("accounts");
+  return(
+    <div className="fadeIn">
+      <STitle color="#8a6acc">Minister Panel</STitle>
+      <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1.5rem"}}>
+        {[["accounts","Accounts"],["clearances","Clearance Mgmt"]].map(([v,l])=>(
+          <button key={v} onClick={()=>setSub(v)}
+            style={{fontFamily:"'Cinzel',serif",fontSize:11,fontWeight:700,
+                     letterSpacing:"0.15em",textTransform:"uppercase",padding:"0.5rem 1rem",
+                     background:"transparent",border:"none",cursor:"pointer",
+                     borderBottom:`2px solid ${sub===v?"#8a6acc":"transparent"}`,
+                     color:sub===v?"#aa88ee":C.textD}}>
+            {l}
+          </button>
+        ))}
+      </div>
+      {sub==="accounts"&&<AccountManager currentUser={currentUser} accounts={accounts} onUpdate={onUpdate} notify={notify} setProcessing={setProcessing} canSetMinister={false}/>}
+      {sub==="clearances"&&<ClearanceTracker accounts={accounts} currentUser={{...currentUser,role:"minister"}} onUpdate={onUpdate} notify={notify} setProcessing={setProcessing}/>}
+    </div>
+  );
+}
+
+// ── EMPEROR PANEL ─────────────────────────────────────────────────────────────
+function EmperorPanel({currentUser,accounts,onUpdate,notify,setProcessing}){
+  const [sub,setSub]=useState("accounts");
+  return(
+    <div className="fadeIn">
+      <STitle color={C.gold}>Emperor Panel</STitle>
+      <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1.5rem",flexWrap:"wrap"}}>
+        {[["accounts","Accounts"],["clearances","Clearances"]].map(([v,l])=>(
+          <button key={v} onClick={()=>setSub(v)}
+            style={{fontFamily:"'Cinzel',serif",fontSize:11,fontWeight:700,
+                     letterSpacing:"0.15em",textTransform:"uppercase",padding:"0.5rem 1rem",
+                     background:"transparent",border:"none",cursor:"pointer",
+                     borderBottom:`2px solid ${sub===v?C.gold:"transparent"}`,
+                     color:sub===v?C.gold:C.textD}}>
+            {l}
+          </button>
+        ))}
+      </div>
+      {sub==="accounts"&&<AccountManager currentUser={currentUser} accounts={accounts} onUpdate={onUpdate} notify={notify} setProcessing={setProcessing} canSetMinister={true}/>}
+      {sub==="clearances"&&<ClearanceTracker accounts={accounts} currentUser={currentUser} onUpdate={onUpdate} notify={notify} setProcessing={setProcessing}/>}
+    </div>
+  );
+}
+
+// ── ACCOUNT MANAGER ───────────────────────────────────────────────────────────
+function AccountManager({currentUser,accounts,onUpdate,notify,setProcessing,canSetMinister}){
+  const [search,setSearch]=useState("");
+  const [creating,setCreating]=useState(false);
+  const list=Object.values(accounts||{})
+    .filter(a=>!search||(a.displayName||a.username).toLowerCase().includes(search.toLowerCase()))
+    .sort((a,b)=>(a.displayName||a.username).localeCompare(b.displayName||b.username));
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1rem",gap:8}}>
+        <Inp value={search} onChange={setSearch} placeholder="Search accounts…" style={{flex:1}}/>
+        {!creating&&<Btn small onClick={()=>setCreating(true)}>+ Create Account</Btn>}
+      </div>
+      {creating&&<CreateAccountForm onUpdate={onUpdate} notify={notify} setProcessing={setProcessing} onClose={()=>setCreating(false)} canSetMinister={canSetMinister}/>}
+      <div style={{display:"flex",flexDirection:"column",gap:4}}>
+        {list.map(acc=>(
+          <AccountRow key={acc.username} acc={acc} currentUser={currentUser} onUpdate={onUpdate} notify={notify} setProcessing={setProcessing} canSetMinister={canSetMinister}/>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AccountRow({acc,currentUser,onUpdate,notify,setProcessing,canSetMinister}){
+  const [open,setOpen]=useState(false);
+  const [role,setRole]=useState(acc.role||"citizen");
+  const [ministry,setMinistry]=useState(acc.ministry||"Civilian");
+  const [isContractor,setIsContractor]=useState(acc.isContractor||false);
+  const [agentAssigned,setAgentAssigned]=useState(acc.agentAssigned||false);
+  const [officerAssigned,setOfficerAssigned]=useState(acc.officerAssigned||false);
+  const [mowAccess,setMowAccess]=useState(acc.mowAccess||false);
+  const [mfaAccess,setMfaAccess]=useState(acc.mfaAccess||false);
+  const [clearance,setClearance]=useState(String(acc.clearance||0));
+  const [newPw,setNewPw]=useState("");
+  const [saving,setSaving]=useState(false);
+
+  const availRoles=ROLES.filter(r=>canSetMinister?true:r.v!=="minister"&&r.v!=="emperor");
+
+  return(
+    <div style={{background:C.s1,border:`1px solid ${open?C.accentD:C.border}`,borderRadius:3,overflow:"hidden"}}>
+      <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,
+        padding:"0.65rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
+        <ClearanceBadge level={acc.clearance||0}/>
+        <span style={{fontFamily:"'Cinzel',serif",fontSize:14,fontWeight:600,color:C.text,flex:1}}>
+          {acc.username}
+        </span>
+        <span style={{fontSize:12,color:C.textD,fontStyle:"italic"}}>{acc.displayName||""}</span>
+        <RoleBadge role={acc.role}/>
+        <span style={{fontSize:11,color:C.textDD}}>{open?"▲":"▼"}</span>
+      </div>
+      {open&&(
+        <div style={{borderTop:`1px solid ${C.border}`,padding:"1rem",display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+          <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:150}}>
+              <FL>ROLE</FL>
+              <DD value={role} onChange={setRole} options={availRoles.map(r=>({v:r.v,l:r.l}))}/>
+            </div>
+            <div style={{flex:1,minWidth:150}}>
+              <FL>CLEARANCE</FL>
+              <DD value={clearance} onChange={setClearance} options={CLEARANCE.map(c=>({v:String(c.level),l:c.code}))}/>
+            </div>
+            <div style={{flex:2,minWidth:160}}>
+              <FL>MINISTRY</FL>
+              <DD value={ministry} onChange={setMinistry} options={MINISTRIES.map(m=>({v:m,l:m}))}/>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:"1.5rem",flexWrap:"wrap"}}>
+            {[["isContractor","External Contractor",isContractor,setIsContractor],
+              ["agentAssigned","LSS Agent Assigned",agentAssigned,setAgentAssigned],
+              ["officerAssigned","LFP Officer Assigned",officerAssigned,setOfficerAssigned],
+              ["mowAccess","War Office Access",mowAccess,setMowAccess],
+              ["mfaAccess","Foreign Affairs Panel",mfaAccess,setMfaAccess],
+            ].map(([k,l,val,set])=>(
+              <div key={k} onClick={()=>set(v=>!v)} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
+                <div style={{width:16,height:16,border:`2px solid ${val?C.accent:C.border}`,borderRadius:2,
+                  background:val?C.accentD:"transparent",display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:10,color:C.accent}}>{val?"✓":""}</div>
+                <span style={{fontSize:13,color:val?C.text:C.textD}}>{l}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"flex-end",flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:180}}>
+              <FL>RESET PASSWORD (optional)</FL>
+              <Inp value={newPw} onChange={setNewPw} type="password" placeholder="New password…"/>
+            </div>
+            <Btn small variant="gold" disabled={saving} onClick={async()=>{
+              setSaving(true); setProcessing("Saving account…");
+              const patch={role,ministry,isContractor,agentAssigned,officerAssigned,mowAccess,mfaAccess,clearance:parseInt(clearance)};
+              if(newPw.trim()) patch.passwordHash=await sha256(newPw.trim());
+              await onUpdate(acc.username,patch);
+              setProcessing(null); setSaving(false); setNewPw("");
+              notify("Account updated: "+acc.username,C.gold);
+            }}>{saving?"Saving…":"Save Changes"}</Btn>
+            {acc.username!==currentUser.username&&<ArmBtn small label="Delete Account" confirmLabel="Delete permanently?" onConfirm={async()=>{
+              setProcessing("Deleting account…");
+              await onUpdate(acc.username,null); // null = delete
+              setProcessing(null); notify("Account deleted.",C.textD);
+            }}/>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CreateAccountForm({onUpdate,notify,setProcessing,onClose,canSetMinister}){
+  const [username,setUsername]=useState("");
+  const [displayName,setDisplayName]=useState("");
+  const [password,setPassword]=useState("");
+  const [role,setRole]=useState("citizen");
+  const [clearance,setClearance]=useState("0");
+  const [ministry,setMinistry]=useState("Civilian");
+  const [saving,setSaving]=useState(false);
+  const [err,setErr]=useState("");
+  const availRoles=ROLES.filter(r=>canSetMinister?true:r.v!=="minister"&&r.v!=="emperor");
+  return(
+    <div style={{background:C.s2,border:`1px solid ${C.accentD}`,borderRadius:3,padding:"1.25rem",marginBottom:"1rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:11,letterSpacing:"0.25em",
+        color:C.accent,marginBottom:"1rem",display:"flex",justifyContent:"space-between"}}>
+        CREATE ACCOUNT
+        <button onClick={onClose} style={{background:"transparent",border:"none",color:C.textD,cursor:"pointer",fontSize:14}}>✕</button>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:160}}><FL>USERNAME *</FL><Inp value={username} onChange={v=>{setUsername(v);setErr("");}} placeholder="Unique username"/></div>
+          <div style={{flex:1,minWidth:160}}><FL>DISPLAY NAME *</FL><Inp value={displayName} onChange={setDisplayName} placeholder="Full name"/></div>
+          <div style={{flex:1,minWidth:160}}><FL>PASSWORD *</FL><Inp value={password} onChange={setPassword} type="password" placeholder="Password"/></div>
+        </div>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:150}}><FL>ROLE</FL><DD value={role} onChange={setRole} options={availRoles.map(r=>({v:r.v,l:r.l}))}/></div>
+          <div style={{flex:1,minWidth:140}}><FL>CLEARANCE</FL><DD value={clearance} onChange={setClearance} options={CLEARANCE.map(c=>({v:String(c.level),l:c.code}))}/></div>
+          <div style={{flex:2,minWidth:160}}><FL>MINISTRY</FL><DD value={ministry} onChange={setMinistry} options={MINISTRIES.map(m=>({v:m,l:m}))}/></div>
+        </div>
+        {err&&<div className="mono" style={{fontSize:10,color:C.redL,background:C.s1,border:`1px solid ${C.redD}44`,padding:"7px 10px"}}>{err}</div>}
+        <div style={{display:"flex",gap:8}}>
+          <Btn disabled={!username.trim()||!password.trim()||!displayName.trim()||saving} onClick={async()=>{
+            setSaving(true); setProcessing("Creating account…");
+            const hash=await sha256(password);
+            const result=await onUpdate(username.trim(),{
+              username:username.trim().toLowerCase(),displayName:displayName.trim(),
+              passwordHash:hash,role,clearance:parseInt(clearance),ministry,
+              isContractor:false,agentAssigned:false,officerAssigned:false,notes:"",
+            },true);
+            setProcessing(null); setSaving(false);
+            if(result==="exists"){setErr("Username already exists.");return;}
+            notify("Account created: "+username,C.accent); onClose();
+          }}>{saving?"Creating…":"Create Account"}</Btn>
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── APP ───────────────────────────────────────────────────────────────────────
+function App(){
+  const [user,setUser]=useState(null);
+  const [raw,setRaw]=useState({});
+  const [tab,setTab]=useState("clearances");
+  const [toast,setToast]=useState({msg:"",color:C.accent});
+  const [processing,setProcessing]=useState(null);
+  const [loading,setLoading]=useState(false);
+
+  const notify=useCallback((msg,color=C.accent)=>{
+    setToast({msg,color});
+    setTimeout(()=>setToast(t=>t.msg===msg?{msg:"",color}:t),4000);
+  },[]);
+
+  // Derived state
+  const accounts=useMemo(()=>{
+    const a={};
+    Object.entries(raw).forEach(([k,v])=>{ if(k.startsWith("mi_acc_")&&v) a[v.username]=v; });
+    Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{ if(!a[k]) a[k]=v; });
+    return a;
+  },[raw]);
+  const lssOps=useMemo(()=>raw["mi_lss_ops"]||{},[raw]);
+  const lssDocs=useMemo(()=>raw["mi_lss_docs"]||{},[raw]);
+  const lfpOps=useMemo(()=>raw["mi_lfp_ops"]||{},[raw]);
+  const arrests=useMemo(()=>raw["mi_arrests"]||{},[raw]);
+  const mowAlert=useMemo(()=>raw["mow_alert"]||null,[raw]);
+
+  const handleLogin=(u,rawData)=>{
+    setUser(u); setRaw(rawData);
+    setTab(canSeeLSS(u)?"clearances":"clearances");
+  };
+
+  const refresh=useCallback(async()=>{
+    const newRaw=await sgetAll();
+    setRaw(newRaw);
+    // Update current user from fresh data
+    const freshAccs={};
+    Object.entries(newRaw).forEach(([k,v])=>{ if(k.startsWith("mi_acc_")&&v) freshAccs[v.username]=v; });
+    Object.entries(newRaw["mi_accounts"]||{}).forEach(([k,v])=>{ if(!freshAccs[k]) freshAccs[k]=v; });
+    if(user) setUser(freshAccs[user.username]||user);
+  },[user]);
+
+  const onUpdateAccount=useCallback(async(uname,patch,isNew=false)=>{
+    const key=uname.toLowerCase();
+    const rowKey="mi_acc_"+key;
+    // Build current accounts for existence check
+    const curAccs={};
+    Object.entries(raw).forEach(([k,v])=>{ if(k.startsWith("mi_acc_")&&v) curAccs[v.username]=v; });
+    Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{ if(!curAccs[k]) curAccs[k]=v; });
+    if(patch===null){
+      // Delete
+      await sdel(rowKey);
+      const next={...curAccs}; delete next[key];
+      setRaw(r=>({...r,[rowKey]:undefined,"mi_accounts":next}));
+      return;
+    }
+    if(isNew&&curAccs[key]){return "exists";}
+    const updated={...(curAccs[key]||{}), ...patch, username:key};
+    await sset(rowKey,updated);
+    const next={...curAccs,[key]:updated};
+    setRaw(r=>({...r,[rowKey]:updated,"mi_accounts":next}));
+    if(user&&user.username===key) setUser({...user,...patch});
+  },[raw,user]);
+
+  const onAction=useCallback(async(type,payload)=>{
+    if(type==="createOp"){
+      const {chamber,op}=payload;
+      const key="mi_"+chamber+"_ops";
+      const id="op_"+uid();
+      const newOp={...op,id,created:Date.now()};
+      const ops={...raw[key]||{},[id]:newOp};
+      setRaw(r=>({...r,[key]:ops}));
+      await sset(key,ops);
+    }
+    else if(type==="updateOpStatus"){
+      const {chamber,opId,status,progress}=payload;
+      const key="mi_"+chamber+"_ops";
+      const ops={...raw[key]||{}};
+      if(ops[opId]) ops[opId]={...ops[opId],status,progress};
+      setRaw(r=>({...r,[key]:ops}));
+      await sset(key,ops);
+    }
+    else if(type==="addOpNote"){
+      const {chamber,opId,note}=payload;
+      const key="mi_"+chamber+"_ops";
+      const ops={...raw[key]||{}};
+      if(ops[opId]) ops[opId]={...ops[opId],notes:[...(ops[opId].notes||[]),note]};
+      setRaw(r=>({...r,[key]:ops}));
+      await sset(key,ops);
+    }
+    else if(type==="deleteOp"){
+      const {chamber,opId}=payload;
+      const key="mi_"+chamber+"_ops";
+      const ops={...raw[key]||{}};
+      delete ops[opId];
+      setRaw(r=>({...r,[key]:ops}));
+      await sset(key,ops);
+    }
+    else if(type==="createDoc"){
+      const {chamber,doc}=payload;
+      const key="mi_"+chamber+"_docs";
+      const id="doc_"+uid();
+      const newDoc={...doc,id,created:Date.now()};
+      const docs={...raw[key]||{},[id]:newDoc};
+      setRaw(r=>({...r,[key]:docs}));
+      await sset(key,docs);
+    }
+    else if(type==="deleteDoc"){
+      const {chamber,docId}=payload;
+      const key="mi_"+chamber+"_docs";
+      const docs={...raw[key]||{}};
+      delete docs[docId];
+      setRaw(r=>({...r,[key]:docs}));
+      await sset(key,docs);
+    }
+    else if(type==="createArrest"){
+      const {arrest}=payload;
+      const id="arr_"+uid();
+      const caseNum="LFP-"+String(Date.now()).slice(-6);
+      const newArrest={...arrest,id,caseNumber:caseNum,created:Date.now()};
+      const arr={...raw["mi_arrests"]||{},[id]:newArrest};
+      setRaw(r=>({...r,"mi_arrests":arr}));
+      await sset("mi_arrests",arr);
+    }
+    else if(type==="addArrestNote"){
+      const {arrestId,note}=payload;
+      const arr={...raw["mi_arrests"]||{}};
+      if(arr[arrestId]) arr[arrestId]={...arr[arrestId],notes:[...(arr[arrestId].notes||[]),note]};
+      setRaw(r=>({...r,"mi_arrests":arr}));
+      await sset("mi_arrests",arr);
+    }
+    else if(type==="updateArrestStatus"){
+      const {arrestId,status}=payload;
+      const arr={...raw["mi_arrests"]||{}};
+      if(arr[arrestId]) arr[arrestId]={...arr[arrestId],status};
+      setRaw(r=>({...r,"mi_arrests":arr}));
+      await sset("mi_arrests",arr);
+    }
+    else if(type==="deleteArrest"){
+      const {arrestId}=payload;
+      const arr={...raw["mi_arrests"]||{}};
+      delete arr[arrestId];
+      setRaw(r=>({...r,"mi_arrests":arr}));
+      await sset("mi_arrests",arr);
+    }
+  },[raw]);
+
+  if(!user) return<LoginScreen onLogin={handleLogin}/>;
+
+  const isLSS=canSeeLSS(user);
+  const isLFP=canSeeLFP(user);
+  const isMinister=hasRole(user,"minister");
+  const isEmperor=user.role==="emperor";
+
+  const canProsecute=isLSS||isLFP;
+  const TABS=[
+    {v:"clearances",    l:"Clearances",   icon:"🔐"},
+    ...(isLSS?         [{v:"lss",         l:"LSS",          icon:"🕵"}]:[]),
+    ...(isLFP?         [{v:"lfp",         l:"LFP",          icon:"⚖"}]:[]),
+    ...(canProsecute?  [{v:"prosecutions",l:"Prosecutions",  icon:"⚖"}]:[]),
+    ...(isMinister?    [{v:"minister",    l:"Minister",      icon:"🎖"}]:[]),
+    ...(isEmperor?     [{v:"emperor",     l:"Emperor",       icon:"👑"}]:[]),
+  ];
+
+  return(
+    <div style={{background:C.bg,minHeight:"100vh",color:C.text}}>
+      <Toast msg={toast.msg} color={toast.color}/>
+      <Overlay label={processing}/>
+
+      {/* Header */}
+      <div style={{background:C.s1,borderBottom:`1px solid ${C.border}`,padding:"0.85rem 1.25rem"}}>
+        <div style={{maxWidth:1100,margin:"0 auto",display:"flex",alignItems:"center",gap:"1.5rem",flexWrap:"wrap"}}>
+          <a href="index.html" style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",
+            color:C.textD,textDecoration:"none",border:`1px solid ${C.border}`,borderRadius:2,
+            padding:"3px 10px",flexShrink:0}}>{"← Network"}</a>
+          <div>
+            <div style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:15,
+              letterSpacing:"0.15em",color:C.text,lineHeight:1}}>Ministry of the Interior</div>
+            <div className="mono" style={{fontSize:8,letterSpacing:"0.2em",color:C.textDD,marginTop:2}}>
+              Empire of Lech — Secure Intranet
+            </div>
+          </div>
+          <div style={{flex:1}}/>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <ClearanceBadge level={user.clearance||0}/>
+            <RoleBadge role={user.role}/>
+            <span className="mono" style={{fontSize:10,color:C.textD}}>{user.username}{user.displayName&&<span style={{color:C.textDD,marginLeft:6,fontStyle:"italic",fontFamily:"'Crimson Text',serif"}}>({user.displayName})</span>}</span>
+            {mowAlert&&mowAlert.level<=3&&(
+              <div style={{display:"flex",alignItems:"center",gap:6,
+                background:mowAlert.level===1?"#1a0808":mowAlert.level===2?"#1a0a00":"#1a1000",
+                border:`1px solid ${mowAlert.level===1?"#8b1010":mowAlert.level===2?"#8a3a00":"#6a4000"}`,
+                borderRadius:2,padding:"3px 10px"}}>
+                <div style={{width:7,height:7,borderRadius:"50%",flexShrink:0,
+                  background:mowAlert.level===1?"#cc2222":mowAlert.level===2?"#cc6a10":"#C9A84C"}}/>
+                <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:8,letterSpacing:"0.1em",
+                  color:mowAlert.level===1?"#cc2222":mowAlert.level===2?"#cc6a10":"#C9A84C"}}>
+                  IRL-{mowAlert.level}
+                </span>
+              </div>
+            )}
+            <Btn small variant="ghost" onClick={()=>setUser(null)}>LOGOUT</Btn>
+          </div>
+        </div>
+      </div>
+
+      {/* Nav */}
+      <div style={{background:C.s2,borderBottom:`1px solid ${C.border}`}}>
+        <div style={{maxWidth:1100,margin:"0 auto",display:"flex",overflowX:"auto"}}>
+          {TABS.map(t=>(
+            <button key={t.v} onClick={()=>setTab(t.v)}
+              style={{fontFamily:"'Cinzel',serif",fontSize:11,fontWeight:700,
+                       letterSpacing:"0.2em",textTransform:"uppercase",padding:"0.75rem 1.25rem",
+                       background:"transparent",border:"none",whiteSpace:"nowrap",cursor:"pointer",
+                       borderBottom:`2px solid ${tab===t.v?C.accent:"transparent"}`,
+                       color:tab===t.v?C.accent:C.textD,flexShrink:0}}>
+              {t.icon} {t.l}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div style={{maxWidth:1100,margin:"0 auto",padding:"1.5rem 1.25rem"}}>
+        {tab==="clearances"&&<ClearanceTracker accounts={accounts} currentUser={user} onUpdate={onUpdateAccount} notify={notify} setProcessing={setProcessing}/>}
+        {tab==="lss"&&isLSS&&<LSSSection currentUser={user} accounts={accounts} lssOps={lssOps} lssDocs={lssDocs} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+        {tab==="lfp"&&isLFP&&<LFPSection currentUser={user} accounts={accounts} lfpOps={lfpOps} arrests={arrests} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+        {tab==="prosecutions"&&canProsecute&&<ProsecutionsSection currentUser={user} arrests={arrests} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+        {tab==="minister"&&isMinister&&<MinisterPanel currentUser={user} accounts={accounts} onUpdate={onUpdateAccount} notify={notify} setProcessing={setProcessing}/>}
+        {tab==="emperor"&&isEmperor&&<EmperorPanel currentUser={user} accounts={accounts} onUpdate={onUpdateAccount} notify={notify} setProcessing={setProcessing}/>}
+      </div>
+
+      {/* Footer */}
+      <div style={{borderTop:`1px solid ${C.border}`,padding:"0.75rem 1.25rem",marginTop:"3rem"}}>
+        <div className="mono" style={{maxWidth:1100,margin:"0 auto",fontSize:9,color:C.textDD,
+          letterSpacing:"0.15em",textAlign:"center"}}>
+          Ministry of the Interior · Empire of Lech · All access is logged · Gott mit uns
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+</script>
+</body>
+</html>

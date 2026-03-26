@@ -1,0 +1,2127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Imperial War Office — Empire of Lech</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{background:#080a0c;color:#ccd4cc;font-family:'Crimson Text',Georgia,serif;min-height:100vh;}
+::-webkit-scrollbar{width:5px;}
+::-webkit-scrollbar-track{background:#080a0c;}
+::-webkit-scrollbar-thumb{background:#2a3a1a;border-radius:2px;}
+input,select,textarea{font-family:'Crimson Text',Georgia,serif;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+@keyframes pulse{0%,100%{opacity:.6;}50%{opacity:1;}}
+@keyframes scanline{0%{transform:translateY(-100%);}100%{transform:translateY(100vh);}}
+@keyframes warflash{0%,100%{opacity:1;}50%{opacity:.7;}}
+.fadeIn{animation:fadeIn .3s ease both;}
+.mono{font-family:'Share Tech Mono',monospace;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback,useMemo}=React;
+
+// ── SCRIPT URL (shared with MOI) ───────────────────────────────────────────────
+const SCRIPT_URL="https://script.google.com/macros/s/AKfycbxLu8jQehAZJEvMEeCLoHc9S2C4FM8o9fQh8Pp4gMzDNwwIG0S9qLJ5-1gyGM1c_InUfQ/exec";
+
+// ── ALERT LEVELS ──────────────────────────────────────────────────────────────
+const ALERT_LEVELS=[
+  {level:5,short:"IRL-5",label:"Imperial Readiness Level 5",sub:"Peacetime — Normal Operations",    color:"#2a9a4a",bg:"#0a1a0e",border:"#1a4a2a"},
+  {level:4,short:"IRL-4",label:"Imperial Readiness Level 4",sub:"Elevated — Increased Vigilance",   color:"#4a7aaa",bg:"#0a1220",border:"#1a3a6a"},
+  {level:3,short:"IRL-3",label:"Imperial Readiness Level 3",sub:"High — Forces on Standby",         color:"#C9A84C",bg:"#1a1200",border:"#5a4000"},
+  {level:2,short:"IRL-2",label:"Imperial Readiness Level 2",sub:"Severe — Armed Forces Ready",      color:"#cc6a10",bg:"#1a0e00",border:"#8a3a00"},
+  {level:1,short:"IRL-1",label:"Imperial Readiness Level 1",sub:"War Footing — Maximum Readiness",  color:"#cc2222",bg:"#1a0808",border:"#8b1010"},
+];
+const AL=(level)=>ALERT_LEVELS.find(a=>a.level===level)||ALERT_LEVELS[0];
+
+// ── CLEARANCE LEVELS (shared with MOI, + Reliability Screening) ─────────────
+const MOW_CLEARANCE=[
+  {level:0, code:"UNCLASSIFIED",        short:"UC",  color:"#2a9a4a", bg:"#0a1a0e", border:"#1a4a2a"},
+  {level:1, code:"RELIABILITY SCREENING",short:"RS", color:"#5a9a7a", bg:"#0a1810", border:"#1a4a30"},
+  {level:2, code:"CONFIDENTIAL",        short:"C",   color:"#2a6acc", bg:"#0a1228", border:"#1a3a6a"},
+  {level:3, code:"SECRET",              short:"S",   color:"#cc7a10", bg:"#1a1000", border:"#6a3a00"},
+  {level:4, code:"TOP SECRET",          short:"TS",  color:"#cc2222", bg:"#1a0808", border:"#6a1010"},
+  {level:5, code:"TS/SCI",              short:"SCI", color:"#9a22cc", bg:"#150a1a", border:"#5a1a6a"},
+];
+const MCL=(level)=>MOW_CLEARANCE[Math.max(0,Math.min(5,level||0))];
+
+// ── BRANCHES ──────────────────────────────────────────────────────────────────
+const BRANCHES=[
+  {v:"ILA",  l:"Imperial Lech Army",                     short:"Army", color:"#6a8a4a"},
+  {v:"ILN",  l:"Imperial Lech Navy",                     short:"Navy", color:"#4a6a9a"},
+  {v:"ILSOC",l:"Imperial Special Operations Command",    short:"SOC",  color:"#9a7a3a"},
+];
+
+// ── RANKS ─────────────────────────────────────────────────────────────────────
+const ARMY_RANKS=[
+  // NCMs
+  {grade:"OR-1", title:"Private",              abbr:"Pte",  color:"#6a7a6a", group:"NCM"},
+  {grade:"OR-2", title:"Corporal",             abbr:"Cpl",  color:"#7a8a6a", group:"NCM"},
+  {grade:"OR-3", title:"Specialist",           abbr:"Spec", color:"#7a8a6a", group:"NCM"},
+  {grade:"OR-4", title:"Sergeant",             abbr:"Sgt",  color:"#8a9a7a", group:"NCM"},
+  // NCOs
+  {grade:"OR-5", title:"Staff Sergeant",       abbr:"SSgt", color:"#9aaa8a", group:"NCO"},
+  {grade:"OR-6", title:"Sergeant First Class", abbr:"SFC",  color:"#9aaa8a", group:"NCO"},
+  {grade:"OR-7", title:"Master Sergeant",      abbr:"MSgt", color:"#aabb9a", group:"NCO"},
+  // Senior NCOs
+  {grade:"OR-8", title:"Sergeant Major",       abbr:"SM",   color:"#bbccaa", group:"SNCO"},
+  {grade:"OR-9", title:"Command Sergeant Major",abbr:"CSM", color:"#ccddbb", group:"SNCO"},
+  // Junior Officers
+  {grade:"OF-1", title:"Lieutenant",           abbr:"Lt",   color:"#C9A84C", group:"JO"},
+  {grade:"OF-2", title:"Captain",              abbr:"Capt", color:"#d4b85a", group:"JO"},
+  // Senior Officers
+  {grade:"OF-3", title:"Major",                abbr:"Maj",  color:"#e0c870", group:"SO"},
+  {grade:"OF-4", title:"Lieutenant-Colonel",   abbr:"LCol", color:"#e8d080", group:"SO"},
+  {grade:"OF-5", title:"Colonel",              abbr:"Col",  color:"#f0d890", group:"SO"},
+  // Flag Officers
+  {grade:"OF-6", title:"Brigadier-General",    abbr:"BGen", color:"#f8e8a0", group:"FO"},
+  {grade:"OF-7", title:"Division-General",     abbr:"DGen", color:"#ffe8a0", group:"FO"},
+  {grade:"OF-8", title:"Corps-General",        abbr:"CGen", color:"#ffd880", group:"FO"},
+  {grade:"OF-9", title:"General",              abbr:"Gen",  color:"#ffc860", group:"FO"},
+  {grade:"OF-10", title:"Marshal of the Empire",abbr:"ME",   color:"#cc2222", group:"FO"},
+];
+const NAVY_RANKS=[
+  // NCMs
+  {grade:"OR-1", title:"Seaman",               abbr:"Smn",  color:"#5a6a9a", group:"NCM"},
+  {grade:"OR-2", title:"Able Seaman",          abbr:"AB",   color:"#6a7aaa", group:"NCM"},
+  {grade:"OR-3", title:"Leading Seaman",       abbr:"LS",   color:"#7a8aba", group:"NCM"},
+  {grade:"OR-4", title:"Petty Officer",        abbr:"PO",   color:"#8a9aca", group:"NCM"},
+  // NCOs
+  {grade:"OR-5", title:"Chief Petty Officer",  abbr:"CPO",  color:"#9aaada", group:"NCO"},
+  {grade:"OR-6", title:"Boatswain",            abbr:"Btsn", color:"#aabbda", group:"NCO"},
+  {grade:"OR-7", title:"Senior Boatswain",     abbr:"SBtsn",color:"#bbccee", group:"NCO"},
+  // Senior NCOs
+  {grade:"OR-8", title:"Chief Boatswain",      abbr:"CBtsn",color:"#ccddee", group:"SNCO"},
+  {grade:"OR-9", title:"Senior Chief Boatswain",abbr:"SCBtsn",color:"#ddeeff",group:"SNCO"},
+  // Junior Officers
+  {grade:"OF-1", title:"Sub-Lieutenant",       abbr:"SLt",  color:"#C9A84C", group:"JO"},
+  {grade:"OF-2", title:"Lieutenant",           abbr:"Lt",   color:"#d4b85a", group:"JO"},
+  // Senior Officers
+  {grade:"OF-3", title:"Lieutenant-Commander", abbr:"LCdr", color:"#e0c870", group:"SO"},
+  {grade:"OF-4", title:"Commander",            abbr:"Cdr",  color:"#e8d080", group:"SO"},
+  {grade:"OF-5", title:"Captain",              abbr:"Capt", color:"#f0d890", group:"SO"},
+  // Flag Officers
+  {grade:"OF-6", title:"Flotilla-Admiral",     abbr:"FAdm", color:"#f8e8a0", group:"FO"},
+  {grade:"OF-7", title:"Counter-Admiral",      abbr:"CAdm", color:"#ffe8a0", group:"FO"},
+  {grade:"OF-8", title:"Vice-Admiral",         abbr:"VAdm", color:"#ffd880", group:"FO"},
+  {grade:"OF-9", title:"Admiral",              abbr:"Adm",  color:"#ffc860", group:"FO"},
+  {grade:"OF-10", title:"Grand Admiral",        abbr:"GAdm", color:"#cc2222", group:"FO"},
+];
+const SOC_RANKS=[
+  // Uses Army NCM/NCO structure, own officer designations
+  {grade:"OR-1", title:"Private",              abbr:"Pte",  color:"#6a7a6a", group:"NCM"},
+  {grade:"OR-2", title:"Corporal",             abbr:"Cpl",  color:"#7a8a6a", group:"NCM"},
+  {grade:"OR-4", title:"Sergeant",             abbr:"Sgt",  color:"#8a9a7a", group:"NCM"},
+  {grade:"OR-5", title:"Staff Sergeant",       abbr:"SSgt", color:"#9aaa8a", group:"NCO"},
+  {grade:"OR-7", title:"Master Sergeant",      abbr:"MSgt", color:"#aabb9a", group:"NCO"},
+  {grade:"OR-9", title:"Command Sergeant Major",abbr:"CSM", color:"#ccddbb", group:"SNCO"},
+  {grade:"OF-2", title:"Captain",              abbr:"Capt", color:"#C9A84C", group:"JO"},
+  {grade:"OF-3", title:"Major",                abbr:"Maj",  color:"#d4b85a", group:"SO"},
+  {grade:"OF-5", title:"Colonel",              abbr:"Col",  color:"#e0c870", group:"SO"},
+  {grade:"OF-6", title:"Brigadier-General",    abbr:"BGen", color:"#e8d080", group:"FO"},
+  {grade:"OF-10", title:"Commander ILSOC",      abbr:"COMSOC",color:"#cc2222",group:"FO"},
+];
+
+const BRANCH_RANKS={ILA:ARMY_RANKS,ILN:NAVY_RANKS,ILSOC:SOC_RANKS};
+const getRank=(branch,grade)=>(BRANCH_RANKS[branch]||ARMY_RANKS).find(r=>r.grade===grade);
+
+// ── ASSET TYPES ───────────────────────────────────────────────────────────────
+const ASSET_CATEGORIES=[
+  {v:"vessel",  l:"Naval Vessel",      icon:"⚓"},
+  {v:"base",    l:"Base / Installation",icon:"🏰"},
+  {v:"weapon",  l:"Weapons System",    icon:"🎯"},
+  {v:"ordnance",l:"Ordnance / Ammunition",icon:"💣"},
+  {v:"vehicle", l:"Vehicle / Equipment",icon:"🚗"},
+];
+const SHIP_TYPES=[
+  {v:"battleship",    l:"Battleship"},
+  {v:"cruiser",       l:"Cruiser"},
+  {v:"destroyer",     l:"Destroyer"},
+  {v:"frigate",       l:"Frigate"},
+  {v:"submarine",     l:"Submarine"},
+  {v:"carrier",       l:"Carrier"},
+  {v:"transport",     l:"Transport"},
+  {v:"patrol",        l:"Patrol Vessel"},
+  {v:"other",         l:"Other"},
+];
+const BASE_TYPES=[
+  {v:"naval_base",    l:"Naval Base"},
+  {v:"army_base",     l:"Army Base / Fort"},
+  {v:"air_base",      l:"Air Base"},
+  {v:"joint_base",    l:"Joint Base"},
+  {v:"outpost",       l:"Outpost"},
+  {v:"depot",         l:"Logistics Depot"},
+];
+const WEAPON_TYPES=[
+  {v:"artillery",     l:"Artillery System"},
+  {v:"missile",       l:"Missile System"},
+  {v:"naval_gun",     l:"Naval Gun"},
+  {v:"aa",            l:"Anti-Aircraft"},
+  {v:"small_arms",    l:"Small Arms (inventory)"},
+  {v:"aircraft",      l:"Aircraft"},
+  {v:"other",         l:"Other Weapons System"},
+];
+const CMD_BRANCH_TYPES=[
+  {v:"army",   l:"Army Component"},
+  {v:"navy",   l:"Navy Component"},
+  {v:"air",    l:"Air Force Component"},
+  {v:"sof",    l:"Special Operations Component"},
+  {v:"joint",  l:"Joint"},
+];
+const SHIP_STATUSES=[
+  {v:"active",       l:"Active",          color:"#2a9a4a"},
+  {v:"deployed",     l:"Deployed",        color:"#4a7aaa"},
+  {v:"maintenance",  l:"Under Maintenance",color:"#C9A84C"},
+  {v:"reserve",      l:"In Reserve",      color:"#6a6a6a"},
+  {v:"decommissioned",l:"Decommissioned", color:"#8b1010"},
+];
+const OP_STATUSES=[
+  {v:"planning",  l:"Planning",   color:"#4a7aaa"},
+  {v:"active",    l:"Active",     color:"#2a9a4a"},
+  {v:"suspended", l:"Suspended",  color:"#C9A84C"},
+  {v:"completed", l:"Completed",  color:"#6a6a6a"},
+  {v:"cancelled", l:"Cancelled",  color:"#8b1010"},
+];
+const MEDAL_TYPES=[
+  // Grand Military Orders
+  {v:"IIC",   l:"Imperial Iron Cross",                        cat:"military_grand", abbr:"IIC"},
+  {v:"OBE",   l:"Order of the Black Eagle",                   cat:"military_grand", abbr:"OBE"},
+  // Military Orders of Valor
+  {v:"ICV",   l:"Imperial Cross of Valor",                    cat:"military_valor", abbr:"ICV"},
+  // Military Medals of Service & Conduct
+  {v:"IDSM",  l:"Imperial Defense Service Medal",             cat:"military_service",abbr:"IDSM"},
+  {v:"MSMM",  l:"Military Service Medal of Merit",            cat:"military_service",abbr:"MSMM"},
+  {v:"MOH",   l:"Medal of Honor",                             cat:"military_service",abbr:"MOH"},
+  {v:"DSA",   l:"Defense Service Award",                      cat:"military_service",abbr:"DSA"},
+  {v:"LEM",   l:"Law Enforcement Service Medal",              cat:"military_service",abbr:"LEM"},
+  {v:"PSM",   l:"Public Services Medal",                      cat:"military_service",abbr:"PSM"},
+  {v:"EMCM",  l:"Exemplary Military Conduct Medal",           cat:"military_service",abbr:"EMCM"},
+  // Grand Civil Orders
+  {v:"ICOGO", l:"Imperial Civil Order of the Golden Oak",     cat:"civil_grand",    abbr:"ICOGO"},
+  {v:"ORE",   l:"Order of the Red Eagle",                     cat:"civil_grand",    abbr:"ORE"},
+  // Civil Orders of Merit
+  {v:"IOM_G", l:"Imperial Order of Merit (Gold)",             cat:"civil_merit",    abbr:"IOM"},
+  {v:"IOM_S", l:"Imperial Order of Merit (Silver)",           cat:"civil_merit",    abbr:"IOM"},
+  {v:"IOM_B", l:"Imperial Order of Merit (Bronze)",           cat:"civil_merit",    abbr:"IOM"},
+  // Civil Medals
+  {v:"DCSM",  l:"Distinguished Civil Service Medal",          cat:"civil_service",  abbr:"DCSM"},
+  {v:"GSM",   l:"Good Samaritan Medal",                       cat:"civil_service",  abbr:"GSM"},
+  {v:"MC",    l:"Medal of Counselors",                        cat:"civil_service",  abbr:"MC"},
+  {v:"MH",    l:"Medal of Health",                            cat:"civil_service",  abbr:"MH"},
+  {v:"CEM",   l:"Civil Engineering Medal",                    cat:"civil_service",  abbr:"CEM"},
+  {v:"NIM",   l:"National Intelligence Medal",                cat:"civil_service",  abbr:"NIM"},
+  {v:"ESM",   l:"Exemplary Service Medal",                    cat:"civil_service",  abbr:"ESM"},
+  // Campaign & Event Medals
+  {v:"KESJM", l:"King Edward Silver Jubilee Medal",           cat:"campaign",       abbr:"KESJM"},
+  {v:"FECM",  l:"First Edward Campaigns Medal",               cat:"campaign",       abbr:"FECM"},
+];
+const MEDAL_CATS=[
+  {v:"military_grand",   l:"Grand Military Orders"},
+  {v:"military_valor",   l:"Military Orders of Valor"},
+  {v:"military_service", l:"Military Medals of Service & Conduct"},
+  {v:"civil_grand",      l:"Grand Civil Orders"},
+  {v:"civil_merit",      l:"Civil Orders of Merit"},
+  {v:"civil_service",    l:"Civil Medals of Service & Excellence"},
+  {v:"campaign",         l:"Campaign & Event Medals"},
+];
+const SCHEDULE_TYPES=[
+  {v:"training",    l:"Training Exercise",  color:"#4a7aaa"},
+  {v:"deployment",  l:"Deployment",         color:"#cc6a10"},
+  {v:"ceremony",    l:"Ceremony",           color:"#C9A84C"},
+  {v:"briefing",    l:"Briefing",           color:"#6a9a6a"},
+  {v:"exercise",    l:"Joint Exercise",     color:"#9a4a9a"},
+  {v:"other",       l:"Other",              color:"#6a6a6a"},
+];
+
+// ── DESIGN TOKENS ─────────────────────────────────────────────────────────────
+const C={
+  bg:"#080a0c",s1:"#0e1210",s2:"#141a10",s3:"#1a2018",
+  border:"#2a3a20",borderL:"#3a5a28",
+  text:"#d8e0d0",textD:"#8a9a80",textDD:"#4a5a40",
+  accent:"#C9A84C",accentD:"#8a7020",
+  red:"#8b1a1a",redD:"#6a0808",redL:"#c05050",
+  green:"#2a7a3a",gold:"#C9A84C",
+  army:"#6a8a4a",navy:"#4a6a9a",soc:"#9a7a3a",
+};
+
+// ── BACKEND ───────────────────────────────────────────────────────────────────
+async function sha256(t){
+  const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
+async function sgetAll(){
+  try{
+    const r=await fetch(SCRIPT_URL+"?action=getall");
+    const d=await r.json();
+    if(!d.success) return {};
+    const out={};
+    Object.entries(d.data||{}).forEach(([k,v])=>{if(v){try{out[k]=JSON.parse(v);}catch{}}});
+    return out;
+  }catch{return{};}
+}
+async function sset(k,v){
+  try{
+    await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
+      body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v)})});
+    return true;
+  }catch{return false;}
+}
+
+// ── SHARED COMPONENTS ─────────────────────────────────────────────────────────
+function Btn({children,onClick,variant="primary",disabled,small,style:ex={}}){
+  const b={fontFamily:"'Cinzel',serif",letterSpacing:"0.1em",fontWeight:700,textTransform:"uppercase",
+    fontSize:small?10:11,padding:small?"4px 12px":"7px 18px",border:"1px solid",borderRadius:2,
+    cursor:disabled?"not-allowed":"pointer",opacity:disabled?.4:1,transition:"all .15s"};
+  const v={
+    primary:{background:`linear-gradient(135deg,${C.accentD},${C.accent})`,borderColor:C.accentD,color:"#080a0c"},
+    danger: {background:"transparent",borderColor:C.redD,color:C.redL},
+    armed:  {background:`linear-gradient(135deg,${C.redD},${C.red})`,borderColor:C.redD,color:"#e0c8c8"},
+    ghost:  {background:"transparent",borderColor:C.border,color:C.textD},
+    green:  {background:"linear-gradient(135deg,#0a2a10,#1a5a20)",borderColor:"#1a4a18",color:"#7ad47a"},
+    gold:   {background:"linear-gradient(135deg,#3a2800,#6a4a00)",borderColor:"#5a4000",color:C.gold},
+  };
+  return<button onClick={disabled?undefined:onClick} style={{...b,...(v[variant]||v.primary),...ex}}>{children}</button>;
+}
+function ArmBtn({label,confirmLabel,onConfirm,variant="danger",small}){
+  const [armed,setArmed]=useState(false);
+  const t=useRef(null);
+  return armed
+    ?<Btn variant="armed" small={small} onClick={()=>{clearTimeout(t.current);setArmed(false);onConfirm();}}>
+        {confirmLabel||"Confirm?"}
+     </Btn>
+    :<Btn variant={variant} small={small} onClick={()=>{setArmed(true);t.current=setTimeout(()=>setArmed(false),4000);}}>
+        {label}
+     </Btn>;
+}
+function Inp({value,onChange,placeholder,type="text",style:ex={}}){
+  return<input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+    style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
+             padding:"7px 11px",color:C.text,fontSize:14,outline:"none",...ex}}
+    onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/>;
+}
+function TA({value,onChange,placeholder,rows=4}){
+  return<textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows}
+    style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
+             padding:"7px 11px",color:C.text,fontSize:14,outline:"none",resize:"vertical",lineHeight:1.6}}
+    onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/>;
+}
+function DD({value,onChange,options,style:ex={}}){
+  return<select value={value} onChange={e=>onChange(e.target.value)}
+    style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
+             padding:"7px 11px",color:C.text,fontSize:14,outline:"none",fontFamily:"'Crimson Text',serif",...ex}}>
+    {options.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+  </select>;
+}
+function FL({children}){
+  return<div className="mono" style={{fontSize:9,color:C.textD,letterSpacing:"0.15em",marginBottom:4}}>{children}</div>;
+}
+function STitle({children,color,style:ex={}}){
+  return<div style={{fontFamily:"'Cinzel',serif",fontSize:10,fontWeight:700,letterSpacing:"0.3em",
+    textTransform:"uppercase",color:color||C.accent,paddingBottom:8,
+    borderBottom:`1px solid ${C.border}`,marginBottom:"1.25rem",...ex}}>
+    {children}
+  </div>;
+}
+function Card({children,style:ex={}}){
+  return<div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:3,padding:"1.25rem",...ex}}>{children}</div>;
+}
+function Toast({msg,color}){
+  if(!msg) return null;
+  return<div style={{position:"fixed",top:14,right:14,zIndex:9999,background:C.s2,border:`1px solid ${color}55`,
+    borderLeft:`3px solid ${color}`,padding:"8px 16px",borderRadius:2,fontFamily:"'Cinzel',serif",
+    fontSize:10,letterSpacing:"0.1em",color,animation:"fadeIn .2s ease",maxWidth:360}}>{msg}</div>;
+}
+function Overlay({label}){
+  if(!label) return null;
+  return<div style={{position:"fixed",inset:0,zIndex:99999,background:"rgba(4,6,8,.96)",
+    display:"flex",alignItems:"center",justifyContent:"center"}}>
+    <div style={{textAlign:"center"}}>
+      <div className="mono" style={{color:C.accent,fontSize:10,letterSpacing:"0.3em",marginBottom:8,
+        animation:"pulse 1s infinite"}}>PROCESSING</div>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:16,letterSpacing:"0.12em",color:C.text}}>{label}</div>
+    </div>
+  </div>;
+}
+
+// ── ALERT LEVEL DISPLAY ───────────────────────────────────────────────────────
+function AlertBanner({alertData,compact}){
+  if(!alertData) return null;
+  const al=AL(alertData.level||5);
+  if(compact) return(
+    <div style={{display:"flex",alignItems:"center",gap:8,background:al.bg,
+      border:`1px solid ${al.border}`,borderRadius:2,padding:"4px 12px"}}>
+      <div style={{width:8,height:8,borderRadius:"50%",background:al.color,
+        boxShadow:`0 0 6px ${al.color}`,animation:alertData.level<=2?"warflash 1s infinite":"none"}}/>
+      <span className="mono" style={{fontSize:9,color:al.color,letterSpacing:"0.12em"}}>{al.short}</span>
+    </div>
+  );
+  return(
+    <div style={{background:al.bg,border:`1px solid ${al.border}`,borderTop:`3px solid ${al.color}`,
+      borderRadius:"0 0 4px 4px",padding:"1rem 1.5rem",marginBottom:"1.5rem"}}>
+      <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+        <div style={{width:14,height:14,borderRadius:"50%",background:al.color,
+          boxShadow:`0 0 12px ${al.color}`,flexShrink:0,
+          animation:alertData.level<=2?"warflash 1s infinite":"none"}}/>
+        <div style={{flex:1}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:700,
+            color:al.color,letterSpacing:"0.1em"}}>{al.label}</div>
+          <div style={{fontSize:13,color:al.color,opacity:.8,fontStyle:"italic"}}>{al.sub}</div>
+        </div>
+        {alertData.setBy&&(
+          <div className="mono" style={{fontSize:9,color:al.color,opacity:.7,textAlign:"right"}}>
+            SET BY {alertData.setBy.toUpperCase()}<br/>
+            {new Date(alertData.setAt||0).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}
+            {alertData.note&&<div style={{fontStyle:"normal",fontFamily:"'Crimson Text',serif",fontSize:11,
+              marginTop:2,color:al.color,opacity:.9}}>{alertData.note}</div>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── WARTIME BANNER ────────────────────────────────────────────────────────────
+function WartimeBanner({wartime}){
+  if(!wartime?.active) return null;
+  return(
+    <div style={{background:"#1a0404",border:"2px solid #cc2222",borderRadius:3,
+      padding:"0.85rem 1.5rem",marginBottom:"1.5rem",animation:"warflash 2s infinite",
+      display:"flex",alignItems:"center",gap:12}}>
+      <span style={{fontSize:20}}>⚔</span>
+      <div>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:700,
+          color:"#cc2222",letterSpacing:"0.12em"}}>6TH AMENDMENT — WARTIME MEASURES INVOKED</div>
+        <div style={{fontSize:13,color:"#e07070",fontStyle:"italic"}}>
+          Imperial wartime powers active — invoked by {wartime.invokedBy}
+          {wartime.invokedAt&&" on "+new Date(wartime.invokedAt).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── RANK BADGE ────────────────────────────────────────────────────────────────
+function RankBadge({branch,grade,style:ex={}}){
+  const r=getRank(branch,grade);
+  const br=BRANCHES.find(b=>b.v===branch);
+  if(!r) return null;
+  return(
+    <span className="mono" style={{fontSize:9,padding:"2px 8px",background:C.s1,
+      border:`1px solid ${r.color}44`,color:r.color,borderRadius:1,...ex}}>
+      {r.abbr} · {r.grade}
+    </span>
+  );
+}
+
+// ── LOGIN SCREEN ──────────────────────────────────────────────────────────────
+function LoginScreen({onLogin}){
+  const [username,setUsername]=useState("");
+  const [password,setPassword]=useState("");
+  const [err,setErr]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [scan,setScan]=useState(0);
+  useEffect(()=>{const id=setInterval(()=>setScan(p=>(p+0.3)%100),25);return()=>clearInterval(id);},[]);
+
+  const doLogin=async()=>{
+    if(!username.trim()||!password.trim()){setErr("Credentials required.");return;}
+    setLoading(true); setErr("");
+    try{
+      const raw=await sgetAll();
+      const accounts={};
+      Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v) accounts[v.username]=v;});
+      Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(!accounts[k]) accounts[k]=v;});
+      const user=Object.values(accounts).find(a=>a.username.toLowerCase()===username.trim().toLowerCase());
+      if(!user){setErr("ACCESS DENIED.");setLoading(false);return;}
+      if(!user.mowAccess&&user.role!=="emperor"){setErr("AUTHORISATION DENIED — No MOW access.");setLoading(false);return;}
+      const hash=await sha256(password);
+      if(hash!==user.passwordHash){setErr("ACCESS DENIED.");setLoading(false);return;}
+      onLogin(user,raw);
+    }catch(e){setErr("Connection error: "+e.message);}
+    setLoading(false);
+  };
+
+  return(
+    <div style={{minHeight:"100vh",background:"#060808",display:"flex",alignItems:"center",
+                  justifyContent:"center",position:"relative",overflow:"hidden"}}>
+      <div style={{position:"absolute",inset:0,
+        backgroundImage:"linear-gradient(#1a2a1022 1px,transparent 1px),linear-gradient(90deg,#1a2a1022 1px,transparent 1px)",
+        backgroundSize:"50px 50px"}}/>
+      <div style={{position:"absolute",left:0,right:0,height:1,
+        background:"linear-gradient(to right,transparent,#C9A84C22,transparent)",
+        top:`${scan}%`,transition:"top 0.025s linear",pointerEvents:"none"}}/>
+      {[[{t:24,l:24},{t:24,r:24},{b:24,l:24},{b:24,r:24}]].flat().map((pos,i)=>(
+        <div key={i} style={{position:"absolute",width:28,height:28,...pos,zIndex:2,
+          borderTop:i<2?"2px solid #C9A84C33":"none",borderBottom:i>=2?"2px solid #C9A84C33":"none",
+          borderLeft:i%2===0?"2px solid #C9A84C33":"none",borderRight:i%2===1?"2px solid #C9A84C33":"none"}}/>
+      ))}
+      <div className="fadeIn" style={{position:"relative",zIndex:10,width:"100%",maxWidth:420,padding:"0 20px"}}>
+        <div style={{textAlign:"center",marginBottom:"2rem"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:12,marginBottom:16}}>
+            <div style={{height:1,width:60,background:"linear-gradient(to right,transparent,#C9A84C)"}}/>
+            <span style={{fontSize:20}}>⚔</span>
+            <div style={{height:1,width:60,background:"linear-gradient(to left,transparent,#C9A84C)"}}/>
+          </div>
+          <div className="mono" style={{fontSize:8,letterSpacing:"0.5em",color:C.accentD,marginBottom:10,
+            animation:"pulse 3s infinite"}}>EMPIRE OF LECH — RESTRICTED NETWORK</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:26,letterSpacing:"0.12em",
+            color:C.text,lineHeight:1.2}}>Imperial War Office</div>
+          <div className="mono" style={{fontSize:8,letterSpacing:"0.3em",color:C.textDD,marginTop:8}}>
+            Authorised Military Personnel Only
+          </div>
+        </div>
+        <div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:3,padding:"2rem"}}>
+          <div className="mono" style={{fontSize:9,letterSpacing:"0.2em",color:C.accent,
+            marginBottom:"1.5rem",borderBottom:`1px solid ${C.border}`,paddingBottom:8}}>
+            Authentication Required
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:"1rem"}}>
+            <div><FL>USERNAME</FL><Inp value={username} onChange={setUsername} placeholder="Username"/></div>
+            <div><FL>PASSWORD</FL><Inp value={password} onChange={setPassword} type="password" placeholder="Password"/></div>
+            {err&&<div className="mono" style={{fontSize:10,color:C.redL,background:C.s3,
+              border:`1px solid ${C.redD}44`,padding:"7px 11px"}}>{err}</div>}
+            <Btn onClick={doLogin} disabled={loading||!username.trim()||!password.trim()}>
+              {loading?"Authenticating…":"Authenticate"}
+            </Btn>
+          </div>
+          <div className="mono" style={{fontSize:9,color:C.textDD,marginTop:"1.25rem",lineHeight:1.8,
+            borderTop:`1px solid ${C.border}`,paddingTop:"0.85rem"}}>
+            Authorised military personnel only.<br/>
+            <span style={{opacity:.7}}>An account must be registered on the Imperial Intranet by the Minister of the Interior before you can access this system.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── RANK REFERENCE (modal) ────────────────────────────────────────────────────
+function RankReference({onClose}){
+  const [branch,setBranch]=useState("ILA");
+  const ranks=BRANCH_RANKS[branch]||ARMY_RANKS;
+  const br=BRANCHES.find(b=>b.v===branch);
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(4,6,8,.92)",
+      display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem"}}
+      onClick={onClose}>
+      <div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:3,
+        maxWidth:500,width:"100%",maxHeight:"80vh",overflow:"hidden",display:"flex",flexDirection:"column"}}
+        onClick={e=>e.stopPropagation()}>
+        <div style={{padding:"1rem 1.25rem",borderBottom:`1px solid ${C.border}`,
+          display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:12,letterSpacing:"0.2em",color:C.accent}}>
+            Rank Reference
+          </div>
+          <button onClick={onClose} style={{background:"transparent",border:"none",color:C.textD,
+            cursor:"pointer",fontSize:16,lineHeight:1}}>✕</button>
+        </div>
+        <div style={{padding:"1rem",borderBottom:`1px solid ${C.border}`}}>
+          <div style={{display:"flex",gap:6}}>
+            {BRANCHES.map(b=>(
+              <button key={b.v} onClick={()=>setBranch(b.v)}
+                style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",
+                         padding:"4px 12px",border:`1px solid ${branch===b.v?b.color:C.border}`,
+                         background:branch===b.v?C.s2:"transparent",color:branch===b.v?b.color:C.textD,
+                         borderRadius:2,cursor:"pointer"}}>
+                {b.short}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{overflowY:"auto",padding:"1rem"}}>
+          <div style={{marginBottom:8}}>
+            <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:6}}>{br?.l}</div>
+          </div>
+          {[...ranks].reverse().map(r=>(
+            <div key={r.grade} style={{display:"flex",alignItems:"center",gap:10,padding:"5px 8px",
+              background:C.s2,border:`1px solid ${C.border}`,borderLeft:`3px solid ${r.color}`,
+              borderRadius:"0 2px 2px 0",marginBottom:3}}>
+              <span className="mono" style={{fontSize:9,color:C.textDD,width:36,flexShrink:0}}>{r.grade}</span>
+              <span className="mono" style={{fontSize:9,color:r.color,width:50,flexShrink:0}}>{r.abbr}</span>
+              <span style={{fontSize:13,color:C.text}}>{r.title}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── ANNOUNCEMENT BANNER ───────────────────────────────────────────────────────
+function AnnouncementBanner({announcement}){
+  const [dismissed,setDismissed]=useState(false);
+  if(!announcement?.text||dismissed) return null;
+  const tones={info:{color:C.accent,bg:"#1a1400"},warning:{color:"#cc6a10",bg:"#1a0e00"},
+    alert:{color:"#cc2222",bg:"#1a0808"},order:{color:"#6a9a6a",bg:"#0a1a0a"}};
+  const t=tones[announcement.tone]||tones.info;
+  return(
+    <div style={{background:t.bg,border:`1px solid ${t.color}44`,borderLeft:`3px solid ${t.color}`,
+      borderRadius:"0 3px 3px 0",padding:"0.75rem 1rem",marginBottom:"1.5rem",
+      display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+      <div style={{flex:1}}>
+        {announcement.title&&<div style={{fontFamily:"'Cinzel',serif",fontSize:11,letterSpacing:"0.1em",
+          color:t.color,marginBottom:3}}>{announcement.title}</div>}
+        <div style={{fontSize:14,color:C.text,lineHeight:1.7}}>{announcement.text}</div>
+        <div className="mono" style={{fontSize:9,color:C.textDD,marginTop:4}}>
+          {announcement.postedBy&&"— "+announcement.postedBy+" · "}
+          {announcement.posted_at&&new Date(announcement.posted_at).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}
+        </div>
+      </div>
+      <button onClick={()=>setDismissed(true)}
+        style={{background:"transparent",border:"none",color:C.textDD,cursor:"pointer",fontSize:14,flexShrink:0}}>✕</button>
+    </div>
+  );
+}
+
+// ── PERSONNEL SECTION ─────────────────────────────────────────────────────────
+function PersonnelSection({personnel,commands,currentUser,onAction,notify,setProcessing,canManage}){
+  const [search,setSearch]=useState("");
+  const [branchFilter,setBranchFilter]=useState("all");
+  const [creating,setCreating]=useState(false);
+
+  const list=Object.values(personnel||{})
+    .filter(p=>{
+      const q=search.toLowerCase();
+      const matchQ=!q||p.name?.toLowerCase().includes(q)||p.posting?.toLowerCase().includes(q)||p.position?.toLowerCase().includes(q);
+      const matchB=branchFilter==="all"||p.branch===branchFilter;
+      return matchQ&&matchB;
+    })
+    .sort((a,b)=>{
+      const ranks=BRANCH_RANKS[a.branch]||ARMY_RANKS;
+      const ai=ranks.findIndex(r=>r.grade===a.grade);
+      const bi=(BRANCH_RANKS[b.branch]||ARMY_RANKS).findIndex(r=>r.grade===b.grade);
+      return bi-ai||a.name?.localeCompare(b.name);
+    });
+
+  return(
+    <div className="fadeIn">
+      <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:"3px solid #5a6a4a",
+        borderRadius:"0 3px 3px 0",padding:"6px 14px",marginBottom:"1rem",fontSize:13,
+        color:C.textD,fontStyle:"italic"}}>
+        ⚠ This is a manual tracker. Records are not imported from or linked to Ministry of Interior accounts.
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1rem",flexWrap:"wrap",gap:8}}>
+        <STitle style={{marginBottom:0}}>Personnel Registry</STitle>
+        {canManage&&!creating&&<Btn small onClick={()=>setCreating(true)}>+ Enlist Personnel</Btn>}
+      </div>
+      <div style={{display:"flex",gap:"0.75rem",marginBottom:"1.25rem",flexWrap:"wrap"}}>
+        <div style={{flex:2,minWidth:180}}><Inp value={search} onChange={setSearch} placeholder="Search name, posting, position…"/></div>
+        <div style={{flex:1,minWidth:140}}>
+          <DD value={branchFilter} onChange={setBranchFilter}
+            options={[{v:"all",l:"All Branches"},...BRANCHES.map(b=>({v:b.v,l:b.short}))]}/>
+        </div>
+      </div>
+      {creating&&<PersonnelForm commands={commands} onAction={onAction} notify={notify} setProcessing={setProcessing} onClose={()=>setCreating(false)} isNew={true}/>}
+      {list.length===0
+        ?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No personnel records found.</div>
+        :list.map(p=><PersonnelCard key={p.id} person={p} commands={commands} canManage={canManage}
+            onAction={onAction} notify={notify} setProcessing={setProcessing}/>)
+      }
+    </div>
+  );
+}
+
+function PersonnelCard({person,commands,canManage,onAction,notify,setProcessing}){
+  const [open,setOpen]=useState(false);
+  const [editing,setEditing]=useState(false);
+  const br=BRANCHES.find(b=>b.v===person.branch)||BRANCHES[0];
+  const rank=getRank(person.branch,person.grade);
+  const cmd=commands?.[person.commandId];
+
+  return(
+    <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${br.color}`,
+      borderRadius:"0 3px 3px 0",marginBottom:"0.6rem",overflow:"hidden"}}>
+      <div onClick={()=>{setOpen(o=>!o);setEditing(false);}}
+        style={{display:"flex",alignItems:"center",gap:10,padding:"0.75rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
+        <div style={{display:"flex",flexDirection:"column",gap:3,flex:1,minWidth:160}}>
+          {rank&&<span className="mono" style={{fontSize:9,color:rank.color,letterSpacing:"0.12em"}}>
+            {rank.abbr} · {br.short} · {rank.grade}{person.force==="reserve"?" · (Res)":""}
+          </span>}
+          <span style={{fontFamily:"'Cinzel',serif",fontSize:14,fontWeight:600,color:C.text}}>{person.name}</span>
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          {person.posting&&<span style={{fontSize:12,color:C.textD,fontStyle:"italic"}}>{person.posting}</span>}
+          {cmd&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{cmd.name}</span>}
+          {person.isAdc&&<span className="mono" style={{fontSize:9,color:C.gold,
+            border:`1px solid ${C.gold}44`,padding:"1px 6px"}}>🎗 ADC</span>}
+          {(person.medals||[]).length>0&&<span className="mono" style={{fontSize:9,color:C.accentD}}>
+            🎖 ×{person.medals.length}
+          </span>}
+          <span style={{fontSize:11,color:C.textDD}}>{open?"▲":"▼"}</span>
+        </div>
+      </div>
+      {open&&(
+        <div style={{borderTop:`1px solid ${C.border}`,padding:"1rem",background:C.s2}}>
+          {editing
+            ?<PersonnelForm person={person} commands={commands} onAction={onAction} notify={notify}
+                setProcessing={setProcessing} onClose={()=>setEditing(false)} isNew={false}/>
+            :<PersonnelDetail person={person} commands={commands} br={br} rank={rank}
+                canManage={canManage} onEdit={()=>setEditing(true)} onAction={onAction} notify={notify} setProcessing={setProcessing}/>
+          }
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PersonnelDetail({person,commands,br,rank,canManage,onEdit,onAction,notify,setProcessing}){
+  const cmd=commands?.[person.commandId];
+  return(
+    <div>
+      <div style={{display:"flex",gap:"2rem",flexWrap:"wrap",marginBottom:"1rem"}}>
+        <div>
+          <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>BRANCH</div>
+          <span style={{fontSize:13,color:br.color}}>{br.l}</span>
+        </div>
+        <div>
+          <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>FORCE</div>
+          <span style={{fontFamily:"'Cinzel',serif",fontSize:11,color:person.force==="reserve"?"#6a9aaa":C.text}}>{person.force==="reserve"?"Reserve Force":"Regular Force"}</span>
+        </div>
+        <div>
+          <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>RANK</div>
+          <span style={{fontSize:13,color:rank?.color||C.text}}>{rank?.title||"—"}</span>
+        </div>
+        {person.position&&<div>
+          <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>POSITION</div>
+          <span style={{fontSize:13,color:C.text}}>{person.position}</span>
+        </div>}
+        {person.posting&&<div>
+          <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>POSTING</div>
+          <span style={{fontSize:13,color:C.text}}>{person.posting}</span>
+        </div>}
+        {cmd&&<div>
+          <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>COMMAND</div>
+          <span style={{fontSize:13,color:C.textD}}>{cmd.name}</span>
+        </div>}
+      </div>
+
+      {/* Service History */}
+      {(person.serviceHistory||[]).length>0&&(
+        <div style={{marginBottom:"1rem"}}>
+          <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:6}}>SERVICE HISTORY</div>
+          {[...person.serviceHistory].reverse().map((h,i)=>(
+            <div key={i} style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`3px solid ${br.color}44`,
+              borderRadius:"0 2px 2px 0",padding:"5px 10px",marginBottom:3,display:"flex",gap:10}}>
+              <span className="mono" style={{fontSize:9,color:C.textDD,flexShrink:0,minWidth:70}}>{h.date}</span>
+              <span style={{fontSize:13,color:C.text}}>{h.entry}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Medals */}
+      {(person.medals||[]).length>0&&(
+        <div style={{marginBottom:"1rem"}}>
+          <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:6}}>MEDALS & COMMENDATIONS</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {person.medals.map((m,i)=>{
+              const mt=MEDAL_TYPES.find(t=>t.v===m.type);
+              return(
+                <div key={i} style={{background:C.s1,border:`1px solid ${C.accentD}44`,borderRadius:2,
+                  padding:"4px 10px",display:"flex",flexDirection:"column",gap:2,maxWidth:200}}>
+                  <span style={{fontFamily:"'Cinzel',serif",fontSize:10,color:C.gold}}>🎖 {mt?.l||m.type}</span>
+                  {mt?.abbr&&<span className="mono" style={{fontSize:8,color:C.accentD,marginLeft:6,border:`1px solid ${C.accentD}33`,padding:"1px 5px"}}>{mt.abbr}</span>}
+                  {m.citation&&<span style={{fontSize:11,color:C.textD,fontStyle:"italic"}}>{m.citation}</span>}
+                  {m.awarded&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{m.awarded}</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {person.isAdc&&person.adcTo&&(
+        <div style={{background:"#1a1800",border:`1px solid ${C.gold}44`,borderLeft:`3px solid ${C.gold}`,
+          borderRadius:"0 2px 2px 0",padding:"0.6rem 0.85rem",marginBottom:"0.75rem",display:"flex",gap:10,alignItems:"center"}}>
+          <span style={{fontSize:16}}>🎗</span>
+          <div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.15em",color:C.gold,marginBottom:2}}>
+              {person.adcType==="personal"?"PERSONAL ADC":person.adcType==="honorary"?"HONORARY ADC":person.adcType==="military"?"MILITARY SECRETARY":"AIDE-DE-CAMP"}
+            </div>
+            <div style={{fontSize:13,color:C.text}}>Appointed to {person.adcTo}</div>
+          </div>
+        </div>
+      )}
+      {person.notes&&(
+        <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`3px solid ${C.accentD}`,
+          borderRadius:"0 2px 2px 0",padding:"0.6rem 0.85rem",marginBottom:"0.75rem"}}>
+          <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>NOTES</div>
+          <div style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>{person.notes}</div>
+        </div>
+      )}
+
+      {canManage&&(
+        <div style={{display:"flex",gap:6,marginTop:8,borderTop:`1px solid ${C.border}`,paddingTop:"0.75rem"}}>
+          <Btn small variant="ghost" onClick={onEdit}>✎ Edit Record</Btn>
+          <ArmBtn small label="Discharge" confirmLabel="Discharge personnel?" onConfirm={async()=>{
+            setProcessing("Discharging personnel…");
+            await onAction("deletePersonnel",{id:person.id});
+            setProcessing(null); notify(person.name+" discharged.",C.textD);
+          }}/>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PersonnelForm({person,commands,onAction,notify,setProcessing,onClose,isNew}){
+  const [name,setName]=useState(person?.name||"");
+  const [branch,setBranch]=useState(person?.branch||"ILA");
+  const [grade,setGrade]=useState(person?.grade||"OR-1");
+  const [force,setForce]=useState(person?.force||"regular");
+  const [position,setPosition]=useState(person?.position||"");
+  const [posting,setPosting]=useState(person?.posting||"");
+  const [commandId,setCommandId]=useState(person?.commandId||"");
+  const [notes,setNotes]=useState(person?.notes||"");
+  const [histEntry,setHistEntry]=useState("");
+  const [histDate,setHistDate]=useState(new Date().toISOString().slice(0,10));
+  const [medalType,setMedalType]=useState("commendation");
+  const [medalCitation,setMedalCitation]=useState("");
+  const [isAdc,setIsAdc]=useState(person?.isAdc||false);
+  const [adcTo,setAdcTo]=useState(person?.adcTo||"");
+  const [adcType,setAdcType]=useState(person?.adcType||"camp");
+  const [saving,setSaving]=useState(false);
+  const [tab,setTab]=useState("basic");
+  const ranks=BRANCH_RANKS[branch]||ARMY_RANKS;
+  const cmdList=Object.values(commands||{});
+
+  return(
+    <div style={{background:C.s1,border:`1px solid ${C.accentD}44`,borderRadius:3,padding:"1.25rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:10,letterSpacing:"0.2em",color:C.accent,
+        marginBottom:"1rem",display:"flex",justifyContent:"space-between"}}>
+        {isNew?"ENLIST PERSONNEL":"EDIT RECORD"}
+        <button onClick={onClose} style={{background:"transparent",border:"none",color:C.textD,cursor:"pointer",fontSize:14}}>✕</button>
+      </div>
+      <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1rem"}}>
+        {[["basic","Basic"],["history","Service History"],["medals","Medals"]].map(([v,l])=>(
+          <button key={v} onClick={()=>setTab(v)}
+            style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",
+                     padding:"5px 12px",background:"transparent",border:"none",cursor:"pointer",
+                     borderBottom:`2px solid ${tab===v?C.accent:"transparent"}`,color:tab===v?C.accent:C.textD}}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {tab==="basic"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+          <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+            <div style={{flex:2,minWidth:180}}><FL>FULL NAME *</FL><Inp value={name} onChange={setName} placeholder="Full name"/></div>
+            <div style={{flex:1,minWidth:120}}>
+              <FL>BRANCH *</FL>
+              <DD value={branch} onChange={v=>{setBranch(v);setGrade("OR-1");}} options={BRANCHES.map(b=>({v:b.v,l:b.l}))}/>
+            </div>
+            <div style={{flex:1,minWidth:120}}>
+              <FL>RANK / GRADE *</FL>
+              <DD value={grade} onChange={setGrade} options={ranks.map(r=>({v:r.grade,l:`${r.grade} — ${r.title}`}))}/>
+            </div>
+            <div style={{flex:1,minWidth:120}}>
+              <FL>FORCE</FL>
+              <DD value={force} onChange={setForce} options={[{v:"regular",l:"Regular Force"},{v:"reserve",l:"Reserve Force"}]}/>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:160}}><FL>POSITION / ROLE</FL><Inp value={position} onChange={setPosition} placeholder="e.g. Commanding Officer"/></div>
+            <div style={{flex:1,minWidth:160}}><FL>POSTING / UNIT</FL><Inp value={posting} onChange={setPosting} placeholder="e.g. 1st Imperial Division"/></div>
+            {cmdList.length>0&&<div style={{flex:1,minWidth:160}}>
+              <FL>COMBATANT COMMAND</FL>
+              <DD value={commandId} onChange={setCommandId} options={[{v:"",l:"— None —"},...cmdList.map(c=>({v:c.id,l:c.name}))]}/>
+            </div>}
+          </div>
+          <div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:2,padding:"0.75rem"}}>
+            <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:8}}>AIDE-DE-CAMP APPOINTMENT</div>
+            <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap",alignItems:"flex-end"}}>
+              <div onClick={()=>setIsAdc(v=>!v)} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",flexShrink:0}}>
+                <div style={{width:16,height:16,border:`2px solid ${isAdc?C.accent:C.border}`,borderRadius:2,
+                  background:isAdc?C.accentD:"transparent",display:"flex",alignItems:"center",
+                  justifyContent:"center",fontSize:10,color:C.accent}}>{isAdc?"✓":""}</div>
+                <span style={{fontSize:13,color:isAdc?C.text:C.textD}}>Appointed as ADC</span>
+              </div>
+              {isAdc&&<div style={{flex:2,minWidth:180}}>
+                <FL>ADC TO</FL><Inp value={adcTo} onChange={setAdcTo} placeholder="Rank and name of principal"/>
+              </div>}
+              {isAdc&&<div style={{flex:1,minWidth:140}}>
+                <FL>TYPE</FL>
+                <DD value={adcType} onChange={setAdcType} options={[
+                  {v:"camp",    l:"Aide-de-Camp"},
+                  {v:"personal",l:"Personal ADC"},
+                  {v:"honorary",l:"Honorary ADC"},
+                  {v:"military",l:"Military Secretary"},
+                ]}/>
+              </div>}
+            </div>
+          </div>
+          <div><FL>NOTES</FL><TA value={notes} onChange={setNotes} placeholder="Additional notes…" rows={3}/></div>
+          <div style={{display:"flex",gap:8}}>
+            <Btn disabled={!name.trim()||saving} onClick={async()=>{
+              setSaving(true); setProcessing(isNew?"Enlisting personnel…":"Updating record…");
+              await onAction(isNew?"createPersonnel":"updatePersonnel",{
+                id:person?.id,name:name.trim(),branch,grade,force,position:position.trim(),
+                posting:posting.trim(),commandId,notes:notes.trim(),
+                isAdc,adcTo:isAdc?adcTo.trim():"",adcType:isAdc?adcType:"",
+              });
+              setProcessing(null); setSaving(false);
+              notify(name+(isNew?" enlisted.":" updated."),C.accent);
+              onClose();
+            }}>{saving?"Saving…":isNew?"Enlist":"Save Changes"}</Btn>
+            <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+          </div>
+        </div>
+      )}
+
+      {tab==="history"&&!isNew&&(
+        <div>
+          {(person?.serviceHistory||[]).length>0&&(
+            <div style={{marginBottom:"1rem"}}>
+              {[...person.serviceHistory].reverse().map((h,i)=>(
+                <div key={i} style={{display:"flex",gap:8,padding:"5px 8px",background:C.s2,
+                  border:`1px solid ${C.border}`,marginBottom:3,borderRadius:2}}>
+                  <span className="mono" style={{fontSize:9,color:C.textDD,flexShrink:0}}>{h.date}</span>
+                  <span style={{fontSize:13,color:C.text,flex:1}}>{h.entry}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:120}}><FL>DATE</FL><Inp value={histDate} onChange={setHistDate} type="date"/></div>
+            <div style={{flex:3,minWidth:200}}><FL>SERVICE ENTRY</FL><Inp value={histEntry} onChange={setHistEntry} placeholder="e.g. Promoted to Captain"/></div>
+          </div>
+          <div style={{marginTop:8}}>
+            <Btn small disabled={!histEntry.trim()} onClick={async()=>{
+              setProcessing("Adding service entry…");
+              await onAction("addServiceHistory",{id:person.id,entry:{date:histDate,entry:histEntry.trim()}});
+              setProcessing(null); setHistEntry("");
+              notify("Service history updated.",C.accent);
+            }}>Add Entry</Btn>
+          </div>
+          {isNew&&<div style={{fontSize:13,color:C.textDD,fontStyle:"italic",marginTop:8}}>Save the record first, then add service history.</div>}
+        </div>
+      )}
+
+      {tab==="medals"&&!isNew&&(
+        <div>
+          {(person?.medals||[]).length>0&&(
+            <div style={{marginBottom:"1rem"}}>
+              {person.medals.map((m,i)=>{
+                const mt=MEDAL_TYPES.find(t=>t.v===m.type);
+                return(
+                  <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                    padding:"5px 10px",background:C.s2,border:`1px solid ${C.border}`,marginBottom:3,borderRadius:2}}>
+                    <div>
+                      <span style={{fontFamily:"'Cinzel',serif",fontSize:11,color:C.gold}}>🎖 {mt?.l||m.type}</span>
+                      {m.citation&&<span style={{fontSize:11,color:C.textD,marginLeft:8,fontStyle:"italic"}}>{m.citation}</span>}
+                    </div>
+                    <span className="mono" style={{fontSize:9,color:C.textDD}}>{m.awarded}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:200}}>
+            <FL>MEDAL / HONOUR</FL>
+            <select value={medalType} onChange={e=>setMedalType(e.target.value)}
+              style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
+                       padding:"7px 11px",color:C.text,fontSize:14,outline:"none",fontFamily:"'Crimson Text',serif"}}>
+              {MEDAL_CATS.map(cat=>(
+                <optgroup key={cat.v} label={cat.l}>
+                  {MEDAL_TYPES.filter(m=>m.cat===cat.v).map(m=>(
+                    <option key={m.v} value={m.v}>{m.l}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+            <div style={{flex:2,minWidth:200}}><FL>CITATION (optional)</FL><Inp value={medalCitation} onChange={setMedalCitation} placeholder="Brief citation…"/></div>
+          </div>
+          <div style={{marginTop:8}}>
+            <Btn small onClick={async()=>{
+              setProcessing("Awarding medal…");
+              await onAction("addMedal",{id:person.id,medal:{type:medalType,citation:medalCitation.trim(),awarded:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}});
+              setProcessing(null); setMedalCitation("");
+              notify("Medal awarded.",C.gold);
+            }}>Award Medal</Btn>
+          </div>
+        </div>
+      )}
+      {(tab==="history"||tab==="medals")&&isNew&&(
+        <div style={{fontSize:13,color:C.textDD,fontStyle:"italic"}}>Save the basic record first.</div>
+      )}
+    </div>
+  );
+}
+
+// ── ASSETS SECTION (multi-category wrapper) ──────────────────────────────────
+function AssetsSection({ships,commands,canManage,onAction,notify,setProcessing}){
+  const [assetCat,setAssetCat]=useState("vessel");
+  const totalByCategory=useMemo(()=>{
+    const counts={};
+    ASSET_CATEGORIES.forEach(cat=>{counts[cat.v]=0;});
+    Object.values(ships||{}).forEach(s=>{const cat=s.assetCategory||"vessel";if(counts[cat]!==undefined)counts[cat]++;});
+    return counts;
+  },[ships]);
+
+  return(
+    <div className="fadeIn">
+      <STitle>Asset Registry</STitle>
+      {/* Overview stats */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:"0.6rem",marginBottom:"1.5rem"}}>
+        {ASSET_CATEGORIES.map(cat=>(
+          <div key={cat.v} onClick={()=>setAssetCat(cat.v)}
+            style={{background:assetCat===cat.v?C.s2:C.s1,border:`1px solid ${assetCat===cat.v?C.accent:C.border}`,
+              borderTop:`3px solid ${assetCat===cat.v?C.accent:C.border}`,borderRadius:"0 0 3px 3px",
+              padding:"0.75rem",textAlign:"center",cursor:"pointer",transition:"all .15s"}}>
+            <div style={{fontSize:20,marginBottom:4}}>{cat.icon}</div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:18,color:assetCat===cat.v?C.accent:C.text,fontWeight:700}}>{totalByCategory[cat.v]||0}</div>
+            <div className="mono" style={{fontSize:8,color:C.textDD,letterSpacing:"0.1em",marginTop:3}}>
+              {cat.l.toUpperCase()}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1.5rem",flexWrap:"wrap"}}>
+        {ASSET_CATEGORIES.map(cat=>(
+          <button key={cat.v} onClick={()=>setAssetCat(cat.v)}
+            style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",
+                     padding:"0.55rem 1rem",background:"transparent",border:"none",cursor:"pointer",
+                     borderBottom:`2px solid ${assetCat===cat.v?C.accent:"transparent"}`,
+                     color:assetCat===cat.v?C.accent:C.textD}}>
+            {cat.icon} {cat.l}
+          </button>
+        ))}
+      </div>
+      {assetCat==="vessel"&&<ShipsSection ships={ships} commands={commands}
+        canManage={canManage} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+      {assetCat==="base"&&<GenericAssetSection category="base" label="Bases & Installations"
+        ships={ships} commands={commands} canManage={canManage} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+      {assetCat==="weapon"&&<GenericAssetSection category="weapon" label="Weapons Systems"
+        ships={ships} commands={commands} canManage={canManage} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+      {assetCat==="ordnance"&&<GenericAssetSection category="ordnance" label="Ordnance & Ammunition"
+        ships={ships} commands={commands} canManage={canManage} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+      {assetCat==="vehicle"&&<GenericAssetSection category="vehicle" label="Vehicles & Equipment"
+        ships={ships} commands={commands} canManage={canManage} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+    </div>
+  );
+}
+
+function GenericAssetSection({category,label,ships,commands,canManage,onAction,notify,setProcessing}){
+  const [creating,setCreating]=useState(false);
+  const [gName,setGName]=useState(""); const [gType,setGType]=useState(
+    category==="base"?"naval_base":category==="weapon"?"artillery":category==="ordnance"?"missile":"other"
+  );
+  const [gQty,setGQty]=useState(""); const [gLocation,setGLocation]=useState("");
+  const [gCommand,setGCommand]=useState(""); const [gStatus,setGStatus]=useState("active");
+  const [gNotes,setGNotes]=useState(""); const [saving,setSaving]=useState(false);
+
+  const typeOpts = category==="base"?BASE_TYPES:category==="weapon"?WEAPON_TYPES:
+    category==="ordnance"?[{v:"missile",l:"Missiles"},{v:"torpedo",l:"Torpedoes"},{v:"bomb",l:"Bombs/Bombs"},{v:"shell",l:"Artillery Shells"},{v:"rocket",l:"Rockets"},{v:"small_arms_ammo",l:"Small Arms Ammunition"},{v:"other",l:"Other Ordnance"}]:
+    [{v:"tank",l:"Tank/Armoured Vehicle"},{v:"apc",l:"APC/IFV"},{v:"truck",l:"Logistics Vehicle"},{v:"helicopter",l:"Helicopter"},{v:"boat",l:"Patrol Boat"},{v:"other",l:"Other Equipment"}];
+  const cmdList=Object.values(commands||{});
+  const assets=Object.values(ships||{}).filter(s=>s.assetCategory===category).sort((a,b)=>a.name?.localeCompare(b.name));
+
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1rem"}}>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:11,letterSpacing:"0.15em",color:C.textD}}>{label}</div>
+        {canManage&&!creating&&<Btn small onClick={()=>setCreating(true)}>+ Register Asset</Btn>}
+      </div>
+      {creating&&(
+        <div style={{background:C.s2,border:`1px solid ${C.accentD}44`,borderRadius:3,padding:"1.25rem",marginBottom:"1.25rem"}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:10,letterSpacing:"0.2em",color:C.accent,marginBottom:"1rem",
+            display:"flex",justifyContent:"space-between"}}>
+            REGISTER {label.toUpperCase()}
+            <button onClick={()=>setCreating(false)} style={{background:"transparent",border:"none",color:C.textD,cursor:"pointer",fontSize:14}}>✕</button>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+            <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+              <div style={{flex:2,minWidth:200}}><FL>NAME / DESIGNATION *</FL><Inp value={gName} onChange={setGName} placeholder="Name or designation"/></div>
+              <div style={{flex:1,minWidth:140}}><FL>TYPE</FL><DD value={gType} onChange={setGType} options={typeOpts.map(t=>({v:t.v,l:t.l}))}/></div>
+              {(category==="ordnance"||category==="vehicle"||category==="weapon")&&(
+                <div style={{flex:1,minWidth:100}}><FL>QUANTITY</FL><Inp value={gQty} onChange={setGQty} placeholder="e.g. 24"/></div>
+              )}
+            </div>
+            <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+              <div style={{flex:2,minWidth:180}}><FL>LOCATION / BASE</FL><Inp value={gLocation} onChange={setGLocation} placeholder="Location"/></div>
+              {cmdList.length>0&&<div style={{flex:1,minWidth:180}}>
+                <FL>COMMAND</FL>
+                <DD value={gCommand} onChange={setGCommand} options={[{v:"",l:"— None —"},...cmdList.map(x=>({v:x.id,l:x.name}))]}/>
+              </div>}
+              <div style={{flex:1,minWidth:140}}>
+                <FL>STATUS</FL>
+                <DD value={gStatus} onChange={setGStatus} options={[{v:"active",l:"Active"},{v:"maintenance",l:"Maintenance"},{v:"reserve",l:"Reserve"},{v:"decommissioned",l:"Decommissioned"}]}/>
+              </div>
+            </div>
+            <div><FL>NOTES</FL><TA value={gNotes} onChange={setGNotes} placeholder="Additional notes…" rows={2}/></div>
+            <div style={{display:"flex",gap:8}}>
+              <Btn disabled={!gName.trim()||saving} onClick={async()=>{
+                setSaving(true); setProcessing("Registering asset…");
+                await onAction("createShip",{ship:{name:gName.trim(),type:gType,assetCategory:category,
+                  quantity:gQty.trim(),location:gLocation.trim(),commandId:gCommand,
+                  status:gStatus,notes:gNotes.trim()}});
+                setProcessing(null); setSaving(false);
+                notify(gName+" registered.",C.accent);
+                setGName(""); setGQty(""); setGLocation(""); setGNotes(""); setCreating(false);
+              }}>{saving?"Registering…":"Register"}</Btn>
+              <Btn variant="ghost" onClick={()=>setCreating(false)}>Cancel</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+      {assets.length===0
+        ?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No {label.toLowerCase()} registered.</div>
+        :assets.map(asset=>(
+          <div key={asset.id} style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${C.accent}`,
+            borderRadius:"0 3px 3px 0",marginBottom:"0.5rem",padding:"0.65rem 1rem",
+            display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <div style={{flex:1}}>
+              <span style={{fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:600,color:C.text}}>{asset.name}</span>
+              {asset.quantity&&<span className="mono" style={{fontSize:9,color:C.textDD,marginLeft:8}}>QTY: {asset.quantity}</span>}
+              {asset.location&&<span style={{fontSize:12,color:C.textD,marginLeft:8,fontStyle:"italic"}}>{asset.location}</span>}
+              {commands[asset.commandId]&&<span className="mono" style={{fontSize:9,color:C.textDD,marginLeft:8}}>{commands[asset.commandId].name}</span>}
+            </div>
+            <span className="mono" style={{fontSize:9,padding:"2px 8px",background:C.s3,
+              border:`1px solid ${asset.status==="active"?"#2a9a4a44":C.border}`,
+              color:asset.status==="active"?"#2a9a4a":C.textDD}}>
+              {(asset.status||"active").toUpperCase()}
+            </span>
+            {canManage&&<ArmBtn small label="Remove" confirmLabel="Remove?" onConfirm={async()=>{
+              setProcessing("Removing asset…"); await onAction("deleteShip",{id:asset.id});
+              setProcessing(null); notify(asset.name+" removed.",C.textD);
+            }}/>}
+          </div>
+        ))
+      }
+    </div>
+  );
+}
+
+// ── SHIPS SECTION ─────────────────────────────────────────────────────────────
+function ShipsSection({ships,commands,canManage,onAction,notify,setProcessing}){
+  const [creating,setCreating]=useState(false);
+  const [filter,setFilter]=useState("all");
+  const vesselOnly=Object.values(ships||{}).filter(s=>!s.assetCategory||s.assetCategory==="vessel");
+  const navyBases=Object.values(ships||{}).filter(s=>s.assetCategory==="base"&&(s.type==="naval_base"));
+  const list=vesselOnly
+    .filter(s=>filter==="all"||s.status===filter)
+    .sort((a,b)=>a.name?.localeCompare(b.name));
+  return(
+    <div className="fadeIn">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1rem",gap:8,flexWrap:"wrap"}}>
+        <STitle style={{marginBottom:0}}>Naval Vessel Registry</STitle>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <select value={filter} onChange={e=>setFilter(e.target.value)}
+            style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:2,
+                     padding:"5px 10px",color:C.text,fontSize:13,fontFamily:"'Crimson Text',serif"}}>
+            <option value="all">All Status</option>
+            {SHIP_STATUSES.map(s=><option key={s.v} value={s.v}>{s.l}</option>)}
+          </select>
+          {canManage&&!creating&&<Btn small onClick={()=>setCreating(true)}>+ Register Asset</Btn>}
+        </div>
+      </div>
+      {creating&&<ShipForm commands={commands} navyBases={navyBases} onAction={onAction} notify={notify}
+          setProcessing={setProcessing} onClose={()=>setCreating(false)}/>}
+      {list.length===0
+        ?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No assets registered.</div>
+        :list.map(s=><ShipCard key={s.id} ship={s} commands={commands} canManage={canManage}
+            onAction={onAction} notify={notify} setProcessing={setProcessing}/>)
+      }
+    </div>
+  );
+}
+function ShipCard({ship,commands,canManage,onAction,notify,setProcessing}){
+  const [open,setOpen]=useState(false);
+  const st=SHIP_STATUSES.find(s=>s.v===ship.status)||SHIP_STATUSES[0];
+  const tp=SHIP_TYPES.find(t=>t.v===ship.type);
+  const cmd=commands?.[ship.commandId];
+  return(
+    <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${st.color}`,
+      borderRadius:"0 3px 3px 0",marginBottom:"0.5rem",overflow:"hidden"}}>
+      <div onClick={()=>setOpen(o=>!o)}
+        style={{display:"flex",alignItems:"center",gap:10,padding:"0.75rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
+        <span className="mono" style={{fontSize:9,padding:"2px 8px",background:C.s3,
+          border:`1px solid ${st.color}44`,color:st.color}}>{ship.status?.toUpperCase()}</span>
+        <span style={{fontFamily:"'Cinzel',serif",fontSize:14,fontWeight:600,color:C.text,flex:1}}>
+          {ship.name}
+          {ship.hullNumber&&<span className="mono" style={{fontSize:10,color:C.textDD,marginLeft:8}}>{ship.hullNumber}</span>}
+        </span>
+        {tp&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{tp.l}</span>}
+        {cmd&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{cmd.name}</span>}
+        <span style={{fontSize:11,color:C.textDD}}>{open?"▲":"▼"}</span>
+      </div>
+      {open&&(
+        <div style={{borderTop:`1px solid ${C.border}`,padding:"1rem",background:C.s2}}>
+          <div style={{display:"flex",gap:"2rem",flexWrap:"wrap",marginBottom:"0.85rem"}}>
+            {ship.shipClass&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>CLASS</div>
+              <span style={{fontSize:13,color:C.text}}>{ship.shipClass}</span></div>}
+            {ship.displacement&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>DISPLACEMENT</div>
+              <span style={{fontSize:13,color:C.text}}>{ship.displacement}</span></div>}
+            {ship.crew&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>CREW</div>
+              <span style={{fontSize:13,color:C.text}}>{ship.crew}</span></div>}
+            {ship.homePort&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>HOME PORT</div>
+              <span style={{fontSize:13,color:C.text}}>{ship.homePort}</span></div>}
+            {cmd&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>COMMAND</div>
+              <span style={{fontSize:13,color:C.textD}}>{cmd.name}</span></div>}
+          </div>
+          {ship.notes&&<div style={{fontSize:13,color:C.textD,fontStyle:"italic",marginBottom:"0.75rem"}}>{ship.notes}</div>}
+          {canManage&&(
+            <div style={{display:"flex",gap:6,borderTop:`1px solid ${C.border}`,paddingTop:"0.75rem"}}>
+              <ShipStatusEditor ship={ship} onAction={onAction} notify={notify} setProcessing={setProcessing}/>
+              <ArmBtn small label="Decommission" confirmLabel="Remove asset?" onConfirm={async()=>{
+                setProcessing("Removing asset…");
+                await onAction("deleteShip",{id:ship.id});
+                setProcessing(null); notify(ship.name+" removed.",C.textD);
+              }}/>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+function ShipStatusEditor({ship,onAction,notify,setProcessing}){
+  const [status,setStatus]=useState(ship.status||"active");
+  const [saving,setSaving]=useState(false);
+  return(
+    <div style={{display:"flex",gap:6,alignItems:"flex-end"}}>
+      <div style={{minWidth:160}}>
+        <select value={status} onChange={e=>setStatus(e.target.value)}
+          style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:2,
+                   padding:"4px 8px",color:C.text,fontSize:12,fontFamily:"'Crimson Text',serif"}}>
+          {SHIP_STATUSES.map(s=><option key={s.v} value={s.v}>{s.l}</option>)}
+        </select>
+      </div>
+      <Btn small variant="gold" disabled={status===ship.status||saving} onClick={async()=>{
+        setSaving(true); setProcessing("Updating asset status…");
+        await onAction("updateShipStatus",{id:ship.id,status});
+        setProcessing(null); setSaving(false);
+        notify("Asset status updated.",C.gold);
+      }}>{saving?"…":"Update"}</Btn>
+    </div>
+  );
+}
+function ShipForm({commands,navyBases=[],onAction,notify,setProcessing,onClose}){
+  const [name,setName]=useState(""); const [type,setType]=useState("destroyer");
+  const [shipClass,setShipClass]=useState(""); const [hullNumber,setHullNumber]=useState("");
+  const [displacement,setDisplacement]=useState(""); const [crew,setCrew]=useState("");
+  const [homePort,setHomePort]=useState(""); const [homePortCustom,setHomePortCustom]=useState(""); const [commandId,setCommandId]=useState("");
+  const [notes,setNotes]=useState(""); const [saving,setSaving]=useState(false);
+  const cmdList=Object.values(commands||{});
+  return(
+    <div style={{background:C.s2,border:`1px solid ${C.accentD}44`,borderRadius:3,padding:"1.25rem",marginBottom:"1.25rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:10,letterSpacing:"0.2em",color:C.accent,
+        marginBottom:"1rem",display:"flex",justifyContent:"space-between"}}>
+        REGISTER ASSET
+        <button onClick={onClose} style={{background:"transparent",border:"none",color:C.textD,cursor:"pointer",fontSize:14}}>✕</button>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:2,minWidth:180}}><FL>VESSEL NAME *</FL><Inp value={name} onChange={setName} placeholder="e.g. SMS Emperor's Wrath"/></div>
+          <div style={{flex:1,minWidth:140}}><FL>TYPE</FL><DD value={type} onChange={setType} options={SHIP_TYPES.map(t=>({v:t.v,l:t.l}))}/></div>
+          <div style={{flex:1,minWidth:120}}><FL>HULL NUMBER</FL><Inp value={hullNumber} onChange={setHullNumber} placeholder="e.g. BB-01"/></div>
+        </div>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:140}}><FL>CLASS</FL><Inp value={shipClass} onChange={setShipClass} placeholder="Ship class"/></div>
+          <div style={{flex:1,minWidth:120}}><FL>DISPLACEMENT</FL><Inp value={displacement} onChange={setDisplacement} placeholder="e.g. 45,000 tons"/></div>
+          <div style={{flex:1,minWidth:100}}><FL>CREW</FL><Inp value={crew} onChange={setCrew} placeholder="e.g. 850"/></div>
+          <div style={{flex:1,minWidth:140}}>
+            <FL>HOME PORT</FL>
+            {navyBases.length>0
+              ?<DD value={homePort} onChange={setHomePort}
+                  options={[{v:"",l:"— Select Port —"},...navyBases.map(b=>({v:b.name,l:b.name})),{v:"__custom",l:"Other (type below)"}]}/>
+              :<Inp value={homePort} onChange={setHomePort} placeholder="Port name"/>
+            }
+            {homePort==="__custom"&&<Inp value={homePortCustom} onChange={setHomePortCustom} placeholder="Enter port name" style={{marginTop:4}}/>}
+          </div>
+        </div>
+        {cmdList.length>0&&<div style={{maxWidth:300}}>
+          <FL>NAVAL COMMAND</FL>
+          <DD value={commandId} onChange={setCommandId} options={[{v:"",l:"— None —"},...cmdList.filter(x=>x.type==="component"?x.branchType==="navy":true).map(x=>({v:x.id,l:x.name}))]}/>
+        </div>}
+        <div><FL>NOTES</FL><TA value={notes} onChange={setNotes} placeholder="Additional notes…" rows={2}/></div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn disabled={!name.trim()||saving} onClick={async()=>{
+            setSaving(true); setProcessing("Registering asset…");
+            await onAction("createShip",{ship:{name:name.trim(),type,shipClass:shipClass.trim(),
+              hullNumber:hullNumber.trim(),displacement:displacement.trim(),crew:crew.trim(),
+              homePort:(homePort==="__custom"?homePortCustom.trim():homePort.trim()),commandId,notes:notes.trim(),status:"active",assetCategory:"vessel"}});
+            setProcessing(null); setSaving(false);
+            notify(name+" registered.",C.accent); onClose();
+          }}>{saving?"Registering…":"Register Asset"}</Btn>
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── COMMANDS SECTION ──────────────────────────────────────────────────────────
+function CommandsSection({commands,personnel,ships,canManage,onAction,notify,setProcessing}){
+  const [creating,setCreating]=useState(false);
+  const [cmdName,setCmdName]=useState(""); const [cmdNickname,setCmdNickname]=useState("");
+  const [cmdType,setCmdType]=useState("geographic"); const [cmdNotes,setCmdNotes]=useState("");
+  const [cmdParentId,setCmdParentId]=useState(""); const [cmdBranch,setCmdBranch]=useState("army");
+  const cmdList=Object.values(commands||{}).sort((a,b)=>a.name?.localeCompare(b.name));
+  return(
+    <div className="fadeIn">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1rem"}}>
+        <STitle style={{marginBottom:0}}>Combatant Commands</STitle>
+        {canManage&&!creating&&<Btn small onClick={()=>setCreating(true)}>+ New Command</Btn>}
+      </div>
+      {creating&&(
+        <div style={{background:C.s2,border:`1px solid ${C.accentD}44`,borderRadius:3,padding:"1.25rem",marginBottom:"1.25rem"}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:10,letterSpacing:"0.2em",color:C.accent,marginBottom:"1rem"}}>NEW COMBATANT COMMAND</div>
+          <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+            <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+              <div style={{flex:2,minWidth:200}}><FL>COMMAND NAME *</FL><Inp value={cmdName} onChange={setCmdName} placeholder="e.g. Imperial Pacific Command"/></div>
+              <div style={{flex:1,minWidth:130}}><FL>NICKNAME/ABBR</FL><Inp value={cmdNickname} onChange={setCmdNickname} placeholder="e.g. IMPAC"/></div>
+              <div style={{flex:1,minWidth:150}}>
+                <FL>TYPE</FL>
+                <DD value={cmdType} onChange={setCmdType} options={[{v:"geographic",l:"Geographic Combatant Command"},{v:"functional",l:"Functional Combatant Command"},{v:"component",l:"Component Command"}]}/>
+              </div>
+            </div>
+            {cmdType==="component"&&(
+              <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+                <div style={{flex:1,minWidth:200}}>
+                  <FL>PARENT COMBATANT COMMAND</FL>
+                  <DD value={cmdParentId} onChange={setCmdParentId}
+                    options={[{v:"",l:"— None —"},...Object.values(commands||{}).filter(x=>x.type!=="component").map(x=>({v:x.id,l:x.name}))]}/>
+                </div>
+                <div style={{flex:1,minWidth:160}}>
+                  <FL>BRANCH / COMPONENT TYPE</FL>
+                  <DD value={cmdBranch} onChange={setCmdBranch} options={CMD_BRANCH_TYPES.map(b=>({v:b.v,l:b.l}))}/>
+                </div>
+              </div>
+            )}
+            <div><FL>NOTES / AOR</FL><TA value={cmdNotes} onChange={setCmdNotes} placeholder="Area of responsibility, mission…" rows={2}/></div>
+            <div style={{display:"flex",gap:8}}>
+              <Btn disabled={!cmdName.trim()} onClick={async()=>{
+                setProcessing("Creating command…");
+                await onAction("createCommand",{name:cmdName.trim(),nickname:cmdNickname.trim(),type:cmdType,
+                  parentId:cmdType==="component"?cmdParentId:"",
+                  branchType:cmdType==="component"?cmdBranch:"",
+                  notes:cmdNotes.trim()});
+                setProcessing(null); notify(cmdName+" created.",C.accent);
+                setCmdName(""); setCmdNickname(""); setCmdNotes(""); setCmdParentId(""); setCmdBranch("army"); setCreating(false);
+              }}>Create Command</Btn>
+              <Btn variant="ghost" onClick={()=>setCreating(false)}>Cancel</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+      {cmdList.length===0
+        ?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No commands established.</div>
+        :cmdList.filter(cmd=>cmd.type!=="component").map(cmd=>{
+          const assignedPersonnel=Object.values(personnel||{}).filter(p=>p.commandId===cmd.id);
+          const assignedShips=Object.values(ships||{}).filter(s=>s.commandId===cmd.id);
+          return(
+            <div key={cmd.id} style={{background:C.s1,border:`1px solid ${C.border}`,
+              borderLeft:`4px solid ${C.accent}`,borderRadius:"0 3px 3px 0",marginBottom:"0.75rem",padding:"1rem"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8}}>
+                <div>
+                  <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:C.text}}>
+                    {cmd.name}
+                    {cmd.nickname&&<span className="mono" style={{fontSize:9,color:C.textDD,marginLeft:8}}>{cmd.nickname}</span>}
+                  </div>
+                  <div style={{display:"flex",gap:8,marginTop:3,flexWrap:"wrap"}}>
+                    <span className="mono" style={{fontSize:9,color:C.textDD}}>
+                      {cmd.type==="component"?"COMPONENT COMMAND":cmd.type==="geographic"?"GEOGRAPHIC":"FUNCTIONAL"}
+                    </span>
+                    {cmd.type==="component"&&cmd.branchType&&(
+                      <span className="mono" style={{fontSize:9,color:C.accent}}>
+                        {CMD_BRANCH_TYPES.find(b=>b.v===cmd.branchType)?.l||cmd.branchType}
+                      </span>
+                    )}
+                    {cmd.type==="component"&&cmd.parentId&&commands[cmd.parentId]&&(
+                      <span className="mono" style={{fontSize:9,color:C.textD}}>
+                        ↳ {commands[cmd.parentId].name}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:12}}>
+                  <div style={{textAlign:"center"}}>
+                    <div style={{fontFamily:"'Cinzel',serif",fontSize:20,color:C.accent}}>{assignedPersonnel.length}</div>
+                    <div className="mono" style={{fontSize:8,color:C.textDD}}>PERSONNEL</div>
+                  </div>
+                  <div style={{textAlign:"center"}}>
+                    <div style={{fontFamily:"'Cinzel',serif",fontSize:20,color:C.navy||"#4a6a9a"}}>{assignedShips.length}</div>
+                    <div className="mono" style={{fontSize:8,color:C.textDD}}>VESSELS</div>
+                  </div>
+                </div>
+              </div>
+              {cmd.notes&&<div style={{fontSize:13,color:C.textD,fontStyle:"italic",marginTop:"0.5rem"}}>{cmd.notes}</div>}
+              {(()=>{
+                const components=Object.values(commands||{}).filter(x=>x.type==="component"&&x.parentId===cmd.id);
+                if(components.length===0) return null;
+                const compP=Object.values(personnel||{});
+                const compS=Object.values(ships||{});
+                return(
+                  <div style={{marginTop:"0.85rem",borderTop:`1px solid ${C.border}`,paddingTop:"0.75rem"}}>
+                    <div className="mono" style={{fontSize:8,color:C.textDD,letterSpacing:"0.15em",marginBottom:8}}>SUBORDINATE COMPONENT COMMANDS</div>
+                    {components.map(comp=>{
+                      const bt=CMD_BRANCH_TYPES.find(b=>b.v===comp.branchType);
+                      const cp=compP.filter(p=>p.commandId===comp.id).length;
+                      const cs=compS.filter(s=>s.commandId===comp.id).length;
+                      return(
+                        <div key={comp.id} style={{background:C.s2,border:`1px solid ${C.border}`,
+                          borderLeft:`3px solid ${C.accentD}`,borderRadius:"0 2px 2px 0",
+                          padding:"6px 12px",marginBottom:4,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                          <div style={{flex:1}}>
+                            <span style={{fontFamily:"'Cinzel',serif",fontSize:12,color:C.text}}>{comp.name}</span>
+                            {comp.nickname&&<span className="mono" style={{fontSize:9,color:C.textDD,marginLeft:6}}>{comp.nickname}</span>}
+                            {bt&&<span className="mono" style={{fontSize:9,color:C.accent,marginLeft:8}}>{bt.l}</span>}
+                          </div>
+                          <div style={{display:"flex",gap:10}}>
+                            {cp>0&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{cp} PERS</span>}
+                            {cs>0&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{cs} VESSELS</span>}
+                          </div>
+                          {canManage&&<ArmBtn small label="Dissolve" confirmLabel="Dissolve?" onConfirm={async()=>{
+                            setProcessing("Dissolving…"); await onAction("deleteCommand",{id:comp.id});
+                            setProcessing(null); notify(comp.name+" dissolved.",C.textD);
+                          }}/>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+              {canManage&&<div style={{marginTop:"0.75rem",display:"flex",justifyContent:"flex-end"}}>
+                <ArmBtn small label="Dissolve Command" confirmLabel="Dissolve command?" onConfirm={async()=>{
+                  setProcessing("Dissolving command…");
+                  await onAction("deleteCommand",{id:cmd.id});
+                  setProcessing(null); notify(cmd.name+" dissolved.",C.textD);
+                }}/>
+              </div>}
+            </div>
+          );
+        })
+      }
+    </div>
+  );
+}
+
+// ── OPERATIONS SECTION ────────────────────────────────────────────────────────
+function OperationsSection({operations,currentUser,canManage,onAction,notify,setProcessing}){
+  const [creating,setCreating]=useState(false);
+  const ops=Object.values(operations||{}).sort((a,b)=>(b.created||0)-(a.created||0));
+  return(
+    <div className="fadeIn">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1rem"}}>
+        <STitle style={{marginBottom:0}}>Operations</STitle>
+        {canManage&&!creating&&<Btn small onClick={()=>setCreating(true)}>+ New Operation</Btn>}
+      </div>
+      {creating&&<MowOperationForm onAction={onAction} notify={notify} setProcessing={setProcessing} onClose={()=>setCreating(false)}/>}
+      {ops.length===0
+        ?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No operations on record.</div>
+        :ops.map(op=><MowOperationCard key={op.id} op={op} currentUser={currentUser} canManage={canManage}
+            onAction={onAction} notify={notify} setProcessing={setProcessing}/>)
+      }
+    </div>
+  );
+}
+function MowOperationCard({op,currentUser,canManage,onAction,notify,setProcessing}){
+  const [open,setOpen]=useState(false);
+  const [note,setNote]=useState("");
+  const [saving,setSaving]=useState(false);
+  const st=OP_STATUSES.find(s=>s.v===op.status)||OP_STATUSES[0];
+  const opCl=MCL(op.clearance||0);
+  const userCl=currentUser?.clearance||0;
+  if((op.clearance||0)>userCl) return null;
+  return(
+    <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${st.color}`,
+      borderRadius:"0 3px 3px 0",marginBottom:"0.6rem",overflow:"hidden"}}>
+      <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,
+        padding:"0.75rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
+        <span className="mono" style={{fontSize:9,padding:"2px 8px",background:C.s3,
+          border:`1px solid ${st.color}44`,color:st.color}}>{op.status?.toUpperCase()}</span>
+        <span style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:C.text,flex:1}}>{op.name}</span>
+        {op.codename&&<span className="mono" style={{fontSize:10,color:C.textD}}>// {op.codename}</span>}
+        <span className="mono" style={{fontSize:9,padding:"2px 7px",background:opCl.bg,
+          border:`1px solid ${opCl.border}`,color:opCl.color}}>{opCl.short}</span>
+        <span style={{fontSize:11,color:C.textDD}}>{open?"▲":"▼"}</span>
+      </div>
+      {open&&(
+        <div style={{borderTop:`1px solid ${C.border}`,padding:"1rem",background:C.s2}}>
+          {op.description&&<div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1rem"}}>{op.description}</div>}
+          {op.progress!=null&&(
+            <div style={{marginBottom:"1rem"}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                <span className="mono" style={{fontSize:9,color:C.textDD}}>PROGRESS</span>
+                <span className="mono" style={{fontSize:9,color:C.accent}}>{op.progress}%</span>
+              </div>
+              <div style={{height:5,background:C.s3,borderRadius:3,overflow:"hidden"}}>
+                <div style={{width:op.progress+"%",height:"100%",
+                  background:`linear-gradient(to right,${C.accentD},${C.accent})`,borderRadius:3}}/>
+              </div>
+            </div>
+          )}
+          {op.opord&&(
+            <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:"3px solid #4a6a9a",
+              borderRadius:"0 2px 2px 0",padding:"0.75rem 1rem",marginBottom:"1rem"}}>
+              <div className="mono" style={{fontSize:9,color:"#4a6a9a",marginBottom:4}}>OPERATION ORDER</div>
+              <div style={{fontSize:13,color:C.text,lineHeight:1.8,whiteSpace:"pre-wrap"}}>{op.opord}</div>
+            </div>
+          )}
+          {(op.notes||[]).length>0&&(
+            <div style={{marginBottom:"1rem"}}>
+              <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:6}}>FIELD UPDATES</div>
+              {[...op.notes].reverse().map((n,i)=>(
+                <div key={i} style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:2,
+                  padding:"5px 10px",marginBottom:3}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                    <span className="mono" style={{fontSize:9,color:C.textD}}>{n.author}</span>
+                    <span className="mono" style={{fontSize:9,color:C.textDD}}>{new Date(n.ts).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}</span>
+                  </div>
+                  <div style={{fontSize:13,color:C.text,lineHeight:1.6}}>{n.text}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{display:"flex",gap:8}}>
+            <Inp value={note} onChange={setNote} placeholder="Add field update…" style={{flex:1}}/>
+            <Btn small disabled={!note.trim()||saving} onClick={async()=>{
+              setSaving(true); setProcessing("Adding update…");
+              const n={text:note.trim(),author:currentUser.displayName||currentUser.username,ts:Date.now()};
+              await onAction("addOpNote",{id:op.id,note:n});
+              setProcessing(null); setSaving(false); setNote("");
+              notify("Update added.",C.accent);
+            }}>{saving?"…":"Add"}</Btn>
+          </div>
+          {canManage&&<OpEditor op={op} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+        </div>
+      )}
+    </div>
+  );
+}
+function OpEditor({op,onAction,notify,setProcessing}){
+  const [status,setStatus]=useState(op.status||"planning");
+  const [progress,setProgress]=useState(String(op.progress||0));
+  const [saving,setSaving]=useState(false);
+  return(
+    <div style={{marginTop:8,borderTop:`1px solid ${C.border}`,paddingTop:"0.75rem",display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
+      <div style={{flex:1,minWidth:140}}><DD value={status} onChange={setStatus} options={OP_STATUSES.map(s=>({v:s.v,l:s.l}))}/></div>
+      <div style={{width:80}}><Inp value={progress} onChange={setProgress} placeholder="%" style={{textAlign:"right"}}/></div>
+      <Btn small variant="gold" disabled={saving} onClick={async()=>{
+        setSaving(true); setProcessing("Updating operation…");
+        await onAction("updateOperation",{id:op.id,status,progress:parseInt(progress)||0});
+        setProcessing(null); setSaving(false);
+        notify("Operation updated.",C.gold);
+      }}>{saving?"…":"Save"}</Btn>
+      <ArmBtn small label="Delete" confirmLabel="Delete operation?" onConfirm={async()=>{
+        setProcessing("Deleting operation…");
+        await onAction("deleteOperation",{id:op.id});
+        setProcessing(null); notify("Operation deleted.",C.textD);
+      }}/>
+    </div>
+  );
+}
+function MowOperationForm({onAction,notify,setProcessing,onClose}){
+  const [name,setName]=useState(""); const [codename,setCodename]=useState("");
+  const [description,setDescription]=useState(""); const [opord,setOpord]=useState("");
+  const [clearance,setClearance]=useState("0");
+  const [saving,setSaving]=useState(false);
+  return(
+    <div style={{background:C.s2,border:`1px solid ${C.accentD}44`,borderRadius:3,padding:"1.25rem",marginBottom:"1.25rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:10,letterSpacing:"0.2em",color:C.accent,marginBottom:"1rem",
+        display:"flex",justifyContent:"space-between"}}>
+        NEW OPERATION
+        <button onClick={onClose} style={{background:"transparent",border:"none",color:C.textD,cursor:"pointer",fontSize:14}}>✕</button>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:2,minWidth:180}}><FL>OPERATION NAME *</FL><Inp value={name} onChange={setName} placeholder="Operation name"/></div>
+          <div style={{flex:1,minWidth:140}}><FL>CODENAME</FL><Inp value={codename} onChange={setCodename} placeholder="e.g. IRON EAGLE"/></div>
+          <div style={{flex:1,minWidth:150}}>
+            <FL>CLASSIFICATION</FL>
+            <DD value={clearance} onChange={setClearance} options={MOW_CLEARANCE.map(cl=>({v:String(cl.level),l:cl.code}))}/>
+          </div>
+        </div>
+        <div><FL>DESCRIPTION</FL><TA value={description} onChange={setDescription} placeholder="Operational overview…" rows={3}/></div>
+        <div><FL>OPERATION ORDER (OPORD)</FL><TA value={opord} onChange={setOpord} placeholder="OPORD text…" rows={5}/></div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn disabled={!name.trim()||saving} onClick={async()=>{
+            setSaving(true); setProcessing("Creating operation…");
+            await onAction("createOperation",{op:{name:name.trim(),codename:codename.trim(),
+              description:description.trim(),opord:opord.trim(),clearance:parseInt(clearance)||0,status:"planning",progress:0,notes:[]}});
+            setProcessing(null); setSaving(false);
+            notify("Operation created.",C.accent); onClose();
+          }}>{saving?"Creating…":"Create Operation"}</Btn>
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── SCHEDULE SECTION ──────────────────────────────────────────────────────────
+function ScheduleSection({schedule,canManage,onAction,notify,setProcessing}){
+  const [creating,setCreating]=useState(false);
+  const [title,setTitle]=useState(""); const [date,setDate]=useState(new Date().toISOString().slice(0,10));
+  const [time,setTime]=useState(""); const [type,setType]=useState("training");
+  const [location,setLocation]=useState(""); const [notes,setNotes]=useState("");
+  const [saving,setSaving]=useState(false);
+
+  const now=new Date(); now.setHours(0,0,0,0);
+  const upcoming=Object.values(schedule||{})
+    .filter(e=>new Date(e.date)>=now)
+    .sort((a,b)=>new Date(a.date)-new Date(b.date));
+  const past=Object.values(schedule||{})
+    .filter(e=>new Date(e.date)<now)
+    .sort((a,b)=>new Date(b.date)-new Date(a.date))
+    .slice(0,10);
+
+  return(
+    <div className="fadeIn">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1rem"}}>
+        <STitle style={{marginBottom:0}}>Training & Schedule</STitle>
+        {canManage&&!creating&&<Btn small onClick={()=>setCreating(true)}>+ Add Event</Btn>}
+      </div>
+      {creating&&(
+        <div style={{background:C.s2,border:`1px solid ${C.accentD}44`,borderRadius:3,padding:"1.25rem",marginBottom:"1.25rem"}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:10,letterSpacing:"0.2em",color:C.accent,marginBottom:"1rem",
+            display:"flex",justifyContent:"space-between"}}>
+            ADD SCHEDULED EVENT
+            <button onClick={()=>setCreating(false)} style={{background:"transparent",border:"none",color:C.textD,cursor:"pointer",fontSize:14}}>✕</button>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+            <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+              <div style={{flex:2,minWidth:180}}><FL>TITLE *</FL><Inp value={title} onChange={setTitle} placeholder="Event title"/></div>
+              <div style={{flex:1,minWidth:130}}><FL>TYPE</FL><DD value={type} onChange={setType} options={SCHEDULE_TYPES.map(t=>({v:t.v,l:t.l}))}/></div>
+            </div>
+            <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:140}}><FL>DATE *</FL><Inp value={date} onChange={setDate} type="date"/></div>
+              <div style={{flex:1,minWidth:120}}><FL>TIME (optional)</FL><Inp value={time} onChange={setTime} placeholder="e.g. 0800"/></div>
+              <div style={{flex:2,minWidth:180}}><FL>LOCATION (optional)</FL><Inp value={location} onChange={setLocation} placeholder="Location or grid ref"/></div>
+            </div>
+            <div><FL>NOTES</FL><TA value={notes} onChange={setNotes} placeholder="Details, required personnel…" rows={2}/></div>
+            <div style={{display:"flex",gap:8}}>
+              <Btn disabled={!title.trim()||saving} onClick={async()=>{
+                setSaving(true); setProcessing("Adding event…");
+                await onAction("createScheduleEvent",{event:{title:title.trim(),date,time:time.trim(),type,location:location.trim(),notes:notes.trim()}});
+                setProcessing(null); setSaving(false);
+                notify("Event scheduled.",C.accent);
+                setTitle(""); setTime(""); setLocation(""); setNotes(""); setCreating(false);
+              }}>{saving?"Saving…":"Schedule Event"}</Btn>
+              <Btn variant="ghost" onClick={()=>setCreating(false)}>Cancel</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+      {upcoming.length===0&&<div style={{fontSize:14,color:C.textDD,fontStyle:"italic",marginBottom:"1rem"}}>No upcoming events.</div>}
+      {upcoming.map(ev=><ScheduleEventCard key={ev.id} event={ev} canManage={canManage} onAction={onAction} notify={notify} setProcessing={setProcessing}/>)}
+      {past.length>0&&(
+        <>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:10,letterSpacing:"0.2em",color:C.textDD,
+            marginTop:"1.5rem",marginBottom:"0.75rem",borderBottom:`1px solid ${C.border}`,paddingBottom:6}}>
+            Past Events (Last 10)
+          </div>
+          {past.map(ev=><ScheduleEventCard key={ev.id} event={ev} canManage={canManage} onAction={onAction} notify={notify} setProcessing={setProcessing} isPast/>)}
+        </>
+      )}
+    </div>
+  );
+}
+function ScheduleEventCard({event,canManage,onAction,notify,setProcessing,isPast}){
+  const st=SCHEDULE_TYPES.find(t=>t.v===event.type)||SCHEDULE_TYPES[0];
+  const d=new Date(event.date).toLocaleDateString("en-GB",{weekday:"short",day:"2-digit",month:"short",year:"numeric"});
+  return(
+    <div style={{background:C.s1,border:`1px solid ${isPast?C.border:st.color+"44"}`,
+      borderLeft:`4px solid ${isPast?C.textDD:st.color}`,borderRadius:"0 3px 3px 0",
+      marginBottom:"0.5rem",padding:"0.65rem 1rem",display:"flex",alignItems:"center",gap:10,
+      flexWrap:"wrap",opacity:isPast?0.6:1}}>
+      <div style={{minWidth:140}}>
+        <div className="mono" style={{fontSize:9,color:isPast?C.textDD:st.color}}>{d}{event.time&&" · "+event.time}</div>
+      </div>
+      <div style={{flex:1}}>
+        <span style={{fontFamily:"'Cinzel',serif",fontSize:13,color:isPast?C.textD:C.text}}>{event.title}</span>
+        {event.location&&<span style={{fontSize:12,color:C.textDD,marginLeft:8,fontStyle:"italic"}}>{event.location}</span>}
+      </div>
+      <span className="mono" style={{fontSize:9,color:isPast?C.textDD:st.color}}>{st.l}</span>
+      {canManage&&<ArmBtn small label="Remove" confirmLabel="Remove event?" onConfirm={async()=>{
+        setProcessing("Removing event…"); await onAction("deleteScheduleEvent",{id:event.id});
+        setProcessing(null); notify("Event removed.",C.textD);
+      }}/>}
+    </div>
+  );
+}
+
+// ── MINISTER / EMPEROR PANEL ──────────────────────────────────────────────────
+function AdminPanel({currentUser,accounts,alertData,wartime,announcement,canSetAlert,isEmperor,onAction,notify,setProcessing}){
+  const [sec,setSec]=useState("alert");
+  const SECS=[
+    ["alert","⚠ Readiness"],
+    ["announce","📢 Announcement"],
+    ...(isEmperor?[["wartime","⚔ Wartime"],["accounts","Accounts"]]:[]),
+  ];
+  return(
+    <div className="fadeIn">
+      <STitle color={isEmperor?C.gold:"#8a9a8a"}>{isEmperor?"Emperor Panel":"Minister Panel"}</STitle>
+      <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1.5rem",flexWrap:"wrap"}}>
+        {SECS.map(([v,l])=>(
+          <button key={v} onClick={()=>setSec(v)}
+            style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.15em",textTransform:"uppercase",
+                     padding:"0.6rem 1rem",background:"transparent",border:"none",cursor:"pointer",
+                     borderBottom:`2px solid ${sec===v?(isEmperor?C.gold:C.accent):"transparent"}`,
+                     color:sec===v?(isEmperor?C.gold:C.accent):C.textD}}>
+            {l}
+          </button>
+        ))}
+      </div>
+      {sec==="alert"&&<AlertEditor alertData={alertData} canSetAlert={canSetAlert} currentUser={currentUser} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+      {sec==="announce"&&<AnnouncementEditor announcement={announcement} currentUser={currentUser} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+      {sec==="wartime"&&isEmperor&&<WartimeEditor wartime={wartime} currentUser={currentUser} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+      {sec==="accounts"&&isEmperor&&<MowAccountManager accounts={accounts} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+    </div>
+  );
+}
+function AlertEditor({alertData,canSetAlert,currentUser,onAction,notify,setProcessing}){
+  const [level,setLevel]=useState(alertData?.level||5);
+  const [note,setNote]=useState("");
+  const [saving,setSaving]=useState(false);
+  const al=AL(level);
+  if(!canSetAlert) return(
+    <div style={{fontSize:14,color:C.textD,fontStyle:"italic"}}>
+      You do not have authority to set the readiness level.
+    </div>
+  );
+  return(
+    <div style={{maxWidth:480}}>
+      <STitle>Set Readiness Level</STitle>
+      <div style={{display:"flex",flexDirection:"column",gap:"1rem"}}>
+        {ALERT_LEVELS.map(a=>(
+          <div key={a.level} onClick={()=>setLevel(a.level)}
+            style={{display:"flex",alignItems:"center",gap:12,padding:"0.75rem 1rem",cursor:"pointer",
+              background:level===a.level?a.bg:C.s1,border:`2px solid ${level===a.level?a.color:C.border}`,
+              borderRadius:3,transition:"all .15s"}}>
+            <div style={{width:12,height:12,borderRadius:"50%",background:a.color,
+              boxShadow:level===a.level?`0 0 8px ${a.color}`:"none",flexShrink:0}}/>
+            <div>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:11,color:level===a.level?a.color:C.textD,fontWeight:700}}>
+                {a.short} — {a.label.replace("Imperial Readiness Level "+a.level+" — ","").replace("Imperial Readiness Level "+a.level,"a.label")}
+              </div>
+              <div style={{fontSize:12,color:level===a.level?a.color:C.textDD,fontStyle:"italic",opacity:.85}}>{a.sub}</div>
+            </div>
+          </div>
+        ))}
+        <div><FL>NOTE (optional)</FL><Inp value={note} onChange={setNote} placeholder="Reason for change…"/></div>
+        <Btn variant={level<=2?"armed":"gold"} disabled={saving} onClick={async()=>{
+          setSaving(true); setProcessing("Setting readiness level…");
+          await onAction("setAlertLevel",{level,note:note.trim(),setBy:currentUser.displayName||currentUser.username,setAt:Date.now()});
+          setProcessing(null); setSaving(false); setNote("");
+          notify("Readiness level set to "+AL(level).short+".",AL(level).color);
+        }}>{saving?"Setting…":"Set Readiness Level"}</Btn>
+      </div>
+    </div>
+  );
+}
+function AnnouncementEditor({announcement,currentUser,onAction,notify,setProcessing}){
+  const [title,setTitle]=useState(announcement?.title||"");
+  const [text,setText]=useState(announcement?.text||"");
+  const [tone,setTone]=useState(announcement?.tone||"info");
+  const [saving,setSaving]=useState(false);
+  return(
+    <div style={{maxWidth:480}}>
+      <STitle>Announcement</STitle>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+        <div><FL>TITLE (optional)</FL><Inp value={title} onChange={setTitle} placeholder="Announcement title"/></div>
+        <div>
+          <FL>TONE</FL>
+          <DD value={tone} onChange={setTone} options={[{v:"info",l:"Information"},{v:"order",l:"Standing Order"},{v:"warning",l:"Warning"},{v:"alert",l:"Alert"}]}/>
+        </div>
+        <div><FL>MESSAGE *</FL><TA value={text} onChange={setText} placeholder="Announcement text…" rows={4}/></div>
+        {text.trim()&&(
+          <div>
+            <FL>PREVIEW</FL>
+            <AnnouncementBanner announcement={{title:title.trim(),text:text.trim(),tone,
+              postedBy:currentUser.displayName||currentUser.username,posted_at:Date.now()}}/>
+          </div>
+        )}
+        <div style={{display:"flex",gap:8}}>
+          <Btn variant="gold" disabled={!text.trim()||saving} onClick={async()=>{
+            setSaving(true); setProcessing("Posting announcement…");
+            await onAction("setMowAnnouncement",{title:title.trim(),text:text.trim(),tone,
+              postedBy:currentUser.displayName||currentUser.username,posted_at:Date.now()});
+            setProcessing(null); setSaving(false);
+            notify("Announcement posted.",C.gold);
+          }}>{saving?"Posting…":"Post Announcement"}</Btn>
+          {announcement?.text&&<ArmBtn label="Clear" confirmLabel="Clear announcement?" onConfirm={async()=>{
+            setProcessing("Clearing announcement…");
+            await onAction("setMowAnnouncement",{});
+            setProcessing(null); setText(""); setTitle("");
+            notify("Announcement cleared.",C.textD);
+          }}/>}
+        </div>
+      </div>
+    </div>
+  );
+}
+function WartimeEditor({wartime,currentUser,onAction,notify,setProcessing}){
+  return(
+    <div style={{maxWidth:480}}>
+      <STitle>6th Amendment — Wartime Measures</STitle>
+      <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.25rem"}}>
+        The 6th Amendment grants the Emperor emergency wartime powers. Invocation is displayed prominently across the War Office and reflected site-wide.
+      </div>
+      {wartime?.active?(
+        <div>
+          <div style={{background:"#1a0404",border:"1px solid #cc2222",borderRadius:3,
+            padding:"0.85rem 1rem",marginBottom:"1rem",fontSize:14,color:"#e07070"}}>
+            ⚔ Wartime measures currently ACTIVE — invoked by {wartime.invokedBy}
+          </div>
+          <ArmBtn label="Revoke Wartime Measures" confirmLabel="Revoke 6th Amendment?" variant="danger" onConfirm={async()=>{
+            setProcessing("Revoking wartime measures…");
+            await onAction("setWartime",{active:false,revokedBy:currentUser.displayName||currentUser.username,revokedAt:Date.now()});
+            setProcessing(null); notify("Wartime measures revoked.",C.textD);
+          }}/>
+        </div>
+      ):(
+        <ArmBtn label="⚔ Invoke 6th Amendment — Wartime Measures" confirmLabel="Invoke wartime powers?" variant="armed" onConfirm={async()=>{
+          setProcessing("Invoking 6th Amendment…");
+          await onAction("setWartime",{active:true,invokedBy:currentUser.displayName||currentUser.username,invokedAt:Date.now()});
+          setProcessing(null); notify("⚔ Wartime measures invoked.",C.redL);
+        }}/>
+      )}
+    </div>
+  );
+}
+function MowAccountManager({accounts,onAction,notify,setProcessing}){
+  const [search,setSearch]=useState("");
+  const list=Object.values(accounts||{})
+    .filter(a=>!search||(a.displayName||a.username).toLowerCase().includes(search.toLowerCase()))
+    .sort((a,b)=>(a.displayName||a.username).localeCompare(b.displayName||b.username));
+  return(
+    <div>
+      <STitle>MOW Account Access</STitle>
+      <div style={{marginBottom:"1rem"}}><Inp value={search} onChange={setSearch} placeholder="Search accounts…"/></div>
+      {list.map(acc=><MowAccountRow key={acc.username} acc={acc} onAction={onAction} notify={notify} setProcessing={setProcessing}/>)}
+    </div>
+  );
+}
+function MowAccountRow({acc,onAction,notify,setProcessing}){
+  const [open,setOpen]=useState(false);
+  const [mowAccess,setMowAccess]=useState(acc.mowAccess||false);
+  const [mowRole,setMowRole]=useState(acc.mowRole||"officer");
+  const [canSetAlert,setCanSetAlert]=useState(acc.canSetAlert||false);
+  const [saving,setSaving]=useState(false);
+  return(
+    <div style={{background:C.s1,border:`1px solid ${open?C.accentD:C.border}`,borderRadius:3,marginBottom:4,overflow:"hidden"}}>
+      <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"0.65rem 1rem",cursor:"pointer"}}>
+        <span style={{flex:1,fontFamily:"'Cinzel',serif",fontSize:13,color:C.text}}>{acc.displayName||acc.username}</span>
+        <span className="mono" style={{fontSize:9,color:C.textD}}>{acc.username}</span>
+        {acc.mowAccess&&<span className="mono" style={{fontSize:9,color:C.accent,border:`1px solid ${C.accentD}44`,padding:"1px 6px"}}>MOW</span>}
+        <span style={{fontSize:11,color:C.textDD}}>{open?"▲":"▼"}</span>
+      </div>
+      {open&&(
+        <div style={{borderTop:`1px solid ${C.border}`,padding:"0.75rem 1rem",
+          display:"flex",gap:"1rem",flexWrap:"wrap",alignItems:"flex-end"}}>
+          <div onClick={()=>setMowAccess(v=>!v)} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
+            <div style={{width:16,height:16,border:`2px solid ${mowAccess?C.accent:C.border}`,borderRadius:2,
+              background:mowAccess?C.accentD:"transparent",display:"flex",alignItems:"center",
+              justifyContent:"center",fontSize:10,color:C.accent}}>{mowAccess?"✓":""}</div>
+            <span style={{fontSize:13,color:mowAccess?C.text:C.textD}}>MOW Access</span>
+          </div>
+          {mowAccess&&<div style={{minWidth:160}}>
+            <FL>ROLE</FL>
+            <DD value={mowRole} onChange={setMowRole} options={[
+              {v:"officer",l:"Officer"},{v:"commander",l:"Commander"},{v:"minister",l:"Minister"}
+            ]}/>
+          </div>}
+          <div onClick={()=>setCanSetAlert(v=>!v)} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
+            <div style={{width:16,height:16,border:`2px solid ${canSetAlert?"#cc6a10":C.border}`,borderRadius:2,
+              background:canSetAlert?"#3a1a00":"transparent",display:"flex",alignItems:"center",
+              justifyContent:"center",fontSize:10,color:"#cc6a10"}}>{canSetAlert?"✓":""}</div>
+            <span style={{fontSize:13,color:canSetAlert?C.text:C.textD}}>Can Set Alert Level</span>
+          </div>
+          <Btn small variant="gold" disabled={saving} onClick={async()=>{
+            setSaving(true); setProcessing("Updating account…");
+            await onAction("updateAccountMow",{username:acc.username,mowAccess,mowRole,canSetAlert});
+            setProcessing(null); setSaving(false);
+            notify(acc.username+" updated.",C.gold);
+          }}>{saving?"Saving…":"Save"}</Btn>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── APP ───────────────────────────────────────────────────────────────────────
+function App(){
+  const [user,setUser]=useState(null);
+  const [raw,setRaw]=useState({});
+  const [tab,setTab]=useState("home");
+  const [toast,setToast]=useState({msg:"",color:C.accent});
+  const [processing,setProcessing]=useState(null);
+  const [showRanks,setShowRanks]=useState(false);
+
+  const notify=useCallback((msg,color=C.accent)=>{
+    setToast({msg,color}); setTimeout(()=>setToast(t=>t.msg===msg?{msg:"",color}:t),4000);
+  },[]);
+
+  const personnel=useMemo(()=>raw["mow_personnel"]||{},[raw]);
+  const ships=useMemo(()=>raw["mow_ships"]||{},[raw]);
+  const commands=useMemo(()=>raw["mow_commands"]||{},[raw]);
+  const operations=useMemo(()=>raw["mow_operations"]||{},[raw]);
+  const schedule=useMemo(()=>raw["mow_schedule"]||{},[raw]);
+  const alertData=useMemo(()=>raw["mow_alert"]||{level:5},[raw]);
+  const wartime=useMemo(()=>raw["mow_wartime"]||{active:false},[raw]);
+  const announcement=useMemo(()=>raw["mow_announcement"]||{},[raw]);
+  const accounts=useMemo(()=>{
+    const a={};
+    Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v) a[v.username]=v;});
+    Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(!a[k]) a[k]=v;});
+    return a;
+  },[raw]);
+
+  const handleLogin=(u,rawData)=>{ setUser(u); setRaw(rawData); setTab("home"); };
+
+  const isEmperor=user?.role==="emperor";
+  const isMowMinister=isEmperor||user?.mowRole==="minister";
+  const isMowCommander=isMowMinister||user?.mowRole==="commander";
+  const canManage=isMowCommander;
+  const canSetAlert=isEmperor||user?.canSetAlert||isMowMinister;
+
+  const TABS=[
+    {v:"home",      l:"Home",       icon:"🏠"},
+    {v:"personnel", l:"Personnel",  icon:"👤"},
+    {v:"assets",    l:"Assets",     icon:"⚓"},
+    {v:"commands",  l:"Commands",   icon:"🎖"},
+    {v:"operations",l:"Operations", icon:"📍"},
+    {v:"schedule",  l:"Schedule",   icon:"📅"},
+    ...(isMowMinister||isEmperor?[{v:"admin",l:isEmperor?"Emperor":"Minister",icon:isEmperor?"👑":"🎖"}]:[]),
+  ];
+
+  const onAction=useCallback(async(type,payload)=>{
+    // Personnel
+    if(type==="createPersonnel"){
+      const id="pers_"+uid();
+      const next={...personnel,[id]:{...payload,id,serviceHistory:[],medals:[],created:Date.now()}};
+      setRaw(r=>({...r,mow_personnel:next})); await sset("mow_personnel",next);
+    } else if(type==="updatePersonnel"){
+      const {id,...rest}=payload;
+      const next={...personnel,[id]:{...personnel[id],...rest}};
+      setRaw(r=>({...r,mow_personnel:next})); await sset("mow_personnel",next);
+    } else if(type==="deletePersonnel"){
+      const next={...personnel}; delete next[payload.id];
+      setRaw(r=>({...r,mow_personnel:next})); await sset("mow_personnel",next);
+    } else if(type==="addServiceHistory"){
+      const p={...personnel[payload.id],serviceHistory:[...(personnel[payload.id]?.serviceHistory||[]),payload.entry]};
+      const next={...personnel,[payload.id]:p};
+      setRaw(r=>({...r,mow_personnel:next})); await sset("mow_personnel",next);
+    } else if(type==="addMedal"){
+      const p={...personnel[payload.id],medals:[...(personnel[payload.id]?.medals||[]),payload.medal]};
+      const next={...personnel,[payload.id]:p};
+      setRaw(r=>({...r,mow_personnel:next})); await sset("mow_personnel",next);
+    }
+    // Ships
+    else if(type==="createShip"){
+      const id="ship_"+uid();
+      const next={...ships,[id]:{...payload.ship,id,created:Date.now()}};
+      setRaw(r=>({...r,mow_ships:next})); await sset("mow_ships",next);
+    } else if(type==="updateShipStatus"){
+      const next={...ships,[payload.id]:{...ships[payload.id],status:payload.status}};
+      setRaw(r=>({...r,mow_ships:next})); await sset("mow_ships",next);
+    } else if(type==="deleteShip"){
+      const next={...ships}; delete next[payload.id];
+      setRaw(r=>({...r,mow_ships:next})); await sset("mow_ships",next);
+    }
+    // Commands
+    else if(type==="createCommand"){
+      const id="cmd_"+uid();
+      const next={...commands,[id]:{...payload,id,created:Date.now()}};
+      setRaw(r=>({...r,mow_commands:next})); await sset("mow_commands",next);
+    } else if(type==="deleteCommand"){
+      const next={...commands}; delete next[payload.id];
+      setRaw(r=>({...r,mow_commands:next})); await sset("mow_commands",next);
+    }
+    // Operations
+    else if(type==="createOperation"){
+      const id="op_"+uid();
+      const next={...operations,[id]:{...payload.op,id,created:Date.now()}};
+      setRaw(r=>({...r,mow_operations:next})); await sset("mow_operations",next);
+    } else if(type==="updateOperation"){
+      const next={...operations,[payload.id]:{...operations[payload.id],status:payload.status,progress:payload.progress}};
+      setRaw(r=>({...r,mow_operations:next})); await sset("mow_operations",next);
+    } else if(type==="addOpNote"){
+      const op={...operations[payload.id],notes:[...(operations[payload.id]?.notes||[]),payload.note]};
+      const next={...operations,[payload.id]:op};
+      setRaw(r=>({...r,mow_operations:next})); await sset("mow_operations",next);
+    } else if(type==="deleteOperation"){
+      const next={...operations}; delete next[payload.id];
+      setRaw(r=>({...r,mow_operations:next})); await sset("mow_operations",next);
+    }
+    // Schedule
+    else if(type==="createScheduleEvent"){
+      const id="sched_"+uid();
+      const next={...schedule,[id]:{...payload.event,id}};
+      setRaw(r=>({...r,mow_schedule:next})); await sset("mow_schedule",next);
+    } else if(type==="deleteScheduleEvent"){
+      const next={...schedule}; delete next[payload.id];
+      setRaw(r=>({...r,mow_schedule:next})); await sset("mow_schedule",next);
+    }
+    // Alert / Wartime / Announcement
+    else if(type==="setAlertLevel"){
+      setRaw(r=>({...r,mow_alert:payload})); await sset("mow_alert",payload);
+    } else if(type==="setWartime"){
+      setRaw(r=>({...r,mow_wartime:payload})); await sset("mow_wartime",payload);
+    } else if(type==="setMowAnnouncement"){
+      setRaw(r=>({...r,mow_announcement:payload})); await sset("mow_announcement",payload);
+    }
+    // Account MOW access
+    else if(type==="updateAccountMow"){
+      const {username,...patch}=payload;
+      const rowKey="mi_acc_"+username;
+      const updated={...accounts[username],...patch};
+      setRaw(r=>({...r,[rowKey]:updated})); await sset(rowKey,updated);
+    }
+  },[raw,personnel,ships,commands,operations,schedule,accounts]);
+
+  if(!user) return<LoginScreen onLogin={handleLogin}/>;
+
+  const totalPersonnel=Object.keys(personnel).length;
+  const totalShips=Object.keys(ships).length;
+  const activeOps=Object.values(operations).filter(o=>o.status==="active").length;
+  const nextEvent=Object.values(schedule).filter(e=>new Date(e.date)>=new Date()).sort((a,b)=>new Date(a.date)-new Date(b.date))[0];
+
+  return(
+    <div style={{background:C.bg,minHeight:"100vh",color:C.text}}>
+      {showRanks&&<RankReference onClose={()=>setShowRanks(false)}/>}
+      <Toast msg={toast.msg} color={toast.color}/>
+      <Overlay label={processing}/>
+
+      {/* Header */}
+      <div style={{background:C.s1,borderBottom:`1px solid ${C.border}`,padding:"0.75rem 1.25rem"}}>
+        <div style={{maxWidth:1100,margin:"0 auto",display:"flex",alignItems:"center",gap:"1.5rem",flexWrap:"wrap"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <a href="index.html" style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",
+              color:C.textD,textDecoration:"none",border:`1px solid ${C.border}`,borderRadius:2,
+              padding:"3px 10px",flexShrink:0}}>{"← Network"}</a>
+            <span style={{fontSize:18}}>⚔</span>
+            <div>
+              <div style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:14,letterSpacing:"0.15em",color:C.text,lineHeight:1}}>
+                Imperial War Office
+              </div>
+              <div className="mono" style={{fontSize:8,letterSpacing:"0.2em",color:C.textDD,marginTop:1}}>
+                Empire of Lech — Military Network
+              </div>
+            </div>
+          </div>
+          <div style={{flex:1}}/>
+          <AlertBanner alertData={alertData} compact/>
+          {wartime?.active&&(
+            <div className="mono" style={{fontSize:9,color:"#cc2222",border:"1px solid #cc222244",
+              padding:"3px 10px",animation:"warflash 1.5s infinite"}}>⚔ WARTIME</div>
+          )}
+          <button onClick={()=>setShowRanks(true)}
+            style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:2,
+                     padding:"3px 10px",fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",
+                     color:C.textD,cursor:"pointer"}}>Ranks</button>
+          <span className="mono" style={{fontSize:10,color:C.textD}}>{user.displayName||user.username}</span>
+          <Btn small variant="ghost" onClick={()=>setUser(null)}>Logout</Btn>
+        </div>
+      </div>
+
+      {/* Nav */}
+      <div style={{background:C.s2,borderBottom:`1px solid ${C.border}`}}>
+        <div style={{maxWidth:1100,margin:"0 auto",display:"flex",overflowX:"auto"}}>
+          {TABS.map(t=>(
+            <button key={t.v} onClick={()=>setTab(t.v)}
+              style={{fontFamily:"'Cinzel',serif",fontSize:10,fontWeight:700,letterSpacing:"0.18em",
+                       textTransform:"uppercase",padding:"0.7rem 1.1rem",background:"transparent",border:"none",
+                       whiteSpace:"nowrap",cursor:"pointer",flexShrink:0,
+                       borderBottom:`2px solid ${tab===t.v?C.accent:"transparent"}`,
+                       color:tab===t.v?C.accent:C.textD}}>
+              {t.icon} {t.l}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div style={{maxWidth:1100,margin:"0 auto",padding:"1.5rem 1.25rem"}}>
+        <AnnouncementBanner announcement={announcement}/>
+        <WartimeBanner wartime={wartime}/>
+
+        {tab==="home"&&(
+          <div className="fadeIn">
+            <AlertBanner alertData={alertData}/>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"1rem",marginBottom:"2rem"}}>
+              {[
+                {label:"Total Personnel",value:totalPersonnel,icon:"👤",color:C.army},
+                {label:"Registered Assets",value:totalShips,icon:"⚓",color:"#4a6a9a"},
+                {label:"Active Operations",value:activeOps,icon:"📍",color:activeOps>0?"#cc6a10":C.textD},
+                {label:"Next Event",value:nextEvent?new Date(nextEvent.date).toLocaleDateString("en-GB",{day:"2-digit",month:"short"}):"—",icon:"📅",color:C.accent},
+              ].map((s,i)=>(
+                <div key={i} style={{background:C.s1,border:`1px solid ${C.border}`,borderTop:`3px solid ${s.color}`,
+                  borderRadius:"0 0 4px 4px",padding:"1rem",textAlign:"center"}}>
+                  <div style={{fontSize:24,marginBottom:6}}>{s.icon}</div>
+                  <div style={{fontFamily:"'Cinzel',serif",fontSize:24,fontWeight:700,color:s.color}}>{s.value}</div>
+                  <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.12em",marginTop:4}}>{s.label.toUpperCase()}</div>
+                </div>
+              ))}
+            </div>
+            {Object.values(commands).length>0&&(
+              <div>
+                <STitle>Combatant Commands</STitle>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:"0.75rem"}}>
+                  {Object.values(commands).map(cmd=>{
+                    const assignedP=Object.values(personnel).filter(p=>p.commandId===cmd.id).length;
+                    const assignedS=Object.values(ships).filter(s=>s.commandId===cmd.id).length;
+                    return(
+                      <div key={cmd.id} style={{background:C.s2,border:`1px solid ${C.accent}33`,
+                        borderLeft:`3px solid ${C.accent}`,borderRadius:"0 3px 3px 0",padding:"0.85rem 1rem"}}>
+                        <div style={{fontFamily:"'Cinzel',serif",fontSize:12,color:C.text,marginBottom:3}}>
+                          {cmd.name}
+                          {cmd.nickname&&<span className="mono" style={{fontSize:9,color:C.textDD,marginLeft:6}}>{cmd.nickname}</span>}
+                        </div>
+                        <div style={{display:"flex",gap:12,marginTop:4}}>
+                          <span className="mono" style={{fontSize:9,color:C.textDD}}>{assignedP} PERS</span>
+                          <span className="mono" style={{fontSize:9,color:C.textDD}}>{assignedS} VESSELS</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab==="personnel"&&<PersonnelSection personnel={personnel} commands={commands}
+          currentUser={user} canManage={canManage} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+        {tab==="assets"&&<AssetsSection ships={ships} commands={commands}
+          canManage={canManage} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+        {tab==="commands"&&<CommandsSection commands={commands} personnel={personnel} ships={ships}
+          canManage={canManage} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+        {tab==="operations"&&<OperationsSection operations={operations}
+          currentUser={user} canManage={canManage} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+        {tab==="schedule"&&<ScheduleSection schedule={schedule}
+          canManage={canManage} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+        {tab==="admin"&&(isMowMinister||isEmperor)&&(
+          <AdminPanel currentUser={user} accounts={accounts} alertData={alertData} wartime={wartime}
+            announcement={announcement} canSetAlert={canSetAlert} isEmperor={isEmperor}
+            onAction={onAction} notify={notify} setProcessing={setProcessing}/>
+        )}
+      </div>
+
+      <div style={{borderTop:`1px solid ${C.border}`,padding:"0.75rem 1.25rem",marginTop:"3rem"}}>
+        <div className="mono" style={{maxWidth:1100,margin:"0 auto",fontSize:9,color:C.textDD,
+          letterSpacing:"0.15em",textAlign:"center"}}>
+          Imperial War Office · Empire of Lech · For Crown & Country
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+</script>
+</body>
+</html>

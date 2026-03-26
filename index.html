@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Imperial Network — Empire of Lech</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+
+:root{
+  --bg:#0a0808;
+  --s1:#140e0e;
+  --s2:#1a1010;
+  --border:#3a1a1a;
+  --text:#e8d8c8;
+  --textD:#9a8070;
+  --textDD:#5a3a30;
+  --gold:#C9A84C;
+  --goldD:#8a6a20;
+  --red:#8b1a1a;
+  --redL:#c05050;
+}
+
+html,body{
+  min-height:100vh;
+  background:var(--bg);
+  color:var(--text);
+  font-family:'Crimson Text',Georgia,serif;
+  overflow-x:hidden;
+}
+
+/* ── BACKGROUND ── */
+.bg-texture{
+  position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -10%, #3a1a0a18, transparent),
+    radial-gradient(ellipse 60% 40% at 80% 110%, #1a0a0a22, transparent);
+}
+.bg-grid{
+  position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:
+    linear-gradient(var(--border)22 1px, transparent 1px),
+    linear-gradient(90deg, var(--border)22 1px, transparent 1px);
+  background-size:60px 60px;
+  mask-image:radial-gradient(ellipse 100% 100% at 50% 0%, black 40%, transparent 100%);
+}
+.bg-vignette{
+  position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:radial-gradient(ellipse 120% 120% at 50% 50%, transparent 40%, #060404cc 100%);
+}
+
+/* ── LAYOUT ── */
+.wrapper{
+  position:relative;z-index:1;
+  max-width:1000px;
+  margin:0 auto;
+  padding:0 2rem;
+}
+
+/* ── HEADER ── */
+header{
+  padding:4rem 0 2rem;
+  text-align:center;
+  position:relative;
+}
+
+.crest{
+  display:flex;align-items:center;justify-content:center;gap:1.5rem;
+  margin-bottom:2.5rem;
+}
+.crest-line{
+  height:1px;width:80px;
+  background:linear-gradient(to right, transparent, var(--gold));
+}
+.crest-line.right{
+  background:linear-gradient(to left, transparent, var(--gold));
+}
+.crest-diamond{
+  width:12px;height:12px;
+  background:var(--gold);
+  transform:rotate(45deg);
+  box-shadow:0 0 16px var(--gold)88;
+}
+
+.empire-label{
+  font-family:'Cinzel',serif;
+  font-size:0.65rem;
+  letter-spacing:0.5em;
+  color:var(--gold);
+  text-transform:uppercase;
+  margin-bottom:1rem;
+  animation:fadeDown 1s ease both;
+}
+
+.main-title{
+  font-family:'Cinzel',serif;
+  font-weight:900;
+  font-size:clamp(2.5rem, 6vw, 4.5rem);
+  letter-spacing:0.08em;
+  line-height:1;
+  color:var(--text);
+  animation:fadeDown 1s ease 0.1s both;
+  margin-bottom:0.5rem;
+}
+.main-title span{
+  color:var(--gold);
+  display:block;
+  font-size:0.45em;
+  letter-spacing:0.25em;
+  margin-top:0.4em;
+  font-weight:600;
+}
+
+.tagline{
+  font-size:1.1rem;
+  color:var(--textD);
+  font-style:italic;
+  margin-top:1.25rem;
+  animation:fadeDown 1s ease 0.2s both;
+  letter-spacing:0.03em;
+}
+
+/* ── DIVIDER ── */
+.divider{
+  display:flex;align-items:center;gap:1rem;
+  margin:3rem 0;
+  animation:fadeIn 1s ease 0.3s both;
+}
+.divider-line{
+  flex:1;height:1px;
+  background:linear-gradient(to right, transparent, var(--border), transparent);
+}
+.divider-ornament{
+  font-family:'Cinzel',serif;
+  font-size:0.7rem;
+  letter-spacing:0.3em;
+  color:var(--textDD);
+  text-transform:uppercase;
+  white-space:nowrap;
+}
+
+/* ── PORTAL GRID ── */
+.portals{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:1.5rem;
+  margin-bottom:4rem;
+}
+@media(max-width:900px){.portals{grid-template-columns:repeat(2,1fr);}}
+@media(max-width:600px){.portals{grid-template-columns:1fr;}}
+
+.portal{
+  position:relative;
+  background:var(--s1);
+  border:1px solid var(--border);
+  border-top:3px solid var(--border);
+  border-radius:0 0 4px 4px;
+  padding:2rem;
+  text-decoration:none;
+  color:inherit;
+  transition:all 0.25s ease;
+  overflow:hidden;
+  animation:fadeUp 0.6s ease both;
+  display:block;
+}
+.portal:nth-child(1){animation-delay:0.25s; border-top-color:#C9A84C;}
+.portal:nth-child(2){animation-delay:0.35s; border-top-color:#7a5aaa;}
+.portal:nth-child(3){animation-delay:0.45s; border-top-color:#4a6a9a;}
+.portal:nth-child(4){animation-delay:0.55s; border-top-color:#8b1a1a;}
+.portal:nth-child(5){animation-delay:0.65s; border-top-color:#2a7a3a;}
+.portal:nth-child(6){animation-delay:0.75s; border-top-color:#4a6a3a;}
+
+.portal::before{
+  content:'';
+  position:absolute;inset:0;
+  background:linear-gradient(135deg, transparent 60%, currentColor 100%);
+  opacity:0;
+  transition:opacity 0.25s;
+}
+.portal:nth-child(1)::before{color:#C9A84C08;}
+.portal:nth-child(2)::before{color:#7a5aaa08;}
+.portal:nth-child(3)::before{color:#4a6a9a08;}
+.portal:nth-child(4)::before{color:#8b1a1a08;}
+.portal:nth-child(5)::before{color:#2a7a3a08;}
+.portal:nth-child(6)::before{color:#4a6a3a08;}
+
+.portal:hover{transform:translateY(-4px);border-color:var(--border);box-shadow:0 12px 40px #00000066;}
+.portal:nth-child(1):hover{border-top-color:#e8c45a; box-shadow:0 12px 40px #C9A84C22;}
+.portal:nth-child(2):hover{border-top-color:#9a7acc; box-shadow:0 12px 40px #7a5aaa22;}
+.portal:nth-child(3):hover{border-top-color:#6a8acc; box-shadow:0 12px 40px #4a6a9a22;}
+.portal:nth-child(4):hover{border-top-color:#c05050; box-shadow:0 12px 40px #8b1a1a22;}
+.portal:nth-child(5):hover{border-top-color:#4a9a5a; box-shadow:0 12px 40px #2a7a3a22;}
+.portal:nth-child(6):hover{border-top-color:#6a8a4a; box-shadow:0 12px 40px #4a6a3a22;}
+.portal:hover::before{opacity:1;}
+
+.portal-icon{
+  font-size:2.5rem;
+  margin-bottom:1rem;
+  display:block;
+  filter:drop-shadow(0 0 8px currentColor);
+}
+.portal:nth-child(1) .portal-icon{color:#C9A84C;}
+.portal:nth-child(2) .portal-icon{color:#9a7acc;}
+.portal:nth-child(3) .portal-icon{color:#6a8acc;}
+.portal:nth-child(4) .portal-icon{color:#c05050;}
+.portal:nth-child(5) .portal-icon{color:#4a9a5a;}
+.portal:nth-child(6) .portal-icon{color:#6a8a4a;}
+
+
+.portal-ministry{
+  font-family:'Cinzel',serif;
+  font-size:0.6rem;
+  letter-spacing:0.3em;
+  text-transform:uppercase;
+  margin-bottom:0.4rem;
+}
+.portal:nth-child(1) .portal-ministry{color:#8a6a20;}
+.portal:nth-child(2) .portal-ministry{color:#5a3a8a;}
+.portal:nth-child(3) .portal-ministry{color:#2a4a7a;}
+.portal:nth-child(4) .portal-ministry{color:#6a1a1a;}
+.portal:nth-child(5) .portal-ministry{color:#1a5a2a;}
+.portal:nth-child(6) .portal-ministry{color:#2a4a1a;}
+
+
+.portal-name{
+  font-family:'Cinzel',serif;
+  font-size:1.25rem;
+  font-weight:700;
+  letter-spacing:0.06em;
+  color:var(--text);
+  margin-bottom:0.85rem;
+  line-height:1.2;
+}
+
+.portal-desc{
+  font-size:0.95rem;
+  color:var(--textD);
+  line-height:1.7;
+  font-style:italic;
+  margin-bottom:1.25rem;
+}
+
+.portal-tags{
+  display:flex;flex-wrap:wrap;gap:6px;
+  margin-bottom:1.25rem;
+}
+.portal-tag{
+  font-family:'Cinzel',serif;
+  font-size:0.55rem;
+  letter-spacing:0.12em;
+  text-transform:uppercase;
+  padding:3px 9px;
+  border:1px solid var(--border);
+  color:var(--textDD);
+  border-radius:1px;
+}
+
+.portal-enter{
+  font-family:'Cinzel',serif;
+  font-size:0.65rem;
+  letter-spacing:0.2em;
+  text-transform:uppercase;
+  display:flex;align-items:center;gap:8px;
+  transition:gap 0.2s;
+}
+.portal:nth-child(1) .portal-enter{color:var(--gold);}
+.portal:nth-child(2) .portal-enter{color:#c05050;}
+.portal:nth-child(3) .portal-enter{color:#4a9a5a;}
+.portal:nth-child(4) .portal-enter{color:#5a88cc;}
+.portal:nth-child(5) .portal-enter{color:#9a6acc;}
+
+.portal:hover .portal-enter{gap:14px;}
+
+/* ── COMING SOON PORTAL ── */
+.portal.soon{
+  opacity:0.45;
+  cursor:default;
+  pointer-events:none;
+}
+.portal.soon:hover{transform:none;box-shadow:none;}
+
+.soon-badge{
+  position:absolute;
+  top:1rem;right:1rem;
+  font-family:'Cinzel',serif;
+  font-size:0.55rem;
+  letter-spacing:0.15em;
+  padding:3px 9px;
+  background:var(--s2);
+  border:1px solid var(--border);
+  color:var(--textDD);
+}
+
+/* ── FOOTER ── */
+footer{
+  text-align:center;
+  padding:2rem 0 3rem;
+  border-top:1px solid var(--border);
+  animation:fadeIn 1s ease 0.8s both;
+}
+.footer-motto{
+  font-family:'Cinzel',serif;
+  font-size:0.65rem;
+  letter-spacing:0.4em;
+  color:var(--textDD);
+  text-transform:uppercase;
+  margin-bottom:0.5rem;
+}
+.footer-sub{
+  font-size:0.85rem;
+  color:var(--textDD);
+  font-style:italic;
+}
+
+/* ── ANIMATIONS ── */
+@keyframes fadeDown{
+  from{opacity:0;transform:translateY(-12px);}
+  to{opacity:1;transform:translateY(0);}
+}
+@keyframes fadeUp{
+  from{opacity:0;transform:translateY(16px);}
+  to{opacity:1;transform:translateY(0);}
+}
+@keyframes fadeIn{
+  from{opacity:0;}
+  to{opacity:1;}
+}
+@keyframes shimmer{
+  0%,100%{opacity:0.7;}
+  50%{opacity:1;}
+}
+
+.gold-shimmer{
+  animation:shimmer 3s ease-in-out infinite;
+}
+</style>
+</head>
+<body>
+
+<div class="bg-texture"></div>
+<div class="bg-grid"></div>
+<div class="bg-vignette"></div>
+
+<div class="wrapper">
+
+  <header>
+    <div class="crest">
+      <div class="crest-line"></div>
+      <div class="crest-diamond gold-shimmer"></div>
+      <div class="crest-line right"></div>
+    </div>
+
+    <div class="empire-label">Empire of Lech — Imperial Digital Network</div>
+
+    <h1 class="main-title">
+      Imperial Network
+      <span>Gott mit uns</span>
+    </h1>
+
+    <p class="tagline">The official digital infrastructure of the Imperial Government</p>
+  </header>
+
+  <div class="divider">
+    <div class="divider-line"></div>
+    <div class="divider-ornament">⚜ Imperial Portals ⚜</div>
+    <div class="divider-line"></div>
+  </div>
+
+  <div class="portals">
+
+    <!-- Bundeskongress -->
+    <a href="bundeskongress.html" class="portal">
+      <span class="portal-icon">🏛</span>
+      <div class="portal-ministry">Legislative Branch</div>
+      <div class="portal-name">Imperial Bundeskongress</div>
+      <p class="portal-desc">
+        The legislative portal of the Empire. Track bills, votes, the Imperial Budget, and the full archive of Imperial law.
+      </p>
+      <div class="portal-tags">
+        <span class="portal-tag">Public</span>
+        <span class="portal-tag">Legislation</span>
+        <span class="portal-tag">Budget</span>
+        <span class="portal-tag">Archive</span>
+      </div>
+      <div class="portal-enter">Enter Portal →</div>
+    </a>
+
+    <!-- Imperial Household -->
+    <a href="ih.html" class="portal">
+      <span class="portal-icon">👑</span>
+      <div class="portal-ministry">Imperial Household</div>
+      <div class="portal-name">Imperial Household Office</div>
+      <p class="portal-desc">
+        The personal office of the Emperor. Peerage register, Imperial Family, proclamations, honours and awards, and the state calendar.
+      </p>
+      <div class="portal-tags">
+        <span class="portal-tag">Crown</span>
+        <span class="portal-tag">Honours</span>
+        <span class="portal-tag">Peerage</span>
+      </div>
+      <div class="portal-enter">Enter Portal →</div>
+    </a>
+
+    <!-- Imperial Judiciary -->
+    <a href="#" class="portal soon">
+      <span class="soon-badge">Coming Soon</span>
+      <span class="portal-icon">⚖</span>
+      <div class="portal-ministry">Imperial Court</div>
+      <div class="portal-name">Imperial Judiciary</div>
+      <p class="portal-desc">
+        Court records, case dockets, judicial appointments, and the Imperial legal code.
+      </p>
+      <div class="portal-tags">
+        <span class="portal-tag">Public</span>
+        <span class="portal-tag">Courts</span>
+      </div>
+      <div class="portal-enter">Coming Soon</div>
+    </a>
+
+    <!-- Ministry of Interior -->
+    <a href="moi.html" class="portal">
+      <span class="portal-icon">🔐</span>
+      <div class="portal-ministry">Ministry of the Interior</div>
+      <div class="portal-name">Interior Intranet</div>
+      <p class="portal-desc">
+        Classified government intranet. LSS intelligence operations, LFP federal policing, clearance registry, and prosecution records.
+      </p>
+      <div class="portal-tags">
+        <span class="portal-tag">Restricted</span>
+        <span class="portal-tag">Intelligence</span>
+        <span class="portal-tag">Law Enforcement</span>
+      </div>
+      <div class="portal-enter">Enter Portal →</div>
+    </a>
+
+    <!-- Foreign Affairs -->
+    <a href="mfa.html" class="portal">
+      <span class="portal-icon">🌐</span>
+      <div class="portal-ministry">Ministry of Foreign Affairs</div>
+      <div class="portal-name">Foreign Affairs Portal</div>
+      <p class="portal-desc">
+        Visas, citizenships, national travel advisories, individual travel restrictions, and diplomatic relations.
+      </p>
+      <div class="portal-tags">
+        <span class="portal-tag">Public</span>
+        <span class="portal-tag">Visas</span>
+        <span class="portal-tag">Citizenship</span>
+        <span class="portal-tag">Travel</span>
+      </div>
+      <div class="portal-enter">Enter Portal →</div>
+    </a>
+
+    <!-- War Office -->
+    <a href="mow.html" class="portal">
+      <span class="portal-icon">⚔</span>
+      <div class="portal-ministry">Ministry of War</div>
+      <div class="portal-name">Imperial War Office</div>
+      <p class="portal-desc">
+        Military command, order of battle, personnel registry, naval assets, operations, and the Imperial readiness system.
+      </p>
+      <div class="portal-tags">
+        <span class="portal-tag">Restricted</span>
+        <span class="portal-tag">Military</span>
+        <span class="portal-tag">Operations</span>
+      </div>
+      <div class="portal-enter">Enter Portal →</div>
+    </a>
+
+  </div>
+
+  </div>
+
+  <!-- Foreign Policy Panel button -->
+  <div style="text-align:center;margin:2rem 0 1rem;">
+    <button onclick="document.getElementById('fp-panel').classList.add('fp-open');loadForeignPolicy();"
+      style="font-family:'Cinzel',serif;font-weight:600;font-size:0.7rem;letter-spacing:0.25em;
+             text-transform:uppercase;padding:0.6rem 2rem;background:transparent;
+             border:1px solid var(--gold);color:var(--gold);cursor:pointer;
+             border-radius:2px;transition:all .2s;"
+      onmouseover="this.style.background='#2a1e0022'" onmouseout="this.style.background='transparent'">
+      ⚜ Imperial Foreign Policy Overview
+    </button>
+  </div>
+
+  <footer>
+    <div class="footer-motto">⚜ &nbsp; Gott mit uns &nbsp; ⚜</div>
+    <div class="footer-sub">Empire of Lech · Imperial Digital Network · All access logged</div>
+  </footer>
+
+</div>
+
+<!-- Foreign Policy Modal -->
+<style>
+#fp-panel{display:none;position:fixed;inset:0;z-index:1000;background:rgba(6,4,4,.88);align-items:center;justify-content:center;padding:1rem;}
+#fp-panel.fp-open{display:flex;}
+.fp-country{background:#14100e;border:1px solid #3a1a1a;border-radius:3px;padding:1.25rem;margin-bottom:0.75rem;}
+.fp-country.hostile{border-color:#6a1010;background:#120808;}
+.fp-tag{font-family:'Share Tech Mono',monospace;font-size:0.6rem;letter-spacing:0.1em;padding:2px 8px;border-radius:1px;border:1px solid;}
+.fp-section-title{font-family:'Cinzel',serif;font-size:0.6rem;letter-spacing:0.3em;text-transform:uppercase;color:#5a3a30;padding-bottom:6px;border-bottom:1px solid #3a1a1a;margin-bottom:0.85rem;margin-top:1.25rem;}
+.fp-pill{border-radius:2px;padding:6px 12px;}
+@keyframes fp-pulse{0%,100%{opacity:.4;}50%{opacity:1;}}
+</style>
+<div id="fp-panel" onclick="if(event.target===this)this.classList.remove('fp-open')">
+  <div style="background:#0a0808;border:1px solid #3a1a1a;border-radius:4px;max-width:700px;width:100%;max-height:88vh;overflow-y:auto;box-shadow:0 24px 80px #00000088;">
+    <div style="background:linear-gradient(135deg,#140e0e,#1a1010);border-bottom:1px solid #3a1a1a;padding:1.25rem 1.5rem;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:2;">
+      <div>
+        <div style="font-family:'Cinzel',serif;font-size:0.6rem;letter-spacing:0.4em;color:#8a6a20;margin-bottom:4px;">MINISTRY OF FOREIGN AFFAIRS</div>
+        <div style="font-family:'Cinzel',serif;font-weight:700;font-size:1.2rem;letter-spacing:0.1em;color:#e8d8c8;">Imperial Foreign Policy Overview</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
+        <a href="mfa.html" style="font-family:'Cinzel',serif;font-size:0.6rem;letter-spacing:0.15em;text-transform:uppercase;color:#C9A84C;text-decoration:none;border:1px solid #5a4000;border-radius:2px;padding:4px 10px;">Full Portal →</a>
+        <button onclick="document.getElementById('fp-panel').classList.remove('fp-open')" style="background:transparent;border:1px solid #3a1a1a;color:#5a3a30;cursor:pointer;font-size:1.1rem;width:32px;height:32px;border-radius:2px;">✕</button>
+      </div>
+    </div>
+    <div style="padding:1.5rem;" id="fp-content">
+      <div style="font-family:'Share Tech Mono',monospace;font-size:0.65rem;color:#5a3a30;letter-spacing:0.2em;animation:fp-pulse 1.5s infinite;text-align:center;padding:2rem 0;">Loading foreign policy data…</div>
+    </div>
+  </div>
+</div>
+
+<script>
+var _fpLoaded=false;
+function loadForeignPolicy(){
+  if(_fpLoaded) return;
+  _fpLoaded=true;
+
+  var SCRIPT_URL="https://script.google.com/macros/s/AKfycbxLu8jQehAZJEvMEeCLoHc9S2C4FM8o9fQh8Pp4gMzDNwwIG0S9qLJ5-1gyGM1c_InUfQ/exec";
+  var ADVISORY_COLORS={1:{color:"#2a9a4a",bg:"#0a1a0e",border:"#1a4a2a",label:"Exercise Normal Caution"},2:{color:"#C9A84C",bg:"#1a1200",border:"#4a3a00",label:"Exercise Increased Caution"},3:{color:"#cc6a10",bg:"#1a0e00",border:"#6a3a00",label:"Avoid Non-Essential Travel"},4:{color:"#cc2222",bg:"#1a0808",border:"#6a1010",label:"Do Not Travel"}};
+  var RELATION_CONFIG={full:{color:"#2a9a4a",border:"#1a4a2a",bg:"#0a1a0e",badge:"DIPLOMATIC RELATIONS"},limited:{color:"#C9A84C",border:"#4a3a00",bg:"#1a1200",badge:"LIMITED RELATIONS"},none:{color:"#7a7a7a",border:"#3a3a3a",bg:"#0e0e0e",badge:"NO RELATIONS"},hostile:{color:"#cc2222",border:"#6a1010",bg:"#1a0808",badge:"DESIGNATED HOSTILE"}};
+
+  function pill(label,value,labelColor,valueColor,bg,border){
+    return '<div class="fp-pill" style="background:'+bg+';border:1px solid '+border+';">'+
+      '<div style="font-family:\'Share Tech Mono\',monospace;font-size:0.55rem;color:'+labelColor+';margin-bottom:3px;">'+label+'</div>'+
+      '<div style="font-family:\'Cinzel\',serif;font-size:0.75rem;color:'+valueColor+';">'+value+'</div>'+
+    '</div>';
+  }
+
+  function renderCountry(c,adv,restrictions){
+    var rc=RELATION_CONFIG[c.relation]||RELATION_CONFIG.none;
+    var al=ADVISORY_COLORS[adv.level||1]||ADVISORY_COLORS[1];
+    var isHostile=c.relation==="hostile";
+    var bgBase=isHostile?"#120808":"#14100e";
+    var borderBase=isHostile?"#6a1010":"#3a1a1a";
+
+    var pillsBg=isHostile?"#1a0808":"#0e140a";
+    var pillsBorder=isHostile?"#6a101044":"#2a3a1a";
+    var pillsLabelColor=isHostile?"#6a3030":"#4a5a40";
+
+    // Count restrictions for this country
+    var rCount=restrictions.filter(function(r){return r.country===c.id||r.countryName===c.name;}).length;
+
+    var entityLine='';
+    if(c.entityType==="state") entityLine="SOVEREIGN STATE &middot; RECOGNISED";
+    else if(c.entityType==="territory") entityLine="TERRITORY &middot; RECOGNISED";
+    else if(c.entityType==="organisation") entityLine="INTERNATIONAL ORGANISATION";
+    else if(c.entityType==="militant") entityLine="NON-STATE ARMED GROUP &middot; NOT RECOGNISED AS A STATE";
+
+    var html='<div class="fp-country'+(isHostile?" hostile":"")+'" style="border-color:'+borderBase+';background:'+bgBase+';">';
+    html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.85rem;flex-wrap:wrap;gap:8px;">';
+    html+='<div>';
+    html+='<div style="font-family:\'Cinzel\',serif;font-size:1rem;font-weight:700;color:#e8d8c8;margin-bottom:3px;">'+c.name+'</div>';
+    if(entityLine) html+='<div style="font-family:\'Share Tech Mono\',monospace;font-size:0.6rem;color:#5a3a30;">'+entityLine+'</div>';
+    html+='</div>';
+    html+='<span class="fp-tag" style="color:'+rc.color+';border-color:'+rc.border+';background:'+rc.bg+';">'+rc.badge+'</span>';
+    html+='</div>';
+
+    if(c.policyStatement){
+      html+='<div style="font-size:0.9rem;color:#9a8070;font-style:italic;line-height:1.7;margin-bottom:0.85rem;">'+c.policyStatement+'</div>';
+    }
+
+    html+='<div style="display:flex;gap:0.75rem;flex-wrap:wrap;">';
+    html+=pill("TRAVEL ADVISORY",al.label,pillsLabelColor,al.color,pillsBg,al.border||pillsBorder);
+    if(c.visaPolicy) html+=pill("VISA POLICY",c.visaPolicy,pillsLabelColor,"#e8d8c8",pillsBg,pillsBorder);
+    if(c.visaOnArrival!==undefined&&!isHostile) html+=pill("VISA POLICY",c.visaOnArrival?"Visa on Arrival":"Visa Not Required",pillsLabelColor,"#6aaa4a",pillsBg,pillsBorder);
+    if(isHostile) html+=pill("INDIVIDUAL RESTRICTIONS","Members proscribed under Imperial law",pillsLabelColor,"#e07070",pillsBg,pillsBorder);
+    else if(rCount>0) html+=pill("RESTRICTIONS",rCount+" individual restriction"+(rCount!==1?"s":"")+" in effect",pillsLabelColor,"#cc6a10",pillsBg,pillsBorder);
+    else html+=pill("RESTRICTIONS","None",pillsLabelColor,"#e8d8c8",pillsBg,pillsBorder);
+    html+='</div>';
+    html+='</div>';
+    return html;
+  }
+
+  function render(raw){
+    var countries=raw["mfa_countries"]||{};
+    var advisories=raw["mfa_advisories"]||{};
+    var restrictions=Object.values(raw["mfa_restrictions"]||{});
+    var alert=raw["mow_alert"]||{level:5};
+    var wartime=raw["mow_wartime"]||{active:false};
+
+    var IRL_COLORS={1:{color:"#cc2222",bg:"#1a0808",border:"#6a1010",label:"War Footing \u2014 Maximum Readiness"},2:{color:"#cc6a10",bg:"#1a0a00",border:"#8a3a00",label:"Severe \u2014 Armed Forces Ready"},3:{color:"#C9A84C",bg:"#1a1200",border:"#5a4000",label:"High \u2014 Forces on Standby"},4:{color:"#4a7aaa",bg:"#0a1220",border:"#1a3a6a",label:"Elevated \u2014 Increased Vigilance"},5:{color:"#2a9a4a",bg:"#0a1a0e",border:"#1a4a2a",label:"Peacetime \u2014 Normal Operations"}};
+    var irl=IRL_COLORS[alert.level||5]||IRL_COLORS[5];
+
+    var html="";
+
+    // Imperial status strip — readiness + wartime
+    html+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem;padding-bottom:1rem;border-bottom:1px solid #2a1a1a;">';
+    // Readiness
+    html+='<div style="flex:1;min-width:180px;background:'+irl.bg+';border:1px solid '+irl.border+';border-radius:2px;padding:7px 12px;display:flex;align-items:center;gap:8px;">';
+    html+='<div style="width:8px;height:8px;border-radius:50%;background:'+irl.color+';flex-shrink:0;box-shadow:0 0 6px '+irl.color+';"></div>';
+    html+='<div><div style="font-family:\'Share Tech Mono\',monospace;font-size:0.55rem;color:'+irl.color+';letter-spacing:0.1em;margin-bottom:2px;">IRL-'+(alert.level||5)+' IMPERIAL READINESS</div>';
+    html+='<div style="font-family:\'Cinzel\',serif;font-size:0.7rem;color:'+irl.color+';">'+irl.label+'</div>';
+    if(alert.setBy) html+='<div style="font-family:\'Share Tech Mono\',monospace;font-size:0.5rem;color:'+irl.color+';opacity:0.6;margin-top:2px;">Set by '+alert.setBy.toUpperCase()+'</div>';
+    html+='</div></div>';
+    // Wartime / 6th Amendment
+    if(wartime.active){
+      html+='<div style="background:#1a0404;border:1px solid #6a1010;border-radius:2px;padding:7px 12px;display:flex;align-items:center;gap:8px;">';
+      html+='<span style="font-size:14px;">⚔</span>';
+      html+='<div><div style="font-family:\'Share Tech Mono\',monospace;font-size:0.55rem;color:#cc2222;letter-spacing:0.1em;margin-bottom:2px;">6TH AMENDMENT INVOKED</div>';
+      html+='<div style="font-family:\'Cinzel\',serif;font-size:0.7rem;color:#e07070;">Wartime Measures Active</div>';
+      if(wartime.invokedBy) html+='<div style="font-family:\'Share Tech Mono\',monospace;font-size:0.5rem;color:#cc2222;opacity:0.6;margin-top:2px;">Invoked by '+wartime.invokedBy.toUpperCase()+'</div>';
+      html+='</div></div>';
+    } else {
+      html+='<div style="background:#0a120a;border:1px solid #1a3a18;border-radius:2px;padding:7px 12px;display:flex;align-items:center;gap:8px;">';
+      html+='<div style="width:8px;height:8px;border-radius:50%;background:#2a5a2a;flex-shrink:0;"></div>';
+      html+='<div style="font-family:\'Cinzel\',serif;font-size:0.7rem;color:#4a7a4a;">6th Amendment Not Invoked</div>';
+      html+='</div>';
+    }
+    html+='</div>';
+
+    var states=Object.values(countries).filter(function(c){return c.entityType!=="militant";});
+    var militants=Object.values(countries).filter(function(c){return c.entityType==="militant";});
+
+    var order={full:0,limited:1,none:2,hostile:3};
+    states.sort(function(a,b){return (order[a.relation]||2)-(order[b.relation]||2)||(a.name||"").localeCompare(b.name||"");});
+    militants.sort(function(a,b){return (a.name||"").localeCompare(b.name||"");});
+
+    if(states.length===0&&militants.length===0){
+      html+='<div style="font-family:\'Crimson Text\',serif;font-size:0.95rem;color:#5a3a30;font-style:italic;text-align:center;padding:2rem 0;">No foreign policy records published.</div>';
+    } else {
+      if(states.length>0){
+        html+='<div class="fp-section-title">Bilateral Relations</div>';
+        states.forEach(function(c){html+=renderCountry(c,advisories[c.id]||{level:1},restrictions);});
+      }
+      if(militants.length>0){
+        html+='<div class="fp-section-title">Designated Militant Groups</div>';
+        militants.forEach(function(c){html+=renderCountry(c,advisories[c.id]||{level:4},restrictions);});
+      }
+    }
+
+    html+='<div style="background:#0e1a0a;border:1px solid #C9A84C33;border-left:3px solid #C9A84C;border-radius:0 3px 3px 0;padding:0.75rem 1rem;margin-top:1.25rem;">';
+    html+='<div style="font-family:\'Cinzel\',serif;font-size:0.6rem;letter-spacing:0.2em;color:#C9A84C;margin-bottom:4px;">⚜ FOREIGN AFFAIRS PORTAL</div>';
+    html+='<div style="font-size:0.85rem;color:#9a8070;font-style:italic;line-height:1.6;">Visit the full portal for visa applications, citizenship records, detailed bilateral policy, and individual travel restrictions.</div>';
+    html+='</div>';
+
+    document.getElementById("fp-content").innerHTML=html;
+  }
+
+  function loadData(){
+    fetch(SCRIPT_URL+"?action=getall")
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(!d.success) throw new Error("Backend error");
+        var raw={};
+        Object.entries(d.data||{}).forEach(function(kv){
+          if(kv[1]){try{raw[kv[0]]=JSON.parse(kv[1]);}catch{}}
+        });
+        render(raw);
+      })
+      .catch(function(){
+        document.getElementById("fp-content").innerHTML='<div style="font-family:\'Share Tech Mono\',monospace;font-size:0.65rem;color:#5a3a30;text-align:center;padding:2rem 0;">Could not load live data.<br>Visit the <a href="mfa.html" style="color:#C9A84C;">Foreign Affairs Portal</a> for current policy.</div>';
+      });
+  }
+
+  loadData();
+}
+</script>
+

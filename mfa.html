@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Ministry of Foreign Affairs — Empire of Lech</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{background:#080e0a;color:#ccd8cc;font-family:'Crimson Text',Georgia,serif;min-height:100vh;}
+::-webkit-scrollbar{width:5px;}
+::-webkit-scrollbar-track{background:#080e0a;}
+::-webkit-scrollbar-thumb{background:#1a4a28;border-radius:2px;}
+input,select,textarea{font-family:'Crimson Text',Georgia,serif;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+@keyframes pulse{0%,100%{opacity:.6;}50%{opacity:1;}}
+.fadeIn{animation:fadeIn .3s ease both;}
+.mono{font-family:'Share Tech Mono',monospace;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+
+const {useState,useEffect,useRef,useCallback,useMemo}=React;
+const SCRIPT_URL="https://script.google.com/macros/s/AKfycbxLu8jQehAZJEvMEeCLoHc9S2C4FM8o9fQh8Pp4gMzDNwwIG0S9qLJ5-1gyGM1c_InUfQ/exec";
+
+const ENTITY_TYPES=[{v:"state",l:"Sovereign State"},{v:"territory",l:"Territory / Dependency"},{v:"organisation",l:"International Organisation"},{v:"militant",l:"Non-State Armed Group"}];
+const RELATION_TYPES=[{v:"full",l:"Full Diplomatic Relations",color:"#2a9a4a",badge:"DIPLOMATIC RELATIONS"},{v:"limited",l:"Limited Relations",color:"#C9A84C",badge:"LIMITED RELATIONS"},{v:"none",l:"No Diplomatic Relations",color:"#7a7a7a",badge:"NO RELATIONS"},{v:"hostile",l:"Hostile / Designated",color:"#cc2222",badge:"DESIGNATED HOSTILE"}];
+const ADVISORY_LEVELS=[{level:1,code:"Level 1",label:"Exercise Normal Caution",color:"#2a9a4a",bg:"#0a1a0e",border:"#1a4a2a"},{level:2,code:"Level 2",label:"Exercise Increased Caution",color:"#C9A84C",bg:"#1a1200",border:"#4a3a00"},{level:3,code:"Level 3",label:"Avoid Non-Essential Travel",color:"#cc6a10",bg:"#1a0e00",border:"#6a3a00"},{level:4,code:"Level 4",label:"Do Not Travel",color:"#cc2222",bg:"#1a0808",border:"#6a1010"}];
+const VISA_TYPES=[{v:"tourist",l:"Tourist / Short-Stay"},{v:"business",l:"Business"},{v:"student",l:"Student"},{v:"work",l:"Work Permit"},{v:"diplomatic",l:"Diplomatic"},{v:"transit",l:"Transit"},{v:"residence",l:"Permanent Residence"},{v:"other",l:"Other"}];
+const VISA_STATUSES=[{v:"pending",l:"Under Review",color:"#C9A84C"},{v:"approved",l:"Approved",color:"#2a9a4a"},{v:"rejected",l:"Rejected",color:"#cc2222"},{v:"additional",l:"Additional Info Req.",color:"#cc6a10"},{v:"withdrawn",l:"Withdrawn",color:"#7a7a7a"}];
+const CITIZENSHIP_STATUSES=[{v:"citizen",l:"Citizen",color:"#2a9a4a"},{v:"naturalised",l:"Naturalised",color:"#4a8a5a"},{v:"resident",l:"Permanent Resident",color:"#4a7aaa"},{v:"revoked",l:"Revoked",color:"#cc2222"},{v:"renounced",l:"Renounced",color:"#7a7a7a"}];
+const RESTRICTION_TYPES=[{v:"travel_ban",l:"Travel Ban"},{v:"entry_denied",l:"Entry Denied"},{v:"persona_non_grata",l:"Persona Non Grata"},{v:"watch_list",l:"Watch List"},{v:"asset_freeze",l:"Asset Freeze"}];
+const C={bg:"#080e0a",s1:"#0e1a0c",s2:"#121e10",s3:"#16221a",border:"#1a3a18",text:"#d4e4cc",textD:"#7a9870",textDD:"#3a5830",accent:"#3a8a4a",accentD:"#225a2a",red:"#8b1a1a",redD:"#6a0808",redL:"#c05050",gold:"#C9A84C"};
+const getAL=(l)=>ADVISORY_LEVELS.find(a=>a.level===l)||ADVISORY_LEVELS[0];
+const getRT=(v)=>RELATION_TYPES.find(r=>r.v===v)||RELATION_TYPES[2];
+
+async function sha256(t){const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");}
+function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
+async function sgetAll(){try{const r=await fetch(SCRIPT_URL+"?action=getall");const d=await r.json();if(!d.success)return{};const out={};Object.entries(d.data||{}).forEach(([k,v])=>{if(v){try{out[k]=JSON.parse(v);}catch{}}});return out;}catch{return{};}}
+async function sset(k,v){try{await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v)})});return true;}catch{return false;}}
+
+function Btn({children,onClick,variant="primary",disabled,small,full,style:ex={}}){
+  const base={fontFamily:"'Cinzel',serif",letterSpacing:"0.1em",fontWeight:700,textTransform:"uppercase",fontSize:small?10:11,padding:small?"4px 12px":"7px 18px",border:"1px solid",borderRadius:2,cursor:disabled?"not-allowed":"pointer",opacity:disabled?.4:1,transition:"all .15s",width:full?"100%":"auto"};
+  const variants={primary:{background:`linear-gradient(135deg,${C.accentD},${C.accent})`,borderColor:C.accentD,color:"#fff"},danger:{background:"transparent",borderColor:C.redD,color:C.redL},armed:{background:`linear-gradient(135deg,${C.redD},${C.red})`,borderColor:C.redD,color:"#e0c8c8"},ghost:{background:"transparent",borderColor:C.border,color:C.textD},gold:{background:"linear-gradient(135deg,#3a2800,#6a4a00)",borderColor:"#5a4000",color:C.gold}};
+  const vs=variants[variant]||variants.primary;
+  return <button onClick={disabled?undefined:onClick} style={{...base,...vs,...ex}}>{children}</button>;
+}
+function ArmBtn({label,confirmLabel,onConfirm,variant="danger",small}){
+  const [armed,setArmed]=useState(false);
+  const t=useRef(null);
+  if(armed) return <Btn variant="armed" small={small} onClick={()=>{clearTimeout(t.current);setArmed(false);onConfirm();}}>{confirmLabel||"Confirm?"}</Btn>;
+  return <Btn variant={variant} small={small} onClick={()=>{setArmed(true);clearTimeout(t.current);t.current=setTimeout(()=>setArmed(false),4000);}}>{label}</Btn>;
+}
+function Inp({value,onChange,placeholder,type="text",style:ex={}}){
+  return <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,padding:"8px 12px",color:C.text,fontSize:14,outline:"none",...ex}} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/>;
+}
+function TA({value,onChange,placeholder,rows=4}){
+  return <textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows} style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,padding:"8px 12px",color:C.text,fontSize:14,outline:"none",resize:"vertical",lineHeight:1.6}} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/>;
+}
+function DD({value,onChange,options,style:ex={}}){
+  return <select value={value} onChange={e=>onChange(e.target.value)} style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,padding:"8px 12px",color:C.text,fontSize:14,outline:"none",fontFamily:"'Crimson Text',serif",...ex}}>{options.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}</select>;
+}
+function FL({children}){return <div className="mono" style={{fontSize:9,color:C.textD,letterSpacing:"0.15em",marginBottom:4}}>{children}</div>;}
+function STitle({children,color=C.accent,style:ex={}}){return <div style={{fontFamily:"'Cinzel',serif",fontSize:10,fontWeight:700,letterSpacing:"0.3em",textTransform:"uppercase",color,paddingBottom:8,borderBottom:`1px solid ${C.border}`,marginBottom:"1.25rem",...ex}}>{children}</div>;}
+function Toast({msg,color}){if(!msg)return null;return <div style={{position:"fixed",top:14,right:14,zIndex:9999,background:C.s2,border:`1px solid ${color}55`,borderLeft:`3px solid ${color}`,padding:"8px 16px",borderRadius:2,fontFamily:"'Cinzel',serif",fontSize:10,color,animation:"fadeIn .2s ease",maxWidth:360}}>{msg}</div>;}
+function Overlay({label}){if(!label)return null;return <div style={{position:"fixed",inset:0,zIndex:99999,background:"rgba(4,8,4,.96)",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{textAlign:"center"}}><div className="mono" style={{color:C.accent,fontSize:10,letterSpacing:"0.3em",marginBottom:8,animation:"pulse 1s infinite"}}>PROCESSING</div><div style={{fontFamily:"'Cinzel',serif",fontSize:16,color:C.text}}>{label}</div></div></div>;}
+function CheckBox({checked,onChange,label}){return <div onClick={()=>onChange(!checked)} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}><div style={{width:16,height:16,border:`2px solid ${checked?C.accent:C.border}`,borderRadius:2,background:checked?C.accentD:"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:C.accent,flexShrink:0}}>{checked?"✓":""}</div><span style={{fontSize:13,color:checked?C.text:C.textD}}>{label}</span></div>;}
+function AdvisoryBadge({level}){const al=getAL(level||1);return <span className="mono" style={{fontSize:9,padding:"2px 8px",background:al.bg,border:`1px solid ${al.border}`,color:al.color,borderRadius:1}}>{al.code}{" \u2014 "}{al.label}</span>;}
+function RelationBadge({relation}){const rt=getRT(relation);return <span className="mono" style={{fontSize:9,padding:"2px 8px",background:C.s1,border:`1px solid ${rt.color}44`,color:rt.color,borderRadius:1}}>{rt.badge}</span>;}
+
+function PanelAuth({onAuth,onCancel}){
+  const [username,setUsername]=useState("");const [password,setPassword]=useState("");const [err,setErr]=useState("");const [loading,setLoading]=useState(false);
+  async function doAuth(){
+    if(!username.trim()||!password.trim()){setErr("Credentials required.");return;}
+    setLoading(true);setErr("");
+    try{
+      const raw=await sgetAll();
+      const accounts={};
+      Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v)accounts[v.username]=v;});
+      Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(!accounts[k])accounts[k]=v;});
+      const user=Object.values(accounts).find(a=>a.username.toLowerCase()===username.trim().toLowerCase());
+      if(!user){setErr("ACCESS DENIED.");setLoading(false);return;}
+      const hash=await sha256(password);
+      if(hash!==user.passwordHash){setErr("ACCESS DENIED.");setLoading(false);return;}
+      if(user.role!=="emperor"&&user.role!=="minister"&&!user.mfaAccess){setErr("AUTHORISATION DENIED.");setLoading(false);return;}
+      onAuth(user,raw);
+    }catch(e){setErr("Connection error: "+e.message);}
+    setLoading(false);
+  }
+  return <div style={{maxWidth:420,margin:"0 auto"}}>
+    <STitle>Panel Authentication</STitle>
+    <div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:3,padding:"1.5rem"}}>
+      <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.25rem"}}>Restricted to the Minister of Foreign Affairs, Chancellor, and Emperor. Authenticate using your Imperial Intranet credentials.</div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+        <div><FL>USERNAME</FL><Inp value={username} onChange={setUsername} placeholder="Username"/></div>
+        <div><FL>PASSWORD</FL><Inp value={password} onChange={setPassword} type="password" placeholder="Password"/></div>
+        {err&&<div className="mono" style={{fontSize:10,color:C.redL,background:C.s3,border:`1px solid ${C.redD}44`,padding:"7px 12px"}}>{err}</div>}
+        <Btn onClick={doAuth} disabled={loading||!username.trim()||!password.trim()}>{loading?"Authenticating...":"Authenticate"}</Btn>
+        <Btn variant="ghost" onClick={onCancel}>Cancel</Btn>
+      </div>
+    </div>
+  </div>;
+}
+
+function AdvisoriesTab({countries,advisories}){
+  const list=Object.values(countries||{}).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  return <div className="fadeIn">
+    <STitle>Travel Advisories</STitle>
+    <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.5rem"}}>Advisories issued by the Ministry of Foreign Affairs for Imperial citizens travelling abroad.</div>
+    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:"1.5rem"}}>
+      {ADVISORY_LEVELS.map(al=><div key={al.level} style={{display:"flex",alignItems:"center",gap:6,background:al.bg,border:`1px solid ${al.border}`,borderRadius:2,padding:"4px 10px"}}><div style={{width:8,height:8,borderRadius:"50%",background:al.color,flexShrink:0}}/><span className="mono" style={{fontSize:9,color:al.color}}>{al.code}: {al.label}</span></div>)}
+    </div>
+    {list.length===0?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No advisories issued.</div>
+    :<div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+      {list.map(country=>{
+        const adv=(advisories||{})[country.id]||{level:1};
+        const al=getAL(adv.level||1);
+        return <div key={country.id} style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${al.color}`,borderRadius:"0 3px 3px 0",padding:"1rem 1.25rem"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8,marginBottom:"0.5rem"}}>
+            <div>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:C.text,marginBottom:3}}>{country.name}</div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}><RelationBadge relation={country.relation}/><AdvisoryBadge level={adv.level||1}/></div>
+            </div>
+            {country.entityType&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{(ENTITY_TYPES.find(e=>e.v===country.entityType)||{l:""}).l}</span>}
+          </div>
+          {adv.text&&<div style={{fontSize:14,color:C.textD,lineHeight:1.7,fontStyle:"italic",marginTop:"0.5rem"}}>{adv.text}</div>}
+          {adv.updatedAt&&<div className="mono" style={{fontSize:9,color:C.textDD,marginTop:6}}>Last updated {new Date(adv.updatedAt).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})}</div>}
+          {country.visaPolicy&&<div style={{marginTop:"0.75rem",background:C.s2,border:`1px solid ${C.border}`,borderRadius:2,padding:"6px 12px",display:"flex",gap:16,flexWrap:"wrap"}}>
+            <div><span className="mono" style={{fontSize:9,color:C.textDD}}>VISA POLICY </span><span style={{fontSize:13,color:C.text}}>{country.visaPolicy}</span></div>
+            {country.visaOnArrival!==undefined&&<div><span className="mono" style={{fontSize:9,color:C.textDD}}>VISA ON ARRIVAL </span><span style={{fontSize:13,color:"#2a9a4a"}}>{country.visaOnArrival?"Visa on Arrival":"Visa Not Required"}</span></div>}
+          </div>}
+        </div>;
+      })}
+    </div>}
+  </div>;
+}
+
+function CitizenshipTab({citizens}){
+  const [search,setSearch]=useState("");const [filter,setFilter]=useState("all");
+  const list=Object.values(citizens||{}).filter(c=>{const q=search.toLowerCase();return(!q||(c.name||"").toLowerCase().includes(q)||(c.username||"").toLowerCase().includes(q))&&(filter==="all"||c.status===filter);}).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  return <div className="fadeIn">
+    <STitle>Citizenship Registry</STitle>
+    <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.25rem"}}>Official registry of Imperial citizens and permanent residents, maintained by the Ministry of Foreign Affairs.</div>
+    <div style={{display:"flex",gap:"0.75rem",marginBottom:"1.25rem",flexWrap:"wrap"}}>
+      <div style={{flex:2,minWidth:180}}><Inp value={search} onChange={setSearch} placeholder="Search name or username..."/></div>
+      <div style={{flex:1,minWidth:160}}><DD value={filter} onChange={setFilter} options={[{v:"all",l:"All Status"},...CITIZENSHIP_STATUSES.map(s=>({v:s.v,l:s.l}))]}/></div>
+    </div>
+    {list.length===0?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No records found.</div>
+    :<div style={{display:"flex",flexDirection:"column",gap:4}}>
+      {list.map(c=>{const st=CITIZENSHIP_STATUSES.find(s=>s.v===c.status)||CITIZENSHIP_STATUSES[0];return <div key={c.id} style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${st.color}`,borderRadius:"0 3px 3px 0",padding:"0.65rem 1.1rem",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}><span className="mono" style={{fontSize:9,padding:"2px 8px",background:C.s2,border:`1px solid ${st.color}44`,color:st.color}}>{st.l.toUpperCase()}</span><span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{c.name}</span>{c.username&&<span className="mono" style={{fontSize:10,color:C.textD}}>{c.username}</span>}{c.nationality&&<span style={{fontSize:12,color:C.textDD,fontStyle:"italic"}}>{c.nationality}</span>}{c.since&&<span className="mono" style={{fontSize:9,color:C.textDD}}>Since {c.since}</span>}</div>;})}
+    </div>}
+  </div>;
+}
+
+function VisaTab({countries,onSubmitVisa,notify,visas}){
+  const [sub,setSub]=useState("apply");const [trackRef,setTrackRef]=useState("");const [tracked,setTracked]=useState(null);
+  function doTrack(){
+    const ref=trackRef.trim().toUpperCase();
+    if(!ref) return;
+    const found=Object.values(visas||{}).find(v=>(v.ref||"").toUpperCase()===ref);
+    setTracked(found||"notfound");
+  }
+  const st=tracked&&tracked!=="notfound"?(VISA_STATUSES.find(s=>s.v===tracked.status)||VISA_STATUSES[0]):null;
+  const vt=tracked&&tracked!=="notfound"?(VISA_TYPES.find(t=>t.v===tracked.type)||VISA_TYPES[0]):null;
+  return <div className="fadeIn">
+    <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1.5rem"}}>
+      {[["apply","Apply for a Visa"],["track","Track Application"]].map(([v,l])=><button key={v} onClick={()=>setSub(v)} style={{fontFamily:"'Cinzel',serif",fontSize:10,letterSpacing:"0.15em",textTransform:"uppercase",padding:"0.6rem 1.1rem",background:"transparent",border:"none",cursor:"pointer",borderBottom:`2px solid ${sub===v?C.accent:"transparent"}`,color:sub===v?C.accent:C.textD}}>{l}</button>)}
+    </div>
+    {sub==="apply"&&<VisaForm countries={countries} onSubmit={onSubmitVisa} notify={notify}/>}
+    {sub==="track"&&<div>
+      <STitle>Track Your Application</STitle>
+      <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.25rem"}}>Enter your application reference number to check your status.</div>
+      <div style={{display:"flex",gap:8,maxWidth:420,marginBottom:"1rem"}}>
+        <Inp value={trackRef} onChange={setTrackRef} placeholder="e.g. VISA-2026-001234" style={{flex:1}}/>
+        <Btn onClick={doTrack}>Check</Btn>
+      </div>
+      {tracked==="notfound"&&<div style={{background:C.s1,border:`1px solid ${C.redD}44`,borderLeft:`3px solid ${C.redD}`,borderRadius:"0 3px 3px 0",padding:"1rem",maxWidth:480}}>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.redL,marginBottom:4}}>Reference Not Found</div>
+        <div style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>No application found. Check the reference number and try again.</div>
+      </div>}
+      {tracked&&tracked!=="notfound"&&st&&vt&&<div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${st.color}`,borderRadius:"0 3px 3px 0",padding:"1.25rem",maxWidth:480}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"0.85rem",flexWrap:"wrap",gap:8}}>
+          <div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>REFERENCE</div><div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text}}>{tracked.ref}</div></div>
+          <span className="mono" style={{fontSize:10,padding:"3px 10px",background:C.s2,border:`1px solid ${st.color}44`,color:st.color}}>{st.l.toUpperCase()}</span>
+        </div>
+        <div style={{display:"flex",gap:"1.5rem",flexWrap:"wrap",marginBottom:"0.75rem"}}>
+          <div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>APPLICANT</div><span style={{fontSize:13,color:C.text}}>{tracked.name}</span></div>
+          <div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>TYPE</div><span style={{fontSize:13,color:C.text}}>{vt.l}</span></div>
+          <div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>SUBMITTED</div><span style={{fontSize:13,color:C.text}}>{tracked.submitted?new Date(tracked.submitted).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}):"—"}</span></div>
+        </div>
+        {tracked.reviewNote&&<div style={{background:C.s2,border:`1px solid ${C.border}`,borderLeft:`3px solid ${st.color}`,borderRadius:"0 2px 2px 0",padding:"0.6rem 0.85rem",fontSize:13,color:C.text,fontStyle:"italic"}}>
+          <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2,fontStyle:"normal"}}>NOTE FROM MINISTRY</div>
+          {tracked.reviewNote}
+        </div>}
+      </div>}
+    </div>}
+  </div>;
+}
+
+function VisaForm({countries,onSubmit,notify}){
+  const [name,setName]=useState("");const [username,setUsername]=useState("");const [nationality,setNationality]=useState("");const [otherCountry,setOtherCountry]=useState("");const [type,setType]=useState("tourist");const [purpose,setPurpose]=useState("");const [duration,setDuration]=useState("");const [notes,setNotes]=useState("");const [saving,setSaving]=useState(false);const [done,setDone]=useState(null);
+  const recognisedCountries=Object.values(countries||{}).filter(c=>(c.relation==="full"||c.relation==="limited")&&(c.entityType==="state"||c.entityType==="territory")).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const effectiveNat=nationality==="__other"?otherCountry:nationality;
+  if(done) return <div style={{maxWidth:480}}>
+    <div style={{background:C.s1,border:"1px solid #2a5a2a",borderLeft:"4px solid #2a9a4a",borderRadius:"0 3px 3px 0",padding:"1.25rem",marginBottom:"1rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:"#5ad47a",marginBottom:6}}>Application Submitted</div>
+      <div style={{fontSize:14,color:C.textD,lineHeight:1.7,marginBottom:"0.5rem"}}>Your reference number is:</div>
+      <div className="mono" style={{fontSize:14,color:C.gold,marginBottom:"0.75rem"}}>{done}</div>
+      <div style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>Use the Track Application tab to follow up on your status.</div>
+    </div>
+    <Btn variant="ghost" onClick={()=>{setDone(null);setName("");setUsername("");setNationality("");setOtherCountry("");setPurpose("");setDuration("");setNotes("");}}>Submit Another Application</Btn>
+  </div>;
+  return <div style={{maxWidth:560}}>
+    <STitle>Visa Application Form</STitle>
+    <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.25rem"}}>Complete all required fields. A reference number will be issued upon submission.</div>
+    <div style={{display:"flex",flexDirection:"column",gap:"0.85rem"}}>
+      <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+        <div style={{flex:2,minWidth:180}}><FL>FULL NAME (IN-GAME) *</FL><Inp value={name} onChange={setName} placeholder="Your in-game name"/></div>
+        <div style={{flex:1,minWidth:140}}><FL>USERNAME *</FL><Inp value={username} onChange={setUsername} placeholder="Username"/></div>
+      </div>
+      <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:180}}>
+          <FL>HOME COUNTRY *</FL>
+          {recognisedCountries.length>0
+            ?<DD value={nationality} onChange={setNationality} options={[{v:"",l:"-- Select your country --"},...recognisedCountries.map(c=>({v:c.name,l:c.name})),{v:"__other",l:"Other / Not Listed"}]}/>
+            :<Inp value={nationality} onChange={setNationality} placeholder="Country of citizenship"/>
+          }
+          {nationality==="__other"&&<Inp value={otherCountry} onChange={setOtherCountry} placeholder="Enter country name" style={{marginTop:4}}/>}
+        </div>
+        <div style={{flex:1,minWidth:160}}><FL>VISA TYPE *</FL><DD value={type} onChange={setType} options={VISA_TYPES.map(t=>({v:t.v,l:t.l}))}/></div>
+      </div>
+      <div><FL>PURPOSE OF VISIT *</FL><TA value={purpose} onChange={setPurpose} placeholder="Describe the purpose of your application..." rows={3}/></div>
+      <div><FL>INTENDED DURATION</FL><Inp value={duration} onChange={setDuration} placeholder="e.g. 30 days, Permanent"/></div>
+      <div><FL>ADDITIONAL INFORMATION (optional)</FL><TA value={notes} onChange={setNotes} placeholder="Any other relevant information..." rows={2}/></div>
+      <Btn full disabled={!name.trim()||!username.trim()||!purpose.trim()||!effectiveNat.trim()||saving} onClick={async()=>{setSaving(true);const ref="VISA-"+new Date().getFullYear()+"-"+Math.random().toString().slice(2,8).toUpperCase();const ok=await onSubmit({name:name.trim(),username:username.trim(),nationality:effectiveNat.trim(),type,purpose:purpose.trim(),duration:duration.trim(),notes:notes.trim(),ref,status:"pending",submitted:Date.now()});setSaving(false);if(ok)setDone(ref);else notify("Submission failed.",C.redL);}}>{saving?"Submitting...":"Submit Application"}</Btn>
+    </div>
+  </div>;
+}
+
+
+function PolicyTab({countries,advisories,restrictions}){
+  const [selected,setSelected]=useState(null);
+  const list=Object.values(countries||{}).sort((a,b)=>{const order={full:0,limited:1,none:2,hostile:3};return(order[a.relation]||2)-(order[b.relation]||2)||(a.name||"").localeCompare(b.name||"");});
+  const sel=selected?countries[selected]:null;
+  return <div className="fadeIn">
+    <STitle>Imperial Foreign Policy</STitle>
+    <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.5rem"}}>Official foreign policy of the Empire of Lech, as set by the Ministry of Foreign Affairs.</div>
+    {list.length===0?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No foreign policy records published.</div>
+    :<div style={{display:"flex",gap:"1.5rem",flexWrap:"wrap"}}>
+      <div style={{flex:"0 0 220px",minWidth:180}}>
+        {list.map(c=>{const rt=getRT(c.relation);return <div key={c.id} onClick={()=>setSelected(selected===c.id?null:c.id)} style={{background:selected===c.id?C.s2:C.s1,border:`1px solid ${selected===c.id?rt.color:C.border}`,borderLeft:`4px solid ${rt.color}`,borderRadius:"0 3px 3px 0",padding:"0.65rem 0.85rem",marginBottom:4,cursor:"pointer",transition:"all .15s"}}><div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text,marginBottom:2}}>{c.name}</div><span className="mono" style={{fontSize:8,color:rt.color}}>{rt.badge}</span></div>;})}
+      </div>
+      <div style={{flex:1,minWidth:260}}>
+        {sel?<PolicyDetail country={sel} advisories={advisories} restrictions={restrictions}/>:<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>Select a country to view detailed policy.</div>}
+      </div>
+    </div>}
+  </div>;
+}
+
+function PolicyDetail({country,advisories,restrictions}){
+  const rt=getRT(country.relation);const adv=(advisories||{})[country.id]||{level:1};const al=getAL(adv.level||1);
+  const cr=Object.values(restrictions||{}).filter(r=>r.country===country.id||r.countryName===country.name);
+  return <div>
+    <div style={{background:C.s1,border:`1px solid ${rt.color}44`,borderTop:`3px solid ${rt.color}`,borderRadius:"0 0 4px 4px",padding:"1.25rem",marginBottom:"1rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:C.text,marginBottom:6}}>{country.name}</div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:"0.85rem"}}><RelationBadge relation={country.relation}/><AdvisoryBadge level={adv.level||1}/>{country.entityType&&<span className="mono" style={{fontSize:9,color:C.textDD,padding:"2px 8px",background:C.s2,border:`1px solid ${C.border}`}}>{(ENTITY_TYPES.find(e=>e.v===country.entityType)||{l:""}).l}</span>}</div>
+      {country.policyStatement&&<div style={{fontSize:14,color:C.text,lineHeight:1.8,marginBottom:"0.85rem"}}>{country.policyStatement}</div>}
+      <div style={{display:"flex",gap:"1.5rem",flexWrap:"wrap",borderTop:`1px solid ${C.border}`,paddingTop:"0.75rem"}}>
+        {country.visaPolicy&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>VISA POLICY</div><span style={{fontSize:13,color:C.text}}>{country.visaPolicy}</span></div>}
+        {country.visaOnArrival!==undefined&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>VISA ON ARRIVAL</div><span style={{fontSize:13,color:"#2a9a4a"}}>{country.visaOnArrival?"Visa on Arrival":"Visa Not Required"}</span></div>}
+      </div>
+    </div>
+    {adv.text&&<div style={{background:al.bg,border:`1px solid ${al.border}`,borderLeft:`3px solid ${al.color}`,borderRadius:"0 3px 3px 0",padding:"0.85rem 1rem",marginBottom:"1rem"}}><div className="mono" style={{fontSize:9,color:al.color,marginBottom:4}}>TRAVEL ADVISORY</div><div style={{fontSize:14,color:C.text,lineHeight:1.7}}>{adv.text}</div></div>}
+    {cr.length>0&&<div style={{background:C.s1,border:`1px solid ${C.redD}44`,borderLeft:`3px solid ${C.red}`,borderRadius:"0 3px 3px 0",padding:"0.85rem 1rem"}}><div className="mono" style={{fontSize:9,color:C.redL,marginBottom:6}}>INDIVIDUAL TRAVEL RESTRICTIONS ({cr.length})</div>{cr.map((r,i)=><div key={i} style={{fontSize:13,color:C.text,padding:"4px 0",borderBottom:i<cr.length-1?`1px solid ${C.border}`:"none"}}>{r.name}{" \u2014 "}<span style={{color:C.redL,fontSize:12}}>{(RESTRICTION_TYPES.find(t=>t.v===r.type)||{l:r.type}).l}</span></div>)}</div>}
+  </div>;
+}
+
+function RestrictionsTab({restrictions}){
+  const [search,setSearch]=useState("");
+  const list=Object.values(restrictions||{}).filter(r=>!search||(r.name||"").toLowerCase().includes(search.toLowerCase())).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  return <div className="fadeIn">
+    <STitle>Individual Travel Restrictions</STitle>
+    <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.25rem"}}>Individuals subject to Imperial travel restrictions or entry bans.</div>
+    <div style={{marginBottom:"1.25rem",maxWidth:360}}><Inp value={search} onChange={setSearch} placeholder="Search by name..."/></div>
+    {list.length===0?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No restrictions on record.</div>
+    :<div style={{display:"flex",flexDirection:"column",gap:4}}>
+      {list.map((r,i)=>{const rt=RESTRICTION_TYPES.find(t=>t.v===r.type)||RESTRICTION_TYPES[0];return <div key={r.id||i} style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${C.redD}`,borderRadius:"0 3px 3px 0",padding:"0.65rem 1.1rem",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}><span className="mono" style={{fontSize:9,padding:"2px 8px",background:"#1a0808",border:`1px solid ${C.redD}44`,color:C.redL}}>{rt.l.toUpperCase()}</span><span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{r.name}</span>{r.countryName&&<span style={{fontSize:12,color:C.textD,fontStyle:"italic"}}>{r.countryName}</span>}{r.reason&&<span style={{fontSize:12,color:C.textDD,fontStyle:"italic",flex:"0 0 100%",marginTop:2}}>{r.reason}</span>}</div>;})}
+    </div>}
+  </div>;
+}
+
+function PanelContent({user,countries,advisories,restrictions,visas,citizens,onAction,notify,setProcessing}){
+  const [sec,setSec]=useState("countries");
+  const pending=Object.values(visas||{}).filter(v=>v.status==="pending").length;
+  const secs=[["countries","Countries"],["advisories","Advisories"],["restrictions","Restrictions"],["visas","Visa Queue"+(pending>0?" ("+pending+")":"")],["citizens","Citizenship"]];
+  return <div className="fadeIn">
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:"1.25rem",flexWrap:"wrap"}}><STitle style={{marginBottom:0}}>MOFA Panel</STitle><span className="mono" style={{fontSize:9,color:C.textD,marginLeft:"auto"}}>{user.displayName||user.username}</span></div>
+    <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1.5rem",flexWrap:"wrap"}}>{secs.map(([v,l])=><button key={v} onClick={()=>setSec(v)} style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.15em",textTransform:"uppercase",padding:"0.6rem 1rem",background:"transparent",border:"none",cursor:"pointer",borderBottom:`2px solid ${sec===v?C.accent:"transparent"}`,color:sec===v?C.accent:C.textD}}>{l}</button>)}</div>
+    {sec==="countries"&&<PanelCountries countries={countries} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+    {sec==="advisories"&&<PanelAdvisories countries={countries} advisories={advisories} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+    {sec==="restrictions"&&<PanelRestrictions countries={countries} restrictions={restrictions} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+    {sec==="visas"&&<PanelVisas visas={visas} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+    {sec==="citizens"&&<PanelCitizenship citizens={citizens} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+  </div>;
+}
+
+function PanelCountries({countries,onAction,notify,setProcessing}){
+  const [creating,setCreating]=useState(false);
+  const [name,setName]=useState("");const [entityType,setEntityType]=useState("state");const [relation,setRelation]=useState("full");const [visaPolicy,setVisaPolicy]=useState("");const [visaOnArrival,setVisaOnArrival]=useState(true);const [policy,setPolicy]=useState("");const [saving,setSaving]=useState(false);
+  const list=Object.values(countries||{}).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  return <div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1rem"}}><STitle style={{marginBottom:0}}>Countries & Entities</STitle>{!creating&&<Btn small onClick={()=>setCreating(true)}>+ Add Entity</Btn>}</div>
+    {creating&&<div style={{background:C.s2,border:`1px solid ${C.accentD}44`,borderRadius:3,padding:"1.25rem",marginBottom:"1.25rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:10,letterSpacing:"0.2em",color:C.accent,marginBottom:"1rem",display:"flex",justifyContent:"space-between"}}>ADD ENTITY<button onClick={()=>setCreating(false)} style={{background:"transparent",border:"none",color:C.textD,cursor:"pointer",fontSize:14}}>X</button></div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:2,minWidth:200}}><FL>NAME *</FL><Inp value={name} onChange={setName} placeholder="Country or entity name"/></div>
+          <div style={{flex:1,minWidth:150}}><FL>TYPE</FL><DD value={entityType} onChange={setEntityType} options={ENTITY_TYPES.map(e=>({v:e.v,l:e.l}))}/></div>
+          <div style={{flex:1,minWidth:160}}><FL>DIPLOMATIC STATUS</FL><DD value={relation} onChange={setRelation} options={RELATION_TYPES.map(r=>({v:r.v,l:r.l}))}/></div>
+        </div>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap",alignItems:"flex-end"}}>
+          <div style={{flex:2,minWidth:200}}><FL>VISA POLICY</FL><Inp value={visaPolicy} onChange={setVisaPolicy} placeholder="e.g. Visa on Arrival"/></div>
+          <div style={{flex:1,paddingBottom:4}}><CheckBox checked={visaOnArrival} onChange={setVisaOnArrival} label="Visa on Arrival (uncheck = Visa Not Required)"/></div>
+        </div>
+        <div><FL>POLICY STATEMENT</FL><TA value={policy} onChange={setPolicy} placeholder="Official policy statement..." rows={3}/></div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn disabled={!name.trim()||saving} onClick={async()=>{setSaving(true);setProcessing("Adding entity...");await onAction("createCountry",{name:name.trim(),entityType,relation,visaPolicy:visaPolicy.trim(),visaOnArrival,policyStatement:policy.trim()});setProcessing(null);setSaving(false);notify(name+" added.",C.accent);setName("");setPolicy("");setVisaPolicy("");setCreating(false);}}>{saving?"Adding...":"Add Entity"}</Btn>
+          <Btn variant="ghost" onClick={()=>setCreating(false)}>Cancel</Btn>
+        </div>
+      </div>
+    </div>}
+    {list.map(c=><CountryRow key={c.id} country={c} onAction={onAction} notify={notify} setProcessing={setProcessing}/>)}
+  </div>;
+}
+
+function CountryRow({country,onAction,notify,setProcessing}){
+  const [open,setOpen]=useState(false);const [relation,setRelation]=useState(country.relation||"full");const [vp,setVp]=useState(country.visaPolicy||"");const [voa,setVoa]=useState(country.visaOnArrival!==false);const [policy,setPolicy]=useState(country.policyStatement||"");const [saving,setSaving]=useState(false);
+  const rt=getRT(country.relation);
+  return <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${rt.color}`,borderRadius:"0 3px 3px 0",marginBottom:"0.5rem",overflow:"hidden"}}>
+    <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"0.65rem 1rem",cursor:"pointer",flexWrap:"wrap"}}><RelationBadge relation={country.relation}/><span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{country.name}</span><span className="mono" style={{fontSize:9,color:C.textDD}}>{(ENTITY_TYPES.find(e=>e.v===country.entityType)||{l:""}).l}</span><span style={{fontSize:11,color:C.textDD}}>{open?"A":"V"}</span></div>
+    {open&&<div style={{borderTop:`1px solid ${C.border}`,padding:"1rem",background:C.s2}}>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap",alignItems:"flex-end"}}>
+          <div style={{flex:1,minWidth:180}}><FL>DIPLOMATIC STATUS</FL><DD value={relation} onChange={setRelation} options={RELATION_TYPES.map(r=>({v:r.v,l:r.l}))}/></div>
+          <div style={{flex:1,minWidth:180}}><FL>VISA POLICY</FL><Inp value={vp} onChange={setVp} placeholder="Visa policy"/></div>
+          <div style={{flex:1,paddingBottom:4}}><CheckBox checked={voa} onChange={setVoa} label="Visa on Arrival (uncheck = Visa Not Required)"/></div>
+        </div>
+        <div><FL>POLICY STATEMENT</FL><TA value={policy} onChange={setPolicy} placeholder="Official policy statement..." rows={3}/></div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn small variant="gold" disabled={saving} onClick={async()=>{setSaving(true);setProcessing("Updating...");await onAction("updateCountry",{id:country.id,relation,visaPolicy:vp.trim(),visaOnArrival:voa,policyStatement:policy.trim()});setProcessing(null);setSaving(false);notify(country.name+" updated.",C.gold);}}>{saving?"Saving...":"Save Changes"}</Btn>
+          <ArmBtn small label="Remove" confirmLabel="Remove entity?" onConfirm={async()=>{setProcessing("Removing...");await onAction("deleteCountry",{id:country.id});setProcessing(null);notify(country.name+" removed.",C.textD);}}/>
+        </div>
+      </div>
+    </div>}
+  </div>;
+}
+
+function PanelAdvisories({countries,advisories,onAction,notify,setProcessing}){
+  const list=Object.values(countries||{}).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  return <div><STitle>Travel Advisory Management</STitle>{list.length===0?<div style={{fontSize:14,color:C.textDD,fontStyle:"italic"}}>Add countries first.</div>:list.map(c=>{const adv=(advisories||{})[c.id]||{level:1,text:""};return <AdvisoryEditor key={c.id} country={c} advisory={adv} onAction={onAction} notify={notify} setProcessing={setProcessing}/>;})}</div>;
+}
+
+function AdvisoryEditor({country,advisory,onAction,notify,setProcessing}){
+  const [open,setOpen]=useState(false);const [level,setLevel]=useState(advisory.level||1);const [text,setText]=useState(advisory.text||"");const [saving,setSaving]=useState(false);
+  const al=getAL(advisory.level||1);
+  return <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${al.color}`,borderRadius:"0 3px 3px 0",marginBottom:"0.5rem",overflow:"hidden"}}>
+    <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"0.65rem 1rem",cursor:"pointer",flexWrap:"wrap"}}><AdvisoryBadge level={advisory.level||1}/><span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{country.name}</span><span style={{fontSize:11,color:C.textDD}}>{open?"A":"V"}</span></div>
+    {open&&<div style={{borderTop:`1px solid ${C.border}`,padding:"1rem",background:C.s2}}>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+        <div>
+          <FL>ADVISORY LEVEL</FL>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{ADVISORY_LEVELS.map(a=><div key={a.level} onClick={()=>setLevel(a.level)} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",cursor:"pointer",borderRadius:2,background:level===a.level?a.bg:"transparent",border:`1px solid ${level===a.level?a.color:C.border}`}}><div style={{width:8,height:8,borderRadius:"50%",background:a.color,flexShrink:0}}/><span className="mono" style={{fontSize:9,color:level===a.level?a.color:C.textD}}>{a.code}: {a.label}</span></div>)}</div>
+        </div>
+        <div><FL>ADVISORY TEXT</FL><TA value={text} onChange={setText} placeholder="Advisory details..." rows={3}/></div>
+        <Btn small variant="gold" disabled={saving} onClick={async()=>{setSaving(true);setProcessing("Updating...");await onAction("updateAdvisory",{countryId:country.id,level,text:text.trim(),updatedAt:Date.now()});setProcessing(null);setSaving(false);notify(country.name+" advisory updated.",C.gold);}}>{saving?"Saving...":"Update Advisory"}</Btn>
+      </div>
+    </div>}
+  </div>;
+}
+
+function PanelRestrictions({countries,restrictions,onAction,notify,setProcessing}){
+  const [name,setName]=useState("");const [type,setType]=useState("travel_ban");const [cid,setCid]=useState("");const [cname,setCname]=useState("");const [reason,setReason]=useState("");const [saving,setSaving]=useState(false);
+  const countryList=Object.values(countries||{});
+  const list=Object.values(restrictions||{}).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  return <div>
+    <STitle>Individual Travel Restrictions</STitle>
+    <div style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:3,padding:"1.25rem",marginBottom:"1.25rem"}}>
+      <div className="mono" style={{fontSize:9,color:C.textD,letterSpacing:"0.15em",marginBottom:"0.75rem"}}>ADD RESTRICTION</div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:2,minWidth:180}}><FL>INDIVIDUAL NAME *</FL><Inp value={name} onChange={setName} placeholder="Full name"/></div>
+          <div style={{flex:1,minWidth:160}}><FL>RESTRICTION TYPE</FL><DD value={type} onChange={setType} options={RESTRICTION_TYPES.map(t=>({v:t.v,l:t.l}))}/></div>
+          {countryList.length>0&&<div style={{flex:1,minWidth:160}}><FL>ASSOCIATED COUNTRY</FL><DD value={cid} onChange={v=>{setCid(v);setCname((countryList.find(c=>c.id===v)||{name:""}).name);}} options={[{v:"",l:"-- None --"},...countryList.map(c=>({v:c.id,l:c.name}))]}/></div>}
+        </div>
+        <div><FL>REASON</FL><Inp value={reason} onChange={setReason} placeholder="Legal basis or reason"/></div>
+        <Btn small disabled={!name.trim()||saving} onClick={async()=>{setSaving(true);setProcessing("Adding...");await onAction("createRestriction",{name:name.trim(),type,country:cid,countryName:cname,reason:reason.trim(),created:Date.now()});setProcessing(null);setSaving(false);notify(name+" added.",C.gold);setName("");setReason("");setCid("");setCname("");}}>{saving?"Adding...":"Add Restriction"}</Btn>
+      </div>
+    </div>
+    {list.length===0?<div style={{fontSize:14,color:C.textDD,fontStyle:"italic"}}>No restrictions on record.</div>:list.map((r,i)=>{const rt=RESTRICTION_TYPES.find(t=>t.v===r.type)||RESTRICTION_TYPES[0];return <div key={r.id||i} style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${C.redD}`,borderRadius:"0 3px 3px 0",padding:"0.65rem 1rem",marginBottom:4,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}><span className="mono" style={{fontSize:9,color:C.redL,padding:"2px 8px",background:"#1a0808",border:`1px solid ${C.redD}44`}}>{rt.l.toUpperCase()}</span><span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{r.name}</span>{r.countryName&&<span style={{fontSize:12,color:C.textD,fontStyle:"italic"}}>{r.countryName}</span>}{r.reason&&<span style={{fontSize:12,color:C.textDD,fontStyle:"italic",flex:"0 0 100%",marginTop:2}}>{r.reason}</span>}<ArmBtn small label="Remove" confirmLabel="Remove?" onConfirm={async()=>{setProcessing("Removing...");await onAction("deleteRestriction",{id:r.id});setProcessing(null);notify(r.name+" removed.",C.textD);}}/></div>;})}
+  </div>;
+}
+
+function PanelVisas({visas,onAction,notify,setProcessing}){
+  const [filter,setFilter]=useState("pending");
+  const list=Object.values(visas||{}).filter(v=>filter==="all"||v.status===filter).sort((a,b)=>(b.submitted||0)-(a.submitted||0));
+  return <div>
+    <STitle>Visa Applications</STitle>
+    <div style={{display:"flex",gap:6,marginBottom:"1.25rem",flexWrap:"wrap"}}>{[["all","All"],["pending","Pending"],["approved","Approved"],["rejected","Rejected"],["additional","Add. Info"]].map(([v,l])=><button key={v} onClick={()=>setFilter(v)} style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",padding:"4px 12px",background:filter===v?C.s2:"transparent",border:`1px solid ${filter===v?C.accent:C.border}`,color:filter===v?C.accent:C.textD,borderRadius:2,cursor:"pointer"}}>{l}</button>)}</div>
+    {list.length===0?<div style={{fontSize:14,color:C.textDD,fontStyle:"italic"}}>No {filter==="all"?"":filter+" "}applications.</div>:list.map(v=><VisaRow key={v.id} visa={v} onAction={onAction} notify={notify} setProcessing={setProcessing}/>)}
+  </div>;
+}
+
+function VisaRow({visa,onAction,notify,setProcessing}){
+  const [open,setOpen]=useState(false);const [status,setStatus]=useState(visa.status||"pending");const [note,setNote]=useState("");const [saving,setSaving]=useState(false);
+  const st=VISA_STATUSES.find(s=>s.v===visa.status)||VISA_STATUSES[0];
+  const vt=VISA_TYPES.find(t=>t.v===visa.type)||VISA_TYPES[0];
+  return <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${st.color}`,borderRadius:"0 3px 3px 0",marginBottom:"0.5rem",overflow:"hidden"}}>
+    <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"0.65rem 1rem",cursor:"pointer",flexWrap:"wrap"}}><span className="mono" style={{fontSize:9,color:st.color,padding:"2px 8px",background:C.s2,border:`1px solid ${st.color}44`}}>{st.l.toUpperCase()}</span><span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{visa.name}</span><span className="mono" style={{fontSize:9,color:C.textD}}>{vt.l}</span><span className="mono" style={{fontSize:9,color:C.textDD}}>{visa.ref}</span><span style={{fontSize:11,color:C.textDD}}>{open?"A":"V"}</span></div>
+    {open&&<div style={{borderTop:`1px solid ${C.border}`,padding:"1rem",background:C.s2}}>
+      <div style={{display:"flex",gap:"2rem",flexWrap:"wrap",marginBottom:"1rem"}}>{[["Applicant",visa.name],["Username",visa.username],["Nationality",visa.nationality],["Type",vt.l],["Destination",visa.destination||""],["Duration",visa.duration||""]].map(([k,v])=>v?<div key={k}><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>{k.toUpperCase()}</div><div style={{fontSize:13,color:C.text}}>{v}</div></div>:null)}</div>
+      {visa.purpose&&<div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:2,padding:"0.6rem 0.85rem",marginBottom:"0.85rem"}}><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>PURPOSE</div><div style={{fontSize:13,color:C.text,lineHeight:1.7}}>{visa.purpose}</div></div>}
+      {visa.reviewNote&&<div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`3px solid ${st.color}`,borderRadius:"0 2px 2px 0",padding:"0.5rem 0.85rem",marginBottom:"0.75rem",fontSize:13,color:C.text}}><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>REVIEW NOTE</div>{visa.reviewNote}</div>}
+      <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap",alignItems:"flex-end",borderTop:`1px solid ${C.border}`,paddingTop:"0.75rem"}}>
+        <div style={{flex:1,minWidth:160}}><FL>UPDATE STATUS</FL><DD value={status} onChange={setStatus} options={VISA_STATUSES.map(s=>({v:s.v,l:s.l}))}/></div>
+        <div style={{flex:2,minWidth:200}}><FL>REVIEW NOTE</FL><Inp value={note} onChange={setNote} placeholder="Note to applicant..."/></div>
+        <Btn small variant="gold" disabled={saving} onClick={async()=>{setSaving(true);setProcessing("Updating...");await onAction("updateVisa",{id:visa.id,status,reviewNote:note.trim()});setProcessing(null);setSaving(false);setNote("");notify("Application "+visa.ref+" updated.",C.gold);}}>{saving?"Saving...":"Update"}</Btn>
+      </div>
+    </div>}
+  </div>;
+}
+
+function PanelCitizenship({citizens,onAction,notify,setProcessing}){
+  const [name,setName]=useState("");const [username,setUsername]=useState("");const [nationality,setNationality]=useState("");const [status,setStatus]=useState("citizen");const [since,setSince]=useState(new Date().toISOString().slice(0,10));const [notes,setNotes]=useState("");const [saving,setSaving]=useState(false);
+  const list=Object.values(citizens||{}).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  return <div>
+    <STitle>Citizenship Registry</STitle>
+    <div style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:3,padding:"1.25rem",marginBottom:"1.25rem"}}>
+      <div className="mono" style={{fontSize:9,color:C.textD,letterSpacing:"0.15em",marginBottom:"0.75rem"}}>ADD RECORD</div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:2,minWidth:180}}><FL>FULL NAME *</FL><Inp value={name} onChange={setName} placeholder="In-game name"/></div>
+          <div style={{flex:1,minWidth:140}}><FL>USERNAME</FL><Inp value={username} onChange={setUsername} placeholder="Username"/></div>
+          <div style={{flex:1,minWidth:140}}><FL>NATIONALITY</FL><Inp value={nationality} onChange={setNationality} placeholder="Origin country"/></div>
+        </div>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:160}}><FL>STATUS</FL><DD value={status} onChange={setStatus} options={CITIZENSHIP_STATUSES.map(s=>({v:s.v,l:s.l}))}/></div>
+          <div style={{flex:1,minWidth:140}}><FL>DATE GRANTED</FL><Inp value={since} onChange={setSince} type="date"/></div>
+          <div style={{flex:2,minWidth:200}}><FL>NOTES</FL><Inp value={notes} onChange={setNotes} placeholder="Additional notes..."/></div>
+        </div>
+        <Btn small disabled={!name.trim()||saving} onClick={async()=>{setSaving(true);setProcessing("Adding...");await onAction("createCitizen",{name:name.trim(),username:username.trim(),nationality:nationality.trim(),status,since,notes:notes.trim()});setProcessing(null);setSaving(false);notify(name+" added.",C.accent);setName("");setUsername("");setNationality("");setNotes("");}}>{saving?"Adding...":"Add to Registry"}</Btn>
+      </div>
+    </div>
+    <div style={{display:"flex",flexDirection:"column",gap:4}}>{list.map(c=>{const st=CITIZENSHIP_STATUSES.find(s=>s.v===c.status)||CITIZENSHIP_STATUSES[0];return <CitizenRow key={c.id} citizen={c} st={st} onAction={onAction} notify={notify} setProcessing={setProcessing}/>;})}</div>
+  </div>;
+}
+
+function CitizenRow({citizen,st,onAction,notify,setProcessing}){
+  const [open,setOpen]=useState(false);const [status,setStatus]=useState(citizen.status||"citizen");const [notes,setNotes]=useState(citizen.notes||"");const [saving,setSaving]=useState(false);
+  return <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${st.color}`,borderRadius:"0 3px 3px 0",overflow:"hidden",marginBottom:4}}>
+    <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"0.65rem 1rem",cursor:"pointer",flexWrap:"wrap"}}><span className="mono" style={{fontSize:9,color:st.color,padding:"2px 8px",background:C.s2,border:`1px solid ${st.color}44`}}>{st.l.toUpperCase()}</span><span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{citizen.name}</span>{citizen.username&&<span className="mono" style={{fontSize:10,color:C.textD}}>{citizen.username}</span>}{citizen.since&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{citizen.since}</span>}<span style={{fontSize:11,color:C.textDD}}>{open?"A":"V"}</span></div>
+    {open&&<div style={{borderTop:`1px solid ${C.border}`,padding:"0.85rem",background:C.s2,display:"flex",gap:"0.75rem",flexWrap:"wrap",alignItems:"flex-end"}}>
+      <div style={{flex:1,minWidth:160}}><FL>STATUS</FL><DD value={status} onChange={setStatus} options={CITIZENSHIP_STATUSES.map(s=>({v:s.v,l:s.l}))}/></div>
+      <div style={{flex:2,minWidth:200}}><FL>NOTES</FL><Inp value={notes} onChange={setNotes} placeholder="Notes..."/></div>
+      <Btn small variant="gold" disabled={saving} onClick={async()=>{setSaving(true);setProcessing("Updating...");await onAction("updateCitizen",{id:citizen.id,status,notes:notes.trim()});setProcessing(null);setSaving(false);notify(citizen.name+" updated.",C.gold);}}>{saving?"Saving...":"Save"}</Btn>
+      <ArmBtn small label="Remove" confirmLabel="Remove?" onConfirm={async()=>{setProcessing("Removing...");await onAction("deleteCitizen",{id:citizen.id});setProcessing(null);notify(citizen.name+" removed.",C.textD);}}/>
+    </div>}
+  </div>;
+}
+
+function App(){
+  const [tab,setTab]=useState("advisories");
+  const [raw,setRaw]=useState({});
+  const [loaded,setLoaded]=useState(false);
+  const [panelUser,setPanelUser]=useState(null);
+  const [panelAuth,setPanelAuth]=useState(false);
+  const [toast,setToast]=useState({msg:"",color:""});
+  const [processing,setProcessing]=useState(null);
+
+  const notify=useCallback((msg,color=C.accent)=>{
+    setToast({msg,color});setTimeout(()=>setToast(t=>t.msg===msg?{msg:"",color}:t),4000);
+  },[]);
+
+  useEffect(()=>{sgetAll().then(r=>{setRaw(r);setLoaded(true);});},[]);
+
+  const countries=useMemo(()=>raw["mfa_countries"]||{},[raw]);
+  const advisories=useMemo(()=>raw["mfa_advisories"]||{},[raw]);
+  const restrictions=useMemo(()=>raw["mfa_restrictions"]||{},[raw]);
+  const visas=useMemo(()=>raw["mfa_visas"]||{},[raw]);
+  const citizens=useMemo(()=>raw["mfa_citizens"]||{},[raw]);
+  const pendingVisas=useMemo(()=>Object.values(visas).filter(v=>v.status==="pending").length,[visas]);
+
+  const onAction=useCallback(async(type,payload)=>{
+    if(type==="createCountry"){const id="cty_"+uid();const next={...countries,[id]:{...payload,id,created:Date.now()}};setRaw(r=>({...r,mfa_countries:next}));await sset("mfa_countries",next);}
+    else if(type==="updateCountry"){const {id,...rest}=payload;const next={...countries,[id]:{...countries[id],...rest}};setRaw(r=>({...r,mfa_countries:next}));await sset("mfa_countries",next);}
+    else if(type==="deleteCountry"){const next={...countries};delete next[payload.id];setRaw(r=>({...r,mfa_countries:next}));await sset("mfa_countries",next);}
+    else if(type==="updateAdvisory"){const next={...advisories,[payload.countryId]:{level:payload.level,text:payload.text,updatedAt:payload.updatedAt}};setRaw(r=>({...r,mfa_advisories:next}));await sset("mfa_advisories",next);}
+    else if(type==="createRestriction"){const id="rst_"+uid();const next={...restrictions,[id]:{...payload,id}};setRaw(r=>({...r,mfa_restrictions:next}));await sset("mfa_restrictions",next);}
+    else if(type==="deleteRestriction"){const next={...restrictions};delete next[payload.id];setRaw(r=>({...r,mfa_restrictions:next}));await sset("mfa_restrictions",next);}
+    else if(type==="submitVisa"){const id="vis_"+uid();const next={...visas,[id]:{...payload,id}};setRaw(r=>({...r,mfa_visas:next}));return await sset("mfa_visas",next);}
+    else if(type==="updateVisa"){const {id,...rest}=payload;const next={...visas,[id]:{...visas[id],...rest}};setRaw(r=>({...r,mfa_visas:next}));await sset("mfa_visas",next);}
+    else if(type==="createCitizen"){const id="cit_"+uid();const next={...citizens,[id]:{...payload,id}};setRaw(r=>({...r,mfa_citizens:next}));await sset("mfa_citizens",next);}
+    else if(type==="updateCitizen"){const {id,...rest}=payload;const next={...citizens,[id]:{...citizens[id],...rest}};setRaw(r=>({...r,mfa_citizens:next}));await sset("mfa_citizens",next);}
+    else if(type==="deleteCitizen"){const next={...citizens};delete next[payload.id];setRaw(r=>({...r,mfa_citizens:next}));await sset("mfa_citizens",next);}
+  },[raw,countries,advisories,restrictions,visas,citizens]);
+
+  const TABS=[{v:"advisories",l:"Travel Advisories",icon:"+"},{v:"citizenship",l:"Citizenship",icon:"+"},{v:"visa",l:"Visa Applications",icon:"+"},{v:"policy",l:"Foreign Policy",icon:"+"},{v:"restrictions",l:"Restrictions",icon:"+"},{v:"panel",l:"Panel",icon:"+"}];
+
+  function handleTabClick(v){if(v==="panel"&&!panelUser){setPanelAuth(true);return;}setTab(v);setPanelAuth(false);}
+
+  return <div style={{background:C.bg,minHeight:"100vh",color:C.text}}>
+    <Toast msg={toast.msg} color={toast.color}/>
+    <Overlay label={processing}/>
+    <div style={{background:C.s1,borderBottom:`1px solid ${C.border}`,padding:"0 1.25rem"}}>
+      <div style={{maxWidth:1100,margin:"0 auto"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"0.75rem 0",borderBottom:`1px solid ${C.border}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,flex:1}}>
+            <span style={{fontSize:18}}>+</span>
+            <div>
+              <div style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:13,letterSpacing:"0.15em",color:C.text,lineHeight:1}}>Ministry of Foreign Affairs</div>
+              <div className="mono" style={{fontSize:8,letterSpacing:"0.2em",color:C.textDD,marginTop:1}}>Empire of Lech</div>
+            </div>
+          </div>
+          <a href="index.html" style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",color:C.textD,textDecoration:"none",border:`1px solid ${C.border}`,borderRadius:2,padding:"3px 10px"}}>Back</a>
+        </div>
+        <div style={{display:"flex",overflowX:"auto"}}>
+          {TABS.map(t=><button key={t.v} onClick={()=>handleTabClick(t.v)} style={{fontFamily:"'Cinzel',serif",fontSize:10,fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",padding:"0.65rem 1rem",background:"transparent",border:"none",whiteSpace:"nowrap",cursor:"pointer",flexShrink:0,borderBottom:`2px solid ${tab===t.v&&!panelAuth?C.accent:"transparent"}`,color:tab===t.v&&!panelAuth?C.accent:C.textD}}>{t.l}{t.v==="panel"&&pendingVisas>0&&panelUser&&<span style={{marginLeft:4,background:C.redD,color:"#fff",fontSize:9,padding:"1px 5px",borderRadius:8}}>{pendingVisas}</span>}</button>)}
+        </div>
+      </div>
+    </div>
+    <div style={{maxWidth:1100,margin:"0 auto",padding:"1.75rem 1.25rem"}}>
+      {!loaded&&<div style={{textAlign:"center",padding:"4rem",color:C.textDD}}><div className="mono" style={{fontSize:10,letterSpacing:"0.3em",animation:"pulse 1.5s infinite"}}>Loading...</div></div>}
+      {loaded&&panelAuth&&!panelUser&&<PanelAuth onAuth={(u,r)=>{setPanelUser(u);setRaw(prev=>({...prev,...r}));setPanelAuth(false);setTab("panel");notify("Authenticated as "+(u.displayName||u.username)+".",C.gold);}} onCancel={()=>setPanelAuth(false)}/>}
+      {loaded&&!panelAuth&&tab==="advisories"&&<AdvisoriesTab countries={countries} advisories={advisories}/>}
+      {loaded&&!panelAuth&&tab==="citizenship"&&<CitizenshipTab citizens={citizens}/>}
+      {loaded&&!panelAuth&&tab==="visa"&&<VisaTab countries={countries} onSubmitVisa={data=>onAction("submitVisa",data)} notify={notify} visas={visas}/>}
+      {loaded&&!panelAuth&&tab==="policy"&&<PolicyTab countries={countries} advisories={advisories} restrictions={restrictions}/>}
+      {loaded&&!panelAuth&&tab==="restrictions"&&<RestrictionsTab restrictions={restrictions}/>}
+      {loaded&&!panelAuth&&tab==="panel"&&panelUser&&<PanelContent user={panelUser} countries={countries} advisories={advisories} restrictions={restrictions} visas={visas} citizens={citizens} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+      {loaded&&!panelAuth&&tab==="panel"&&!panelUser&&<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>Authentication required.</div>}
+    </div>
+    <div style={{borderTop:`1px solid ${C.border}`,padding:"0.75rem 1.25rem",marginTop:"3rem"}}><div className="mono" style={{maxWidth:1100,margin:"0 auto",fontSize:9,color:C.textDD,letterSpacing:"0.15em",textAlign:"center"}}>Ministry of Foreign Affairs - Empire of Lech</div></div>
+  </div>;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
