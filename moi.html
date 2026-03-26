@@ -1240,6 +1240,7 @@ function AccountRow({acc,currentUser,onUpdate,notify,setProcessing,canSetMiniste
   const [officerAssigned,setOfficerAssigned]=useState(acc.officerAssigned||false);
   const [mowAccess,setMowAccess]=useState(acc.mowAccess||false);
   const [mfaAccess,setMfaAccess]=useState(acc.mfaAccess||false);
+  const [ijAccess,setIjAccess]=useState(acc.ijAccess||false);
   const [clearance,setClearance]=useState(String(acc.clearance||0));
   const [newPw,setNewPw]=useState("");
   const [saving,setSaving]=useState(false);
@@ -1280,6 +1281,7 @@ function AccountRow({acc,currentUser,onUpdate,notify,setProcessing,canSetMiniste
               ["officerAssigned","LFP Officer Assigned",officerAssigned,setOfficerAssigned],
               ["mowAccess","War Office Access",mowAccess,setMowAccess],
               ["mfaAccess","Foreign Affairs Panel",mfaAccess,setMfaAccess],
+              ["ijAccess","Judicial Panel",ijAccess,setIjAccess],
             ].map(([k,l,val,set])=>(
               <div key={k} onClick={()=>set(v=>!v)} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
                 <div style={{width:16,height:16,border:`2px solid ${val?C.accent:C.border}`,borderRadius:2,
@@ -1296,7 +1298,7 @@ function AccountRow({acc,currentUser,onUpdate,notify,setProcessing,canSetMiniste
             </div>
             <Btn small variant="gold" disabled={saving} onClick={async()=>{
               setSaving(true); setProcessing("Saving account…");
-              const patch={role,ministry,isContractor,agentAssigned,officerAssigned,mowAccess,mfaAccess,clearance:parseInt(clearance)};
+              const patch={role,ministry,isContractor,agentAssigned,officerAssigned,mowAccess,mfaAccess,ijAccess,clearance:parseInt(clearance)};
               if(newPw.trim()) patch.passwordHash=await sha256(newPw.trim());
               await onUpdate(acc.username,patch);
               setProcessing(null); setSaving(false); setNewPw("");
