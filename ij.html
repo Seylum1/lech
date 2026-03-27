@@ -30,6 +30,7 @@ const {useState,useEffect,useRef,useCallback,useMemo}=React;
 const SCRIPT_URL="https://script.google.com/macros/s/AKfycbxLu8jQehAZJEvMEeCLoHc9S2C4FM8o9fQh8Pp4gMzDNwwIG0S9qLJ5-1gyGM1c_InUfQ/exec";
 const BK_URL="https://script.google.com/macros/s/AKfycbz37c5Okp9c7PkXv38x2lq7Is3RifkJPee5ASb2KQfA7EJgsN0NwrigmiRr1a_G0E6d4Q/exec";
 
+// ── COLOURS ───────────────────────────────────────────────────────────────────
 const C={
   bg:"#090c12",s1:"#0e1520",s2:"#121c28",s3:"#162030",
   border:"#1e2e48",borderL:"#2a4070",
@@ -38,43 +39,117 @@ const C={
   silver:"#a8b8cc",silverD:"#5a6a8a",
   gold:"#C9A84C",goldD:"#8a6820",
   red:"#8b1a1a",redD:"#5a0808",redL:"#c05050",
-  blue:"#2a4a8a",blueL:"#4a7acc",
+  blueL:"#4a7acc",
 };
 
-const COURTS=[
-  {v:"constitutional",l:"Constitutional Court",      short:"CC",  color:"#4a6aaa",border:"#2a4a8a",bg:"#0a1020"},
-  {v:"regional",      l:"Regional Court",            short:"RC",  color:"#6a8aaa",border:"#3a5a7a",bg:"#0c1418"},
+// ── CASE PIPELINE ─────────────────────────────────────────────────────────────
+const PIPELINE_MAIN=["filed","active","hearing","deliberating","decided"];
+const CASE_PIPELINE={
+  filed:{
+    label:"Filed",color:"#7a8aaa",
+    desc:"Case has been received by the court and is awaiting justice assignment.",
+    next:["active","dismissed","withdrawn"],
+    nextLabels:{active:"Assign & Activate",dismissed:"Dismiss",withdrawn:"Mark Withdrawn"},
+    nextWarnings:{
+      dismissed:"Dismissing at this stage means the case was not heard on its merits. The filing party may still appeal the dismissal.",
+      withdrawn:"Marking as withdrawn indicates the petitioner has voluntarily ended their filing. Withdrawal is generally not appealable.",
+    },
+  },
+  active:{
+    label:"Active",color:"#4a7acc",
+    desc:"A justice has been assigned. Proceedings are underway.",
+    next:["hearing","dismissed","withdrawn"],
+    nextLabels:{hearing:"Schedule Hearing",dismissed:"Dismiss",withdrawn:"Mark Withdrawn"},
+    nextWarnings:{
+      dismissed:"Dismissing an active case means it has been rejected before full hearing. The parties retain the right to appeal.",
+      withdrawn:"The petitioner has ended their filing voluntarily. This closes the case without a ruling.",
+    },
+  },
+  hearing:{
+    label:"Before the Court",color:"#C9A84C",
+    desc:"The court is conducting proceedings and hearing arguments from all parties.",
+    next:["deliberating","dismissed","withdrawn"],
+    nextLabels:{deliberating:"Begin Deliberation",dismissed:"Dismiss",withdrawn:"Mark Withdrawn"},
+    nextWarnings:{
+      deliberating:"Moving to deliberation means the court has heard all arguments and is now considering its judgment. A formal judgment must be rendered to close this case.",
+      dismissed:"Dismissing during hearing closes the case before a judgment on the merits. This may be appealed.",
+      withdrawn:"A withdrawal during hearing closes the case immediately. This is generally not appealable.",
+    },
+  },
+  deliberating:{
+    label:"Under Deliberation",color:"#9a6acc",
+    desc:"The court is deliberating. A formal judgment must be rendered — use the Judgments tab.",
+    next:["dismissed","withdrawn"],
+    requiresJudgment:true,
+    nextLabels:{dismissed:"Dismiss (Procedural)",withdrawn:"Mark Withdrawn"},
+    nextWarnings:{
+      dismissed:"A procedural dismissal at deliberation stage means the case is closed without a judgment on the merits. This is rare and may be appealed. Consider rendering a formal Judgment of Dismissal instead.",
+      withdrawn:"Withdrawal at this stage is unusual. Ensure this is the petitioner's intent and not an error.",
+    },
+  },
+  decided:{
+    label:"Decided",color:"#2a9a4a",
+    desc:"A judgment has been rendered. The parties have the right to appeal to the Constitutional Court.",
+    next:["appealed"],
+    nextLabels:{appealed:"File Appeal to Constitutional Court"},
+    nextWarnings:{
+      appealed:"Filing an appeal will automatically create a new case in the Constitutional Court linked to this one. The original judgment remains in effect during appeal unless stayed by the court.",
+    },
+  },
+  dismissed:{
+    label:"Dismissed",color:"#7a7a7a",
+    desc:"This case has been dismissed. Dismissal may be appealed to the Constitutional Court.",
+    next:["appealed"],
+    nextLabels:{appealed:"File Appeal to Constitutional Court"},
+    nextWarnings:{
+      appealed:"An appeal of a dismissed case argues the dismissal was improper. A new case will be created in the Constitutional Court.",
+    },
+  },
+  withdrawn:{label:"Withdrawn",color:"#5a5a5a",desc:"The petitioner withdrew this filing. Case closed.",next:[]},
+  appealed:{label:"On Appeal",color:"#cc6a10",desc:"An appeal is before the Constitutional Court. See linked case.",next:[]},
+  final_upheld:{label:"Final \u2014 Upheld",color:"#2a7a6a",desc:"Original judgment upheld on appeal. This case is closed and the record is final.",next:[]},
+  final_overturned:{label:"Final \u2014 Overturned",color:"#cc2222",desc:"Original judgment overturned on appeal. Any statute effects from the original judgment should be reviewed.",next:[]},
+};
+const JUDGMENT_OUTCOMES=[
+  {v:"in_favor_complainant", l:"In Favour of Complainant / Petitioner",
+   desc:"The complainant's case succeeds. If a statute was contested and the complainant prevails, you will be prompted to review the legal code."},
+  {v:"in_favor_respondent",  l:"In Favour of Respondent / The Crown",
+   desc:"The respondent's position is upheld. Existing law and the state of affairs stands unchanged."},
+  {v:"partial",              l:"Partially Granted",
+   desc:"The court grants part of the claim but not all. Partial outcomes may still trigger a review of the relevant statute."},
+  {v:"dismiss_on_merits",    l:"Dismissed \u2014 On the Merits",
+   desc:"The court has heard the case and rules against the complainant on its merits. This is a substantive ruling. It may still be appealed."},
 ];
-const CASE_STATUSES=[
-  {v:"filed",      l:"Filed",             color:"#7a8aaa"},
-  {v:"active",     l:"Active",            color:"#4a7acc"},
-  {v:"hearing",    l:"Before the Court",  color:"#C9A84C"},
-  {v:"deliberating",l:"Under Deliberation",color:"#9a6acc"},
-  {v:"decided",    l:"Decided",           color:"#2a9a4a"},
-  {v:"appealed",   l:"On Appeal",         color:"#cc6a10"},
-  {v:"dismissed",  l:"Dismissed",         color:"#7a7a7a"},
-  {v:"withdrawn",  l:"Withdrawn",         color:"#5a5a5a"},
+const APPEAL_OUTCOMES=[
+  {v:"appeal_upheld",   l:"Appeal Upheld \u2014 Original Overturned",
+   desc:"The appeal succeeds. The original judgment is overturned. If the original ruling created or repealed a statute, that effect will be reversed."},
+  {v:"appeal_denied",   l:"Appeal Denied \u2014 Original Upheld",
+   desc:"The appeal is denied. The original judgment stands as the final word of the court. No further appeal is available."},
+];
+const STATUTE_ACTIONS=[
+  {v:"repeal",  l:"Repeal a Statute",    desc:"Remove an existing statute from force. This is a significant action \u2014 the law ceases to have effect."},
+  {v:"create",  l:"Create a New Statute",desc:"Enact a new statute arising from this judgment."},
+  {v:"modify",  l:"Record a Modification",desc:"Record that an existing statute has been modified in scope or interpretation by this judgment."},
+  {v:"none",    l:"No Statute Action",   desc:"This judgment does not affect the legal code."},
+];
+
+const COURTS=[
+  {v:"constitutional",l:"Constitutional Court",short:"CC",color:"#4a6aaa",border:"#2a4a8a",bg:"#0a1020"},
+  {v:"regional",      l:"Regional Court",       short:"RC",color:"#6a8aaa",border:"#3a5a7a",bg:"#0c1418"},
 ];
 const CASE_TYPES=[
-  {v:"constitutional_challenge",l:"Constitutional Challenge"},
   {v:"criminal",                l:"Criminal Prosecution"},
   {v:"civil",                   l:"Civil Action"},
   {v:"administrative",          l:"Administrative Review"},
+  {v:"constitutional_challenge",l:"Constitutional Challenge"},
   {v:"impeachment",             l:"Impeachment Proceedings"},
   {v:"treaty",                  l:"Treaty Interpretation"},
   {v:"other",                   l:"Other"},
 ];
-const JUDGMENT_TYPES=[
-  {v:"ruling",     l:"Ruling"},
-  {v:"judgment",   l:"Judgment"},
-  {v:"order",      l:"Court Order"},
-  {v:"opinion",    l:"Advisory Opinion"},
-  {v:"dismissal",  l:"Order of Dismissal"},
-];
 const APPOINTMENT_ROLES=[
-  {v:"president",  l:"President of the Courts",      court:"both",          style:"The Right Honourable"},
-  {v:"cc_justice", l:"Justice of the Constitutional Court", court:"constitutional", style:"The Honourable"},
-  {v:"rc_justice", l:"Justice of the Regional Court",      court:"regional",       style:"The Honourable"},
+  {v:"president",  l:"President of the Courts",               court:"both",          style:"The Right Honourable"},
+  {v:"cc_justice", l:"Justice of the Constitutional Court",   court:"constitutional", style:"The Honourable"},
+  {v:"rc_justice", l:"Justice of the Regional Court",         court:"regional",       style:"The Honourable"},
 ];
 const STATUTE_CATS=[
   {v:"constitutional",l:"Constitutional Law"},
@@ -86,31 +161,39 @@ const STATUTE_CATS=[
   {v:"fiscal",        l:"Fiscal Law"},
   {v:"other",         l:"Other"},
 ];
+const TITLE_TEMPLATES=[
+  {v:"crown_v",    l:"Crown v. [Name]",             build:(a)=>`Crown v. ${a}`},
+  {v:"v_crown",    l:"[Name] v. The Crown",          build:(a)=>`${a} v. The Crown`},
+  {v:"indiv_v",    l:"[Name] v. [Name]",             build:(a,b)=>`${a} v. ${b}`},
+  {v:"re",         l:"In re [Subject]",              build:(a)=>`In re ${a}`},
+  {v:"matter_of",  l:"In the matter of [Subject]",  build:(a)=>`In the matter of ${a}`},
+  {v:"petition",   l:"Petition of [Name]",           build:(a)=>`Petition of ${a}`},
+  {v:"application",l:"Application of [Name]",        build:(a)=>`Application of ${a}`},
+];
+const PARTY_PRESETS=[
+  {v:"crown_v_ind", l:"Crown v. Individual",      build:(a)=>`The Crown v. ${a}`},
+  {v:"ind_v_crown", l:"Individual v. Crown",      build:(a)=>`${a} v. The Crown`},
+  {v:"ind_v_ind",   l:"Individual v. Individual", build:(a,b)=>`${a} v. ${b}`},
+];
 
+// ── UTILS ─────────────────────────────────────────────────────────────────────
 async function sha256(t){
   const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
 }
 function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
 async function sgetAll(){
-  try{
-    const r=await fetch(SCRIPT_URL+"?action=getall");
-    const d=await r.json();
-    if(!d.success) return {};
-    const out={};
+  try{const r=await fetch(SCRIPT_URL+"?action=getall");const d=await r.json();
+    if(!d.success)return{};const out={};
     Object.entries(d.data||{}).forEach(([k,v])=>{if(v){try{out[k]=JSON.parse(v);}catch{}}});
-    return out;
-  }catch{return{};}
+    return out;}catch{return{};}
 }
 async function sset(k,v){
-  try{
-    await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
-      body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v)})});
-    return true;
-  }catch{return false;}
+  try{await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
+    body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v)})});return true;}catch{return false;}
 }
 
-// ── UI ────────────────────────────────────────────────────────────────────────
+// ── UI ATOMS ──────────────────────────────────────────────────────────────────
 function Btn({children,onClick,variant="primary",disabled,small,full,style:ex={}}){
   const base={fontFamily:"'Cinzel',serif",letterSpacing:"0.1em",fontWeight:700,textTransform:"uppercase",
     fontSize:small?10:11,padding:small?"4px 12px":"7px 18px",border:"1px solid",borderRadius:2,
@@ -126,24 +209,21 @@ function Btn({children,onClick,variant="primary",disabled,small,full,style:ex={}
   return <button onClick={disabled?undefined:onClick} style={{...base,...vs,...ex}}>{children}</button>;
 }
 function ArmBtn({label,confirmLabel,onConfirm,variant="danger",small}){
-  const [armed,setArmed]=useState(false);
-  const t=useRef(null);
-  if(armed) return <Btn variant="armed" small={small} onClick={()=>{clearTimeout(t.current);setArmed(false);onConfirm();}}>{confirmLabel||"Confirm?"}</Btn>;
+  const [armed,setArmed]=useState(false);const t=useRef(null);
+  if(armed)return <Btn variant="armed" small={small} onClick={()=>{clearTimeout(t.current);setArmed(false);onConfirm();}}>{confirmLabel||"Confirm?"}</Btn>;
   return <Btn variant={variant} small={small} onClick={()=>{setArmed(true);clearTimeout(t.current);t.current=setTimeout(()=>setArmed(false),4000);}}>{label}</Btn>;
 }
 function Inp({value,onChange,placeholder,type="text",style:ex={}}){
   return <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
     style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
              padding:"8px 12px",color:C.text,fontSize:14,outline:"none",...ex}}
-    onFocus={e=>e.target.style.borderColor=C.accent}
-    onBlur={e=>e.target.style.borderColor=C.border}/>;
+    onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/>;
 }
 function TA({value,onChange,placeholder,rows=4}){
   return <textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows}
     style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
              padding:"8px 12px",color:C.text,fontSize:14,outline:"none",resize:"vertical",lineHeight:1.7}}
-    onFocus={e=>e.target.style.borderColor=C.accent}
-    onBlur={e=>e.target.style.borderColor=C.border}/>;
+    onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/>;
 }
 function DD({value,onChange,options,style:ex={}}){
   return <select value={value} onChange={e=>onChange(e.target.value)}
@@ -152,290 +232,205 @@ function DD({value,onChange,options,style:ex={}}){
     {options.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
   </select>;
 }
-function FL({children}){
-  return <div className="mono" style={{fontSize:9,color:C.textD,letterSpacing:"0.15em",marginBottom:4}}>{children}</div>;
-}
+function FL({children}){return <div className="mono" style={{fontSize:9,color:C.textD,letterSpacing:"0.15em",marginBottom:4}}>{children}</div>;}
 function STitle({children,color=C.silver,style:ex={}}){
   return <div style={{fontFamily:"'Cinzel',serif",fontSize:10,fontWeight:700,letterSpacing:"0.3em",
-    textTransform:"uppercase",color,paddingBottom:8,borderBottom:`1px solid ${C.border}`,
-    marginBottom:"1.25rem",...ex}}>{children}</div>;
-}
-function CourtBadge({court}){
-  const ct=COURTS.find(c=>c.v===court)||COURTS[0];
-  return <span className="mono" style={{fontSize:9,padding:"2px 8px",background:ct.bg,
-    border:`1px solid ${ct.border}`,color:ct.color,borderRadius:1}}>{ct.short}</span>;
-}
-function StatusBadge({status}){
-  const st=CASE_STATUSES.find(s=>s.v===status)||CASE_STATUSES[0];
-  return <span className="mono" style={{fontSize:9,padding:"2px 8px",background:C.s1,
-    border:`1px solid ${st.color}44`,color:st.color,borderRadius:1}}>{st.l.toUpperCase()}</span>;
+    textTransform:"uppercase",color,paddingBottom:8,borderBottom:`1px solid ${C.border}`,marginBottom:"1.25rem",...ex}}>{children}</div>;
 }
 function Toast({msg,color}){
-  if(!msg) return null;
+  if(!msg)return null;
   return <div style={{position:"fixed",top:14,right:14,zIndex:9999,background:C.s2,
     border:`1px solid ${color}55`,borderLeft:`3px solid ${color}`,padding:"8px 16px",
     borderRadius:2,fontFamily:"'Cinzel',serif",fontSize:10,color,animation:"fadeIn .2s ease",maxWidth:360}}>{msg}</div>;
 }
 function Overlay({label}){
-  if(!label) return null;
-  return <div style={{position:"fixed",inset:0,zIndex:99999,background:"rgba(4,6,10,.97)",
-    display:"flex",alignItems:"center",justifyContent:"center"}}>
+  if(!label)return null;
+  return <div style={{position:"fixed",inset:0,zIndex:99999,background:"rgba(4,6,10,.97)",display:"flex",alignItems:"center",justifyContent:"center"}}>
     <div style={{textAlign:"center"}}>
       <div className="mono" style={{color:C.accent,fontSize:10,letterSpacing:"0.3em",marginBottom:8,animation:"pulse 1s infinite"}}>PROCESSING</div>
       <div style={{fontFamily:"'Cinzel',serif",fontSize:16,color:C.text}}>{label}</div>
     </div>
   </div>;
 }
+function Disclaimer({children,type="warning"}){
+  const cols={
+    warning:{bg:"#181200",border:"#C9A84C33",left:"#C9A84C66",text:"#8a7040"},
+    info:   {bg:"#0a1220",border:"#4a7acc33",left:"#4a7acc66",text:"#6a8aaa"},
+    danger: {bg:"#1a0808",border:"#8b1a1a33",left:"#8b1a1a66",text:"#8a4040"},
+  };
+  const col=cols[type]||cols.warning;
+  return <div style={{background:col.bg,border:`1px solid ${col.border}`,borderLeft:`3px solid ${col.left}`,
+    borderRadius:"0 3px 3px 0",padding:"0.5rem 0.75rem",fontSize:12,color:col.text,
+    fontStyle:"italic",lineHeight:1.6,marginTop:4}}>{children}</div>;
+}
+function CourtBadge({court}){
+  const ct=COURTS.find(c=>c.v===court)||COURTS[0];
+  return <span className="mono" style={{fontSize:9,padding:"2px 8px",background:ct.bg,
+    border:`1px solid ${ct.border}`,color:ct.color,borderRadius:1}}>{ct.short}</span>;
+}
+function StatusPill({status}){
+  const s=CASE_PIPELINE[status]||{label:status,color:C.textD};
+  return <span className="mono" style={{fontSize:9,padding:"2px 8px",background:C.s1,
+    border:`1px solid ${s.color}44`,color:s.color,borderRadius:1}}>{s.label.toUpperCase()}</span>;
+}
 
-// ── CASE DOCKET (public) ──────────────────────────────────────────────────────
-function DocketTab({cases,judgments,onAction,notify}){
+// ── CASE TIMELINE STEPPER ─────────────────────────────────────────────────────
+function CaseTimeline({status,appealCase}){
+  const stages=["filed","active","hearing","deliberating","decided"];
+  const isTerminal=["withdrawn","dismissed","appealed","final_upheld","final_overturned"].includes(status);
+  const curIdx=stages.indexOf(status);
+  return <div style={{padding:"0.75rem 0"}}>
+    <div style={{display:"flex",alignItems:"center",gap:0}}>
+      {stages.map((s,i)=>{
+        const def=CASE_PIPELINE[s];
+        const passed=isTerminal?false:i<curIdx;
+        const current=!isTerminal&&i===curIdx;
+        const future=!isTerminal&&i>curIdx;
+        const col=current?def.color:passed?def.color+"99":C.textDD;
+        return <React.Fragment key={s}>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3,flex:i===stages.length-1?0:1}}>
+            <div style={{width:10,height:10,borderRadius:"50%",flexShrink:0,
+              background:current||passed?col:"transparent",
+              border:`2px solid ${future?C.textDD:col}`,
+              boxShadow:current?`0 0 8px ${col}66`:""}}/>
+            <span className="mono" style={{fontSize:7,color:col,letterSpacing:"0.05em",textAlign:"center",
+              whiteSpace:"nowrap",fontWeight:current?"700":"400"}}>{def.label.toUpperCase()}</span>
+          </div>
+          {i<stages.length-1&&<div style={{flex:1,height:1,background:passed?`${col}88`:C.border,margin:"0 2px",marginBottom:14}}/>}
+        </React.Fragment>;
+      })}
+    </div>
+    {isTerminal&&<div style={{marginTop:6,display:"flex",alignItems:"center",gap:6}}>
+      <div style={{width:10,height:10,borderRadius:2,background:CASE_PIPELINE[status]?.color||C.textD,flexShrink:0}}/>
+      <span className="mono" style={{fontSize:8,color:CASE_PIPELINE[status]?.color||C.textD}}>
+        {(CASE_PIPELINE[status]?.label||status).toUpperCase()}
+        {appealCase?` \u2014 SEE ${appealCase}`:""}
+      </span>
+    </div>}
+  </div>;
+}
+
+// ── JUSTICE SELECTOR ──────────────────────────────────────────────────────────
+function JusticeSelector({value,onChange,appointments,court}){
+  const eligible=Object.values(appointments||{}).filter(a=>{
+    if(a.role==="president") return true;
+    if(court==="constitutional") return a.role==="cc_justice";
+    return a.role==="rc_justice";
+  });
+  const selected=value||[];
+  function toggle(id){
+    if(selected.includes(id)) onChange(selected.filter(x=>x!==id));
+    else onChange([...selected,id]);
+  }
+  if(eligible.length===0) return <div className="mono" style={{fontSize:10,color:C.textDD,fontStyle:"italic"}}>No justices appointed for this court.</div>;
+  return <div style={{display:"flex",flexDirection:"column",gap:4}}>
+    {eligible.map(a=>{
+      const role=APPOINTMENT_ROLES.find(r=>r.v===a.role)||APPOINTMENT_ROLES[1];
+      const ct=COURTS.find(c=>c.v===role.court)||{color:C.silver};
+      const sel=selected.includes(a.id);
+      return <div key={a.id} onClick={()=>toggle(a.id)}
+        style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",cursor:"pointer",
+          background:sel?C.s2:C.s1,border:`1px solid ${sel?C.accent:C.border}`,borderRadius:2}}>
+        <div style={{width:14,height:14,borderRadius:2,background:sel?C.accentD:"transparent",
+          border:`2px solid ${sel?C.accent:C.border}`,display:"flex",alignItems:"center",
+          justifyContent:"center",fontSize:8,color:C.accent,flexShrink:0}}>{sel?"✓":""}</div>
+        <span style={{fontFamily:"'Cinzel',serif",fontSize:12,color:C.text,flex:1}}>{a.name}</span>
+        <span className="mono" style={{fontSize:8,color:ct.color}}>{role.l}</span>
+      </div>;
+    })}
+  </div>;
+}
+
+// ── PUBLIC DOCKET ─────────────────────────────────────────────────────────────
+function DocketTab({cases,judgments,statutes,onAction,notify}){
   const [sub,setSub]=useState("browse");
   const [courtFilter,setCourtFilter]=useState("all");
   const [statusFilter,setStatusFilter]=useState("all");
   const [search,setSearch]=useState("");
   const list=Object.values(cases||{}).filter(c=>{
     const q=search.toLowerCase();
-    const matchQ=!q||c.number?.toLowerCase().includes(q)||c.title?.toLowerCase().includes(q)||c.parties?.toLowerCase().includes(q);
-    const matchC=courtFilter==="all"||c.court===courtFilter;
-    const matchS=statusFilter==="all"||c.status===statusFilter;
-    return matchQ&&matchC&&matchS;
+    return(!q||c.number?.toLowerCase().includes(q)||c.title?.toLowerCase().includes(q)||c.parties?.toLowerCase().includes(q))
+      &&(courtFilter==="all"||c.court===courtFilter)
+      &&(statusFilter==="all"||c.status===statusFilter);
   }).sort((a,b)=>(b.filed||0)-(a.filed||0));
+  const statusOpts=[{v:"all",l:"All Status"},
+    ...["filed","active","hearing","deliberating","decided","dismissed","withdrawn","appealed","final_upheld","final_overturned"]
+      .map(v=>({v,l:(CASE_PIPELINE[v]||{label:v}).label}))];
   return <div className="fadeIn">
     <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1.5rem"}}>
-      {[["browse","Case Docket"],["file","File a Case"]].map(([v,l])=>
+      {[["browse","Case Docket"],["file","File a Case"],["track","Track My Case"]].map(([v,l])=>
         <button key={v} onClick={()=>setSub(v)}
           style={{fontFamily:"'Cinzel',serif",fontSize:10,letterSpacing:"0.15em",textTransform:"uppercase",
                    padding:"0.6rem 1.1rem",background:"transparent",border:"none",cursor:"pointer",
-                   borderBottom:`2px solid ${sub===v?C.accent:"transparent"}`,
-                   color:sub===v?C.accent:C.textD}}>{l}</button>
-      )}
+                   borderBottom:`2px solid ${sub===v?C.accent:"transparent"}`,color:sub===v?C.accent:C.textD}}>{l}</button>)}
     </div>
-    {sub==="file"&&<PublicCaseForm onAction={onAction} notify={notify} onDone={()=>setSub("browse")}/>}
+    {sub==="file"&&<PublicCaseForm onAction={onAction} notify={notify} statutes={statutes} onDone={()=>setSub("browse")}/>}
+    {sub==="track"&&<CaseTracker cases={cases} judgments={judgments}/>}
     {sub==="browse"&&<div>
-    <div style={{display:"flex",gap:"0.75rem",marginBottom:"1.25rem",flexWrap:"wrap"}}>
-      <div style={{flex:2,minWidth:180}}><Inp value={search} onChange={setSearch} placeholder="Search case number, title, parties..."/></div>
-      <div style={{flex:1,minWidth:160}}>
-        <DD value={courtFilter} onChange={setCourtFilter} options={[{v:"all",l:"All Courts"},...COURTS.map(c=>({v:c.v,l:c.l}))]}/>
+      <div style={{display:"flex",gap:"0.75rem",marginBottom:"1.25rem",flexWrap:"wrap"}}>
+        <div style={{flex:2,minWidth:180}}><Inp value={search} onChange={setSearch} placeholder="Search case number, title, parties..."/></div>
+        <div style={{flex:1,minWidth:140}}><DD value={courtFilter} onChange={setCourtFilter} options={[{v:"all",l:"All Courts"},...COURTS.map(c=>({v:c.v,l:c.l}))]}/></div>
+        <div style={{flex:1,minWidth:160}}><DD value={statusFilter} onChange={setStatusFilter} options={statusOpts}/></div>
       </div>
-      <div style={{flex:1,minWidth:160}}>
-        <DD value={statusFilter} onChange={setStatusFilter} options={[{v:"all",l:"All Status"},...CASE_STATUSES.map(s=>({v:s.v,l:s.l}))]}/>
-      </div>
-    </div>
-    {list.length===0
-      ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No cases on record.</div>
-      :<div style={{display:"flex",flexDirection:"column",gap:"0.6rem"}}>
-        {list.map(c=><CaseCard key={c.id} caseData={c} judgments={judgments}/>)}
-      </div>
-    }
+      {list.length===0
+        ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No cases on record.</div>
+        :<div style={{display:"flex",flexDirection:"column",gap:"0.6rem"}}>
+          {list.map(c=><CaseCard key={c.id} caseData={c} judgments={judgments} cases={cases}/>)}
+        </div>}
     </div>}
   </div>;
 }
-function PublicCaseForm({onAction,notify,onDone}){
-  // Always starts in Regional Court — only emperor/president can elevate
-  const TITLE_TEMPLATES=[
-    {v:"crown_v",    l:"Crown v. [Name]",              build:(a)=>`Crown v. ${a}`},
-    {v:"v_crown",    l:"[Name] v. The Crown",           build:(a)=>`${a} v. The Crown`},
-    {v:"indiv_v",    l:"[Name] v. [Name]",              build:(a,b)=>`${a} v. ${b}`},
-    {v:"re",         l:"In re [Subject]",               build:(a)=>`In re ${a}`},
-    {v:"matter_of",  l:"In the matter of [Subject]",   build:(a)=>`In the matter of ${a}`},
-    {v:"petition",   l:"Petition of [Name]",            build:(a)=>`Petition of ${a}`},
-    {v:"application",l:"Application of [Name]",         build:(a)=>`Application of ${a}`},
-  ];
-  const PARTY_PRESETS=[
-    {v:"crown_v_ind",  l:"Crown v. Individual",     build:(a)=>`The Crown v. ${a}`},
-    {v:"ind_v_crown",  l:"Individual v. Crown",     build:(a)=>`${a} v. The Crown`},
-    {v:"ind_v_ind",    l:"Individual v. Individual",build:(a,b)=>`${a} v. ${b}`},
-  ];
 
-  const [titleTemplate,setTitleTemplate]=useState("crown_v");
-  const [titleA,setTitleA]=useState("");
-  const [titleB,setTitleB]=useState("");
-  const [partyPreset,setPartyPreset]=useState("crown_v_ind");
-  const [partyA,setPartyA]=useState("");
-  const [partyB,setPartyB]=useState("");
-  const [type,setType]=useState("criminal");
-  const [summary,setSummary]=useState("");
-  const [done,setDone]=useState(null);
-  const [saving,setSaving]=useState(false);
-
-  const tpl=TITLE_TEMPLATES.find(t=>t.v===titleTemplate)||TITLE_TEMPLATES[0];
-  const ppl=PARTY_PRESETS.find(p=>p.v===partyPreset)||PARTY_PRESETS[0];
-  const needsTwoTitle=titleTemplate==="indiv_v";
-  const needsTwoParty=partyPreset==="ind_v_ind";
-
-  const builtTitle=titleA.trim()?(needsTwoTitle?tpl.build(titleA.trim(),titleB.trim()||"[Name]"):tpl.build(titleA.trim())):"";
-  const builtParties=partyA.trim()?(needsTwoParty?ppl.build(partyA.trim(),partyB.trim()||"[Name]"):ppl.build(partyA.trim())):"";
-
-  function genNumber(){
-    const yr=new Date().getFullYear();
-    const seq=String(Math.floor(Math.random()*900)+100).padStart(3,"0");
-    return `RC-${yr}-${seq}`;
-  }
-
-  if(done) return <div style={{maxWidth:540}}>
-    <div style={{background:C.s1,border:"1px solid #1e3e5a",borderLeft:"4px solid #4a7acc",
-      borderRadius:"0 3px 3px 0",padding:"1.25rem",marginBottom:"1rem"}}>
-      <div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.blueL,marginBottom:6}}>{"✓ Case Filed"}</div>
-      <div style={{fontSize:14,color:C.textD,lineHeight:1.7,marginBottom:"0.5rem"}}>Your case reference number is:</div>
-      <div className="mono" style={{fontSize:16,color:C.silver,marginBottom:"0.75rem"}}>{done.number}</div>
-      <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:"0.75rem"}}>
-        <div style={{fontSize:13,color:C.text}}>{done.title}</div>
-        <div style={{fontSize:12,color:C.textD,fontStyle:"italic"}}>{done.parties}</div>
-      </div>
-      <div style={{fontSize:13,color:C.textD,fontStyle:"italic",borderTop:`1px solid ${C.border}`,paddingTop:"0.65rem"}}>
-        Filed to the Regional Court. The court may elevate to the Constitutional Court if warranted. Use the Case Docket to track progress.
-      </div>
-    </div>
-    <Btn variant="ghost" onClick={()=>{setDone(null);setTitleA("");setTitleB("");setPartyA("");setPartyB("");setSummary("");onDone();}}>Back to Docket</Btn>
-  </div>;
-
-  return <div style={{maxWidth:600}}>
-    <STitle>File a Case</STitle>
-    <div style={{background:C.s2,border:`1px solid ${C.border}`,borderLeft:`4px solid ${COURTS[1].color}`,
-      borderRadius:"0 3px 3px 0",padding:"0.65rem 1rem",marginBottom:"1.25rem",
-      display:"flex",alignItems:"center",gap:10}}>
-      <CourtBadge court="regional"/>
-      <span style={{fontSize:13,color:C.textD}}>All cases are filed to the <strong style={{color:C.text}}>Regional Court</strong>. The court may elevate to the Constitutional Court if warranted.</span>
-    </div>
-
-    <div style={{display:"flex",flexDirection:"column",gap:"1.25rem"}}>
-
-      {/* Case type */}
-      <div>
-        <FL>CASE TYPE *</FL>
-        <DD value={type} onChange={setType} options={CASE_TYPES.filter(t=>t.v!=="constitutional_challenge").map(t=>({v:t.v,l:t.l}))}/>
-      </div>
-
-      {/* Case title builder */}
-      <div>
-        <FL>CASE TITLE *</FL>
-        <div style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:2,padding:"0.85rem",display:"flex",flexDirection:"column",gap:"0.65rem"}}>
-          <div>
-            <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>TITLE FORMAT</div>
-            <DD value={titleTemplate} onChange={v=>{setTitleTemplate(v);setTitleA("");setTitleB("");}}
-              options={TITLE_TEMPLATES.map(t=>({v:t.v,l:t.l}))}/>
-          </div>
-          <div style={{display:"flex",gap:"0.65rem",flexWrap:"wrap"}}>
-            <div style={{flex:1,minWidth:160}}>
-              <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>
-                {titleTemplate==="re"||titleTemplate==="matter_of"?"SUBJECT *":"NAME / USERNAME *"}
-              </div>
-              <Inp value={titleA} onChange={setTitleA} placeholder={titleTemplate==="re"||titleTemplate==="matter_of"?"e.g. the Imperial Succession Act":"e.g. JohnDoe"}/>
-            </div>
-            {needsTwoTitle&&<div style={{flex:1,minWidth:160}}>
-              <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>SECOND NAME / USERNAME *</div>
-              <Inp value={titleB} onChange={setTitleB} placeholder="e.g. JaneDoe"/>
-            </div>}
-          </div>
-          {builtTitle&&<div style={{background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
-            padding:"6px 12px",fontFamily:"'Cinzel',serif",fontSize:13,color:C.silver}}>
-            Preview: {builtTitle}
-          </div>}
-        </div>
-      </div>
-
-      {/* Parties builder */}
-      <div>
-        <FL>PARTIES *</FL>
-        <div style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:2,padding:"0.85rem",display:"flex",flexDirection:"column",gap:"0.65rem"}}>
-          <div>
-            <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>PARTY FORMAT</div>
-            <DD value={partyPreset} onChange={v=>{setPartyPreset(v);setPartyA("");setPartyB("");}}
-              options={PARTY_PRESETS.map(p=>({v:p.v,l:p.l}))}/>
-          </div>
-          <div style={{display:"flex",gap:"0.65rem",flexWrap:"wrap"}}>
-            {partyPreset!=="crown_v_ind"&&<div style={{flex:1,minWidth:160}}>
-              <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>
-                {partyPreset==="ind_v_crown"?"PETITIONER USERNAME *":"PLAINTIFF USERNAME *"}
-              </div>
-              <Inp value={partyA} onChange={setPartyA} placeholder="In-game username"/>
-            </div>}
-            {partyPreset==="crown_v_ind"&&<div style={{flex:1,minWidth:160}}>
-              <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>DEFENDANT USERNAME *</div>
-              <Inp value={partyA} onChange={setPartyA} placeholder="In-game username"/>
-            </div>}
-            {needsTwoParty&&<div style={{flex:1,minWidth:160}}>
-              <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>DEFENDANT USERNAME *</div>
-              <Inp value={partyB} onChange={setPartyB} placeholder="In-game username"/>
-            </div>}
-          </div>
-          {builtParties&&<div style={{background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
-            padding:"6px 12px",fontFamily:"'Cinzel',serif",fontSize:13,color:C.silver}}>
-            Preview: {builtParties}
-          </div>}
-        </div>
-      </div>
-
-      {/* Grounds */}
-      <div>
-        <FL>GROUNDS FOR FILING *</FL>
-        <TA value={summary} onChange={setSummary}
-          placeholder={"Describe the matter before the court and the legal grounds for your filing.\n\nInclude:\n\u2022 What occurred or what decision is being challenged\n\u2022 Which law or right you believe has been violated\n\u2022 The remedy or outcome you are seeking"}
-          rows={6}/>
-      </div>
-
-      <Btn full
-        disabled={!builtTitle||!builtParties||!summary.trim()||saving||
-          (needsTwoTitle&&!titleB.trim())||
-          (!needsTwoTitle&&!titleA.trim())||
-          (partyPreset!=="crown_v_ind"&&!partyA.trim())||
-          (partyPreset==="crown_v_ind"&&!partyA.trim())||
-          (needsTwoParty&&!partyB.trim())}
-        onClick={async()=>{
-          setSaving(true);
-          const number=genNumber();
-          await onAction("createCase",{number,title:builtTitle,court:"regional",type,
-            parties:builtParties,presiding:"",summary:summary.trim(),
-            status:"filed",filed:Date.now()});
-          setSaving(false);
-          setDone({number,title:builtTitle,parties:builtParties});
-          notify("Case "+number+" filed.",C.accent);
-        }}>{saving?"Filing...":"File Case"}</Btn>
-    </div>
-  </div>;
-}
-function CaseCard({caseData:c,judgments}){
+function CaseCard({caseData:c,judgments,cases}){
   const [open,setOpen]=useState(false);
   const ct=COURTS.find(x=>x.v===c.court)||COURTS[0];
   const caseJudgments=Object.values(judgments||{}).filter(j=>j.caseId===c.id).sort((a,b)=>(b.date||0)-(a.date||0));
-  return <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${ct.color}`,
-    borderRadius:"0 3px 3px 0",overflow:"hidden"}}>
-    <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,
-      padding:"0.75rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
+  const appealCase=c.appealedBy?cases?.[c.appealedBy]||{number:c.appealedBy}:null;
+  const originCase=c.appealOf?cases?.[c.appealOf]||{number:c.appealOf}:null;
+  const pipelineDef=CASE_PIPELINE[c.status]||{};
+  return <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${ct.color}`,borderRadius:"0 3px 3px 0",overflow:"hidden"}}>
+    <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"0.75rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
       <CourtBadge court={c.court}/>
-      <StatusBadge status={c.status}/>
+      <StatusPill status={c.status}/>
       <span className="mono" style={{fontSize:9,color:C.textD}}>{c.number}</span>
       <span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{c.title}</span>
       {c.parties&&<span style={{fontSize:12,color:C.textD,fontStyle:"italic"}}>{c.parties}</span>}
+      {appealCase&&<span className="mono" style={{fontSize:8,color:"#cc6a10"}}>ON APPEAL {"\u2192"} {appealCase.number}</span>}
       <span style={{fontSize:11,color:C.textDD}}>{open?"▲":"▼"}</span>
     </div>
     {open&&<div style={{borderTop:`1px solid ${C.border}`,padding:"1rem",background:C.s2}}>
-      <div style={{display:"flex",gap:"2rem",flexWrap:"wrap",marginBottom:"0.85rem"}}>
+      <CaseTimeline status={c.status} appealCase={appealCase?.number}/>
+      <div style={{display:"flex",gap:"2rem",flexWrap:"wrap",marginBottom:"0.85rem",marginTop:"0.5rem"}}>
         {c.filed&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>FILED</div>
           <span style={{fontSize:13,color:C.text}}>{new Date(c.filed).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})}</span></div>}
         {c.type&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>TYPE</div>
           <span style={{fontSize:13,color:C.text}}>{(CASE_TYPES.find(t=>t.v===c.type)||{l:c.type}).l}</span></div>}
-        {c.presiding&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>PRESIDING</div>
-          <span style={{fontSize:13,color:C.text}}>{c.presiding}</span></div>}
+        {c.presiding?.length>0&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>PRESIDING</div>
+          <span style={{fontSize:13,color:C.text}}>{c.presiding.join(", ")}</span></div>}
       </div>
+      {originCase&&<div style={{background:C.s1,border:`1px solid #cc6a1044`,borderLeft:`3px solid #cc6a10`,
+        borderRadius:"0 3px 3px 0",padding:"6px 10px",marginBottom:"0.75rem",fontSize:12,color:"#cc8040"}}>
+        Appeal of {originCase.number} {"\u2014"} {originCase.title}
+      </div>}
+      {c.contestedStatuteTitle&&<div style={{background:C.s1,border:`1px solid ${C.border}`,
+        borderRadius:2,padding:"6px 10px",marginBottom:"0.75rem",fontSize:12,color:C.textD}}>
+        <span className="mono" style={{fontSize:8,color:C.textDD,marginRight:6}}>CONTESTED STATUTE</span>
+        {c.contestedStatuteTitle}
+      </div>}
       {c.summary&&<div style={{fontSize:14,color:C.textD,lineHeight:1.7,fontStyle:"italic",marginBottom:"0.85rem"}}>{c.summary}</div>}
       {caseJudgments.length>0&&<div>
-        <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:6}}>JUDGMENTS & ORDERS</div>
+        <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:6}}>JUDGMENTS {"&"} ORDERS</div>
         {caseJudgments.map(j=>{
-          const jt=JUDGMENT_TYPES.find(t=>t.v===j.type)||JUDGMENT_TYPES[0];
+          const outDef=[...JUDGMENT_OUTCOMES,...APPEAL_OUTCOMES].find(o=>o.v===j.outcome)||null;
           return <div key={j.id} style={{background:C.s1,border:`1px solid ${C.border}`,
             borderTop:`2px solid ${C.silver}`,borderRadius:"0 0 3px 3px",padding:"0.85rem 1rem",marginBottom:"0.5rem"}}>
             <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8,marginBottom:4}}>
-              <div>
-                <span className="mono" style={{fontSize:9,color:C.silverD,marginRight:8}}>{jt.l.toUpperCase()}</span>
-                <span style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text}}>{j.title}</span>
-              </div>
+              <span style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text}}>{j.title}</span>
               {j.date&&<span className="mono" style={{fontSize:9,color:C.textDD}}>
-                {new Date(j.date).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}
-              </span>}
+                {new Date(j.date).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}</span>}
             </div>
+            {outDef&&<div className="mono" style={{fontSize:9,color:C.silver,marginBottom:4}}>{outDef.l.toUpperCase()}</div>}
             {j.summary&&<div style={{fontSize:13,color:C.textD,lineHeight:1.7,fontStyle:"italic"}}>{j.summary}</div>}
-            {j.outcome&&<div style={{marginTop:6,fontFamily:"'Cinzel',serif",fontSize:12,color:C.silver}}>Outcome: {j.outcome}</div>}
           </div>;
         })}
       </div>}
@@ -443,164 +438,327 @@ function CaseCard({caseData:c,judgments}){
   </div>;
 }
 
-// ── LEGAL CODE (public) ───────────────────────────────────────────────────────
-function LegalCodeTab({statutes,bills}){
-  const [catFilter,setCatFilter]=useState("all");
-  const [search,setSearch]=useState("");
-  // Merge BK passed bills + custom statutes
-  const allStatutes=useMemo(()=>{
-    const list=[];
-    // Custom statutes from ij_statutes
-    Object.values(statutes||{}).forEach(s=>{
-      list.push({...s,source:"custom"});
-    });
-    // Auto-pulled from BK passed bills
-    Object.values(bills||{}).forEach(b=>{
-      if(b.status!=="passed"&&b.status!=="grandfathered") return;
-      if(b.type==="motion"||b.type==="decree") return;
-      list.push({
-        id:"bk_"+b.id,
-        title:b.title,
-        number:b.number||b.id,
-        cat:"other",
-        body:b.content||b.description||"",
-        enacted:b.passedAt||b.submittedAt||null,
-        source:"bundeskongress",
-        billType:b.type,
-        docUrl:b.docUrl||null,
-      });
-    });
-    return list.filter(s=>{
-      const q=search.toLowerCase();
-      const matchQ=!q||s.title?.toLowerCase().includes(q)||s.number?.toLowerCase().includes(q);
-      const matchC=catFilter==="all"||s.cat===catFilter;
-      return matchQ&&matchC;
-    }).sort((a,b)=>(a.title||"").localeCompare(b.title||""));
-  },[statutes,bills,search,catFilter]);
-
-  return <div className="fadeIn">
-    <STitle>Imperial Legal Code</STitle>
+// ── CASE TRACKER (public) ─────────────────────────────────────────────────────
+function CaseTracker({cases,judgments}){
+  const [ref,setRef]=useState("");const [found,setFound]=useState(null);const [notFound,setNotFound]=useState(false);
+  function doLookup(){
+    const q=ref.trim().toUpperCase();
+    if(!q) return;
+    const c=Object.values(cases||{}).find(x=>(x.number||"").toUpperCase()===q);
+    setFound(c||null); setNotFound(!c);
+  }
+  return <div style={{maxWidth:540}}>
+    <STitle>Track Your Case</STitle>
     <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.25rem"}}>
-      The consolidated laws of the Empire of Lech. Includes all Acts of the Imperial Bundeskongress and statutes enrolled by the Imperial Judiciary.
+      Enter your case reference number to check its current status and history.
     </div>
-    <div style={{display:"flex",gap:"0.75rem",marginBottom:"1.25rem",flexWrap:"wrap"}}>
-      <div style={{flex:2,minWidth:180}}><Inp value={search} onChange={setSearch} placeholder="Search title or number..."/></div>
-      <div style={{flex:1,minWidth:180}}>
-        <DD value={catFilter} onChange={setCatFilter} options={[{v:"all",l:"All Categories"},...STATUTE_CATS.map(c=>({v:c.v,l:c.l}))]}/>
+    <div style={{display:"flex",gap:8,marginBottom:"1rem"}}>
+      <Inp value={ref} onChange={setRef} placeholder="e.g. RC-2026-142" style={{flex:1}}/>
+      <Btn onClick={doLookup}>Look Up</Btn>
+    </div>
+    {notFound&&<Disclaimer type="info">No case found with that reference number. Check the number and try again.</Disclaimer>}
+    {found&&<div>
+      <div style={{background:C.s1,border:`1px solid ${C.border}`,borderTop:`3px solid ${(CASE_PIPELINE[found.status]||{color:C.silver}).color}`,
+        borderRadius:"0 0 4px 4px",padding:"1.25rem",marginBottom:"1rem"}}>
+        <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8,marginBottom:"0.75rem"}}>
+          <div>
+            <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>{found.number}</div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:16,fontWeight:700,color:C.text}}>{found.title}</div>
+            {found.parties&&<div style={{fontSize:13,color:C.textD,fontStyle:"italic",marginTop:2}}>{found.parties}</div>}
+          </div>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+            <CourtBadge court={found.court}/>
+            <StatusPill status={found.status}/>
+          </div>
+        </div>
+        <CaseTimeline status={found.status}/>
+        {found.presiding?.length>0&&<div style={{marginTop:"0.5rem"}}>
+          <span className="mono" style={{fontSize:9,color:C.textDD}}>PRESIDING </span>
+          <span style={{fontSize:13,color:C.text}}>{found.presiding.join(", ")}</span>
+        </div>}
       </div>
-    </div>
-    {allStatutes.length===0
-      ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No statutes on record.</div>
-      :<div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>
-        {allStatutes.map(s=><StatuteCard key={s.id} statute={s}/>)}
-      </div>
-    }
-  </div>;
-}
-function StatuteCard({statute:s}){
-  const [open,setOpen]=useState(false);
-  const isBK=s.source==="bundeskongress";
-  const cat=STATUTE_CATS.find(c=>c.v===s.cat)||{l:"Other"};
-  return <div style={{background:C.s1,border:`1px solid ${C.border}`,
-    borderLeft:`4px solid ${isBK?C.gold:C.accent}`,borderRadius:"0 3px 3px 0",overflow:"hidden"}}>
-    <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,
-      padding:"0.65rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
-      {s.number&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{s.number}</span>}
-      <span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{s.title}</span>
-      <span className="mono" style={{fontSize:9,color:isBK?C.goldD:C.textD}}>{isBK?"BUNDESKONGRESS ACT":cat.l.toUpperCase()}</span>
-      {s.enacted&&<span className="mono" style={{fontSize:9,color:C.textDD}}>
-        {new Date(s.enacted).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}
-      </span>}
-      <span style={{fontSize:11,color:C.textDD}}>{open?"▲":"▼"}</span>
-    </div>
-    {open&&<div style={{borderTop:`1px solid ${C.border}`,padding:"1rem",background:C.s2}}>
-      {s.body&&<div style={{fontSize:14,color:C.text,lineHeight:1.8,marginBottom:"0.75rem",whiteSpace:"pre-wrap"}}>{s.body}</div>}
-      {s.repealedBy&&<div style={{background:"#1a0808",border:`1px solid ${C.redD}44`,
-        borderRadius:2,padding:"6px 12px",fontSize:12,color:C.redL,fontStyle:"italic"}}>
-        ⚠ Repealed by {s.repealedBy}
+      {(found.statusHistory||[]).length>0&&<div style={{marginBottom:"1rem"}}>
+        <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:6}}>CASE HISTORY</div>
+        {[...found.statusHistory].reverse().map((h,i)=><div key={i} style={{display:"flex",gap:10,
+          padding:"4px 0",borderBottom:`1px solid ${C.border}`,alignItems:"center"}}>
+          <span className="mono" style={{fontSize:8,color:C.textDD,minWidth:90}}>
+            {new Date(h.at).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}
+          </span>
+          <StatusPill status={h.status}/>
+        </div>)}
       </div>}
-      {s.docUrl&&<a href={s.docUrl} target="_blank" rel="noreferrer"
-        style={{fontFamily:"'Cinzel',serif",fontSize:10,color:C.accent,textDecoration:"none",
-          border:`1px solid ${C.border}`,borderRadius:2,padding:"3px 10px",display:"inline-block",marginTop:6}}>
-        View Document →
-      </a>}
+      {Object.values(judgments||{}).filter(j=>j.caseId===found.id).map(j=>
+        <div key={j.id} style={{background:C.s1,border:`1px solid ${C.border}`,
+          borderTop:`2px solid ${C.silver}`,borderRadius:"0 0 3px 3px",padding:"0.85rem 1rem",marginBottom:"0.5rem"}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text,marginBottom:4}}>{j.title}</div>
+          {j.summary&&<div style={{fontSize:13,color:C.textD,lineHeight:1.7,fontStyle:"italic"}}>{j.summary}</div>}
+        </div>)}
     </div>}
   </div>;
 }
 
-// ── APPOINTMENTS (public) ─────────────────────────────────────────────────────
-function AppointmentsTab({appointments}){
-  const list=Object.values(appointments||{}).sort((a,b)=>{
-    const order={president:0,cc_justice:1,rc_justice:2};
-    return (order[a.role]||3)-(order[b.role]||3)||(a.name||"").localeCompare(b.name||"");
-  });
-  const president=list.find(a=>a.role==="president");
-  const ccJustices=list.filter(a=>a.role==="cc_justice");
-  const rcJustices=list.filter(a=>a.role==="rc_justice");
+// ── PUBLIC CASE FILING ────────────────────────────────────────────────────────
+function PublicCaseForm({onAction,notify,statutes,onDone}){
+  const [titleTpl,setTitleTpl]=useState("crown_v");const [titleA,setTitleA]=useState("");const [titleB,setTitleB]=useState("");
+  const [partyPreset,setPartyPreset]=useState("crown_v_ind");const [partyA,setPartyA]=useState("");const [partyB,setPartyB]=useState("");
+  const [type,setType]=useState("criminal");const [summary,setSummary]=useState("");
+  const [contestedId,setContestedId]=useState("");const [done,setDone]=useState(null);const [saving,setSaving]=useState(false);
+  const tpl=TITLE_TEMPLATES.find(t=>t.v===titleTpl)||TITLE_TEMPLATES[0];
+  const ppl=PARTY_PRESETS.find(p=>p.v===partyPreset)||PARTY_PRESETS[0];
+  const twoTitle=titleTpl==="indiv_v";const twoParty=partyPreset==="ind_v_ind";
+  const isSubjectTitle=titleTpl==="re"||titleTpl==="matter_of";
+  const builtTitle=titleA.trim()?(twoTitle?tpl.build(titleA.trim(),titleB.trim()||"[Name]"):tpl.build(titleA.trim())):"";
+  const builtParties=partyA.trim()||partyPreset==="crown_v_ind"
+    ?(partyPreset==="crown_v_ind"?(partyA.trim()?ppl.build(partyA.trim()):"")
+      :twoParty?ppl.build(partyA.trim(),partyB.trim()||"[Name]"):ppl.build(partyA.trim())):"";
+  const canContest=type==="constitutional_challenge"||type==="civil"||type==="criminal";
+  const allStatutes=Object.values(statutes||{}).filter(s=>!s.repealed).sort((a,b)=>(a.title||"").localeCompare(b.title||""));
+  function genRC(){const yr=new Date().getFullYear();return `RC-${yr}-${String(Math.floor(Math.random()*900)+100).padStart(3,"0")}`;}
+  if(done) return <div style={{maxWidth:540}}>
+    <div style={{background:C.s1,border:"1px solid #1e3e5a",borderLeft:"4px solid #4a7acc",
+      borderRadius:"0 3px 3px 0",padding:"1.25rem",marginBottom:"1rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.blueL,marginBottom:6}}>{"✓ Case Filed"}</div>
+      <div style={{fontSize:14,color:C.textD,marginBottom:"0.5rem"}}>Your case reference number is:</div>
+      <div className="mono" style={{fontSize:16,color:C.silver,marginBottom:"0.75rem"}}>{done.number}</div>
+      <div style={{fontSize:13,color:C.text,marginBottom:2}}>{done.title}</div>
+      <div style={{fontSize:12,color:C.textD,fontStyle:"italic",marginBottom:"0.75rem"}}>{done.parties}</div>
+      <div style={{fontSize:13,color:C.textD,fontStyle:"italic",borderTop:`1px solid ${C.border}`,paddingTop:"0.65rem"}}>
+        All cases begin in the Regional Court. Use Track My Case to follow progress.
+      </div>
+    </div>
+    <Btn variant="ghost" onClick={()=>{setDone(null);setTitleA("");setTitleB("");setPartyA("");setPartyB("");setSummary("");setContestedId("");onDone();}}>Back to Docket</Btn>
+  </div>;
+  return <div style={{maxWidth:620}}>
+    <STitle>File a Case</STitle>
+    <div style={{background:C.s2,border:`1px solid ${C.border}`,borderLeft:`4px solid ${COURTS[1].color}`,
+      borderRadius:"0 3px 3px 0",padding:"0.65rem 1rem",marginBottom:"1.5rem",display:"flex",alignItems:"center",gap:10}}>
+      <CourtBadge court="regional"/>
+      <span style={{fontSize:13,color:C.textD}}>All cases are filed to the <strong style={{color:C.text}}>Regional Court</strong>. The court may elevate to the Constitutional Court if warranted.</span>
+    </div>
+    <div style={{display:"flex",flexDirection:"column",gap:"1.25rem"}}>
+      <div>
+        <FL>CASE TYPE *</FL>
+        <DD value={type} onChange={setType} options={CASE_TYPES.filter(t=>t.v!=="constitutional_challenge").map(t=>({v:t.v,l:t.l}))}/>
+        <Disclaimer type="info">Choose the type that best describes your matter. Constitutional challenges must be elevated by the court from a qualifying filing.</Disclaimer>
+      </div>
+      <div>
+        <FL>CASE TITLE *</FL>
+        <div style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:2,padding:"0.85rem",display:"flex",flexDirection:"column",gap:"0.65rem"}}>
+          <div><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>TITLE FORMAT</div>
+            <DD value={titleTpl} onChange={v=>{setTitleTpl(v);setTitleA("");setTitleB("");}} options={TITLE_TEMPLATES.map(t=>({v:t.v,l:t.l}))}/></div>
+          <div style={{display:"flex",gap:"0.65rem",flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:160}}>
+              <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>{isSubjectTitle?"SUBJECT *":"NAME / USERNAME *"}</div>
+              <Inp value={titleA} onChange={setTitleA} placeholder={isSubjectTitle?"e.g. the Imperial Succession Act":"e.g. PlayerName"}/>
+            </div>
+            {twoTitle&&<div style={{flex:1,minWidth:160}}>
+              <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>SECOND NAME *</div>
+              <Inp value={titleB} onChange={setTitleB} placeholder="e.g. OtherPlayer"/>
+            </div>}
+          </div>
+          {builtTitle&&<div style={{background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
+            padding:"6px 12px",fontFamily:"'Cinzel',serif",fontSize:13,color:C.silver}}>Preview: {builtTitle}</div>}
+        </div>
+      </div>
+      <div>
+        <FL>PARTIES *</FL>
+        <div style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:2,padding:"0.85rem",display:"flex",flexDirection:"column",gap:"0.65rem"}}>
+          <div><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>PARTY FORMAT</div>
+            <DD value={partyPreset} onChange={v=>{setPartyPreset(v);setPartyA("");setPartyB("");}} options={PARTY_PRESETS.map(p=>({v:p.v,l:p.l}))}/></div>
+          <div style={{display:"flex",gap:"0.65rem",flexWrap:"wrap"}}>
+            {partyPreset==="crown_v_ind"
+              ?<div style={{flex:1,minWidth:160}}><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>DEFENDANT USERNAME *</div><Inp value={partyA} onChange={setPartyA} placeholder="In-game username"/></div>
+              :<div style={{flex:1,minWidth:160}}><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>{partyPreset==="ind_v_crown"?"PETITIONER USERNAME *":"PLAINTIFF USERNAME *"}</div><Inp value={partyA} onChange={setPartyA} placeholder="In-game username"/></div>}
+            {twoParty&&<div style={{flex:1,minWidth:160}}><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>DEFENDANT USERNAME *</div><Inp value={partyB} onChange={setPartyB} placeholder="In-game username"/></div>}
+          </div>
+          {builtParties&&<div style={{background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
+            padding:"6px 12px",fontFamily:"'Cinzel',serif",fontSize:13,color:C.silver}}>Preview: {builtParties}</div>}
+        </div>
+      </div>
+      {canContest&&allStatutes.length>0&&<div>
+        <FL>CONTESTED STATUTE (optional)</FL>
+        <DD value={contestedId} onChange={setContestedId} options={[{v:"",l:"\u2014 Not contesting a specific statute \u2014"},...allStatutes.map(s=>({v:s.id,l:s.title}))]}/>
+        <Disclaimer type="info">If your case challenges the validity or application of a specific statute, select it here. It will be referenced on the case docket.</Disclaimer>
+      </div>}
+      <div>
+        <FL>GROUNDS FOR FILING *</FL>
+        <TA value={summary} onChange={setSummary} placeholder={"Describe the matter and the legal grounds for your filing.\n\nInclude:\n\u2022 What occurred or what is being challenged\n\u2022 Which law or right you believe has been violated\n\u2022 The remedy or outcome you are seeking"} rows={6}/>
+      </div>
+      <Btn full disabled={!builtTitle||!builtParties||!summary.trim()||saving||(twoTitle&&!titleB.trim())||(twoParty&&!partyB.trim())}
+        onClick={async()=>{
+          setSaving(true);const number=genRC();
+          const contestedS=contestedId?allStatutes.find(s=>s.id===contestedId):null;
+          await onAction("createCase",{number,title:builtTitle,court:"regional",type,parties:builtParties,
+            presiding:[],summary:summary.trim(),status:"filed",filed:Date.now(),
+            statusHistory:[{status:"filed",at:Date.now()}],
+            contestedStatute:contestedId||null,contestedStatuteTitle:contestedS?.title||null});
+          setSaving(false);setDone({number,title:builtTitle,parties:builtParties});
+          notify("Case "+number+" filed.",C.accent);
+        }}>{saving?"Filing...":"File Case"}</Btn>
+    </div>
+  </div>;
+}
+
+// ── LEGAL CODE ────────────────────────────────────────────────────────────────
+const LAW_TYPES=["bill","constitutional_amendment","act","statute","law"];
+const NON_LAW_TYPES=["motion","decree","appointment","resolution","nomination","vote","procedural"];
+function LegalCodeTab({statutes,bills,cases}){
+  const [source,setSource]=useState("all");
+  const [cat,setCat]=useState("all");
+  const [inForce,setInForce]=useState("force");
+  const [search,setSearch]=useState("");
+  const casesByStatute=useMemo(()=>{
+    const m={};
+    Object.values(cases||{}).forEach(c=>{if(c.contestedStatute)m[c.contestedStatute]=(m[c.contestedStatute]||0)+1;});
+    return m;
+  },[cases]);
+  const allStatutes=useMemo(()=>{
+    const list=[];
+    Object.values(statutes||{}).forEach(s=>list.push({...s,src:"custom"}));
+    Object.values(bills||{}).forEach(b=>{
+      if(b.status!=="passed"&&b.status!=="grandfathered") return;
+      const t=(b.type||"").toLowerCase();
+      if(NON_LAW_TYPES.includes(t)) return;
+      const title=(b.title||"").trim();
+      if(/^(nomination|appointment) of/i.test(title)) return;
+      const cleanNum=b.number||(b.billNumber?String(b.billNumber):null);
+      list.push({id:"bk_"+b.id,title,number:cleanNum,cat:"other",body:b.content||b.description||"",
+        enacted:b.passedAt||b.submittedAt||null,src:"bundeskongress",repealed:false});
+    });
+    return list.filter(s=>{
+      const q=search.toLowerCase();
+      const mQ=!q||s.title?.toLowerCase().includes(q);
+      const mS=source==="all"||(source==="bk"&&s.src==="bundeskongress")||(source==="custom"&&s.src==="custom");
+      const mC=cat==="all"||s.cat===cat;
+      const mF=inForce==="all"||(inForce==="force"&&!s.repealed)||(inForce==="repealed"&&s.repealed);
+      return mQ&&mS&&mC&&mF;
+    }).sort((a,b)=>{
+      if(!a.repealed&&b.repealed) return -1;if(a.repealed&&!b.repealed) return 1;
+      return (a.title||"").localeCompare(b.title||"");
+    });
+  },[statutes,bills,search,source,cat,inForce]);
   return <div className="fadeIn">
-    <STitle>Judicial Appointments</STitle>
+    <STitle>Imperial Legal Code</STitle>
+    <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.5rem"}}>
+      The consolidated laws of the Empire of Lech. Includes all Acts of the Imperial Bundeskongress and statutes arising from judicial proceedings.
+    </div>
+    <div style={{display:"flex",gap:"0.65rem",flexWrap:"wrap",marginBottom:"1rem"}}>
+      {[["all","All Sources"],["bk","Bundeskongress Acts"],["custom","Judicial Statutes"]].map(([v,l])=>
+        <button key={v} onClick={()=>setSource(v)}
+          style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",
+                   padding:"4px 12px",background:source===v?C.s2:"transparent",
+                   border:`1px solid ${source===v?C.accent:C.border}`,
+                   color:source===v?C.accent:C.textD,borderRadius:1,cursor:"pointer"}}>{l}</button>)}
+      {[["force","In Force"],["repealed","Repealed"],["all","All"]].map(([v,l])=>
+        <button key={v} onClick={()=>setInForce(v)}
+          style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",
+                   padding:"4px 12px",background:inForce===v?C.s2:"transparent",
+                   border:`1px solid ${inForce===v?(v==="force"?"#2a9a4a":v==="repealed"?C.redD:C.accent):C.border}`,
+                   color:inForce===v?(v==="force"?"#2a9a4a":v==="repealed"?C.redL:C.accent):C.textD,
+                   borderRadius:1,cursor:"pointer"}}>{l}</button>)}
+    </div>
+    <div style={{display:"flex",gap:"0.65rem",marginBottom:"1.25rem",flexWrap:"wrap"}}>
+      <div style={{flex:2,minWidth:180}}><Inp value={search} onChange={setSearch} placeholder="Search by title..."/></div>
+      <div style={{flex:1,minWidth:180}}><DD value={cat} onChange={setCat} options={[{v:"all",l:"All Categories"},...STATUTE_CATS.map(c=>({v:c.v,l:c.l}))]}/></div>
+    </div>
+    <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:"0.75rem"}}>{allStatutes.length} ENACTMENT{allStatutes.length!==1?"S":""}</div>
+    {allStatutes.length===0
+      ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No statutes match your filters.</div>
+      :<div style={{display:"flex",flexDirection:"column",gap:"0.4rem"}}>
+        {allStatutes.map(s=><StatuteCard key={s.id} statute={s} caseCount={casesByStatute[s.id]||0}/>)}
+      </div>}
+  </div>;
+}
+function StatuteCard({statute:s,caseCount}){
+  const [open,setOpen]=useState(false);
+  const isBK=s.src==="bundeskongress";
+  const cat=STATUTE_CATS.find(c=>c.v===s.cat)||{l:"Other"};
+  return <div style={{background:s.repealed?"transparent":C.s1,border:`1px solid ${s.repealed?C.border+"66":C.border}`,
+    borderLeft:`4px solid ${s.repealed?C.textDD:isBK?C.gold:C.accent}`,borderRadius:"0 3px 3px 0",
+    overflow:"hidden",opacity:s.repealed?.65:1}}>
+    <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"0.65rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
+      <span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:s.repealed?C.textD:C.text,flex:1}}>{s.title}</span>
+      <span className="mono" style={{fontSize:9,color:isBK?C.goldD:C.textD}}>{isBK?"BUNDESKONGRESS ACT":cat.l.toUpperCase()}</span>
+      {s.repealed
+        ?<span className="mono" style={{fontSize:9,color:C.redL,background:"#1a0808",border:`1px solid ${C.redD}44`,padding:"2px 6px"}}>REPEALED</span>
+        :<span className="mono" style={{fontSize:9,color:"#2a9a4a",background:"#0a1a0e",border:"1px solid #1a4a2a",padding:"2px 6px"}}>IN FORCE</span>}
+      {caseCount>0&&<span className="mono" style={{fontSize:8,color:C.textD}}>{caseCount} CASE{caseCount!==1?"S":""}</span>}
+      {s.enacted&&<span className="mono" style={{fontSize:9,color:C.textDD}}>
+        {new Date(s.enacted).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}</span>}
+      <span style={{fontSize:11,color:C.textDD}}>{open?"▲":"▼"}</span>
+    </div>
+    {open&&<div style={{borderTop:`1px solid ${C.border}`,padding:"1rem",background:C.s2}}>
+      {s.caseRef&&<div style={{fontSize:12,color:C.textD,fontStyle:"italic",marginBottom:"0.65rem"}}>
+        Arising from case {s.caseRef}
+      </div>}
+      {s.body?<div style={{fontSize:14,color:C.text,lineHeight:1.8,whiteSpace:"pre-wrap"}}>{s.body}</div>
+        :<div style={{fontSize:13,color:C.textDD,fontStyle:"italic"}}>Full text not reproduced here. Refer to the Bundeskongress archive.</div>}
+      {s.repealed&&s.repealedRef&&<div style={{marginTop:"0.75rem",background:"#1a0808",border:`1px solid ${C.redD}44`,
+        borderRadius:2,padding:"6px 10px",fontSize:12,color:C.redL,fontStyle:"italic"}}>
+        Repealed by judgment in {s.repealedRef}
+      </div>}
+    </div>}
+  </div>;
+}
+
+// ── THE BENCH (public) ────────────────────────────────────────────────────────
+function AppointmentsTab({appointments}){
+  const list=Object.values(appointments||{}).sort((a,b)=>{const o={president:0,cc_justice:1,rc_justice:2};return(o[a.role]||3)-(o[b.role]||3)||(a.name||"").localeCompare(b.name||"");});
+  const president=list.find(a=>a.role==="president");
+  const cc=list.filter(a=>a.role==="cc_justice");const rc=list.filter(a=>a.role==="rc_justice");
+  return <div className="fadeIn">
+    <STitle>The Bench</STitle>
     {list.length===0&&<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No appointments on record.</div>}
     {president&&<div style={{marginBottom:"1.5rem"}}>
       <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.2em",marginBottom:8}}>PRESIDENT OF THE COURTS</div>
       <div style={{background:`linear-gradient(135deg,${C.s2},${C.s1})`,border:`1px solid ${C.silver}44`,
         borderTop:`3px solid ${C.silver}`,borderRadius:"0 0 4px 4px",padding:"1.25rem 1.5rem",
         display:"flex",alignItems:"center",gap:"1.5rem",flexWrap:"wrap"}}>
-        <div>
-          <div style={{fontFamily:"'Cinzel',serif",fontSize:17,fontWeight:700,color:C.text,marginBottom:3}}>{president.name}</div>
-          <div style={{fontSize:13,color:C.silver,fontStyle:"italic"}}>The Right Honourable — President of the Courts</div>
+        <div><div style={{fontFamily:"'Cinzel',serif",fontSize:17,fontWeight:700,color:C.text,marginBottom:3}}>{president.name}</div>
+          <div style={{fontSize:13,color:C.silver,fontStyle:"italic"}}>The Right Honourable {" \u2014 "} President of the Courts</div>
           {president.since&&<div className="mono" style={{fontSize:9,color:C.textDD,marginTop:4}}>Appointed {president.since}</div>}
-        </div>
-        <span style={{fontSize:22,color:C.silver,marginLeft:"auto"}}>⚖</span>
+        </div><span style={{fontSize:22,color:C.silver,marginLeft:"auto"}}>⚖</span>
       </div>
     </div>}
-    {ccJustices.length>0&&<div style={{marginBottom:"1.5rem"}}>
+    {cc.length>0&&<div style={{marginBottom:"1.5rem"}}>
       <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.2em",marginBottom:8}}>CONSTITUTIONAL COURT</div>
-      <div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>
-        {ccJustices.map(a=><JusticeCard key={a.id} appointment={a}/>)}
-      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>{cc.map(a=><JusticeCard key={a.id} appointment={a}/>)}</div>
     </div>}
-    {rcJustices.length>0&&<div>
+    {rc.length>0&&<div>
       <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.2em",marginBottom:8}}>REGIONAL COURT</div>
-      <div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>
-        {rcJustices.map(a=><JusticeCard key={a.id} appointment={a}/>)}
-      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>{rc.map(a=><JusticeCard key={a.id} appointment={a}/>)}</div>
     </div>}
   </div>;
 }
 function JusticeCard({appointment:a}){
   const role=APPOINTMENT_ROLES.find(r=>r.v===a.role)||APPOINTMENT_ROLES[1];
-  const ct=COURTS.find(c=>c.v===role.court)||COURTS[0];
+  const ct=COURTS.find(c=>c.v===role.court)||{color:C.silver};
   return <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${ct.color}`,
     borderRadius:"0 3px 3px 0",padding:"0.75rem 1.25rem",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
     <div style={{flex:1}}>
       <div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,marginBottom:2}}>{a.name}</div>
-      <div style={{fontSize:12,color:ct.color,fontStyle:"italic"}}>{role.style} — {role.l}</div>
+      <div style={{fontSize:12,color:ct.color,fontStyle:"italic"}}>{role.style} {" \u2014 "} {role.l}</div>
     </div>
     {a.since&&<div className="mono" style={{fontSize:9,color:C.textDD}}>Since {a.since}</div>}
-    {a.notes&&<div style={{fontSize:12,color:C.textD,fontStyle:"italic",flex:"0 0 100%",marginTop:2}}>{a.notes}</div>}
   </div>;
 }
 
 // ── PANEL AUTH ────────────────────────────────────────────────────────────────
 function PanelAuth({onAuth,onCancel}){
-  const [username,setUsername]=useState("");
-  const [password,setPassword]=useState("");
-  const [err,setErr]=useState("");
-  const [loading,setLoading]=useState(false);
+  const [username,setUsername]=useState("");const [password,setPassword]=useState("");
+  const [err,setErr]=useState("");const [loading,setLoading]=useState(false);
   async function doAuth(){
     if(!username.trim()||!password.trim()){setErr("Credentials required.");return;}
-    setLoading(true); setErr("");
+    setLoading(true);setErr("");
     try{
-      const raw=await sgetAll();
-      const accounts={};
-      Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v) accounts[v.username]=v;});
-      Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(!accounts[k]) accounts[k]=v;});
+      const raw=await sgetAll();const accounts={};
+      Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v)accounts[v.username]=v;});
+      Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(!accounts[k])accounts[k]=v;});
       const user=Object.values(accounts).find(a=>a.username.toLowerCase()===username.trim().toLowerCase());
       if(!user){setErr("ACCESS DENIED.");setLoading(false);return;}
       const hash=await sha256(password);
       if(hash!==user.passwordHash){setErr("ACCESS DENIED.");setLoading(false);return;}
-      const ok=user.role==="emperor"||user.ijAccess===true;
-      if(!ok){setErr("AUTHORISATION DENIED — Judicial access not granted.");setLoading(false);return;}
+      if(user.role!=="emperor"&&!user.ijAccess){setErr("AUTHORISATION DENIED \u2014 Judicial access not granted.");setLoading(false);return;}
       onAuth(user,raw);
     }catch(e){setErr("Connection error: "+e.message);}
     setLoading(false);
@@ -614,11 +772,8 @@ function PanelAuth({onAuth,onCancel}){
       <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
         <div><FL>USERNAME</FL><Inp value={username} onChange={setUsername} placeholder="Username"/></div>
         <div><FL>PASSWORD</FL><Inp value={password} onChange={setPassword} type="password" placeholder="Password"/></div>
-        {err&&<div className="mono" style={{fontSize:10,color:C.redL,background:"#1a0808",
-          border:`1px solid ${C.redD}44`,padding:"7px 12px"}}>{err}</div>}
-        <Btn onClick={doAuth} disabled={loading||!username.trim()||!password.trim()}>
-          {loading?"Authenticating...":"Authenticate"}
-        </Btn>
+        {err&&<div className="mono" style={{fontSize:10,color:C.redL,background:"#1a0808",border:`1px solid ${C.redD}44`,padding:"7px 12px"}}>{err}</div>}
+        <Btn onClick={doAuth} disabled={loading||!username.trim()||!password.trim()}>{loading?"Authenticating...":"Authenticate"}</Btn>
         <Btn variant="ghost" onClick={onCancel}>Cancel</Btn>
       </div>
     </div>
@@ -629,8 +784,8 @@ function PanelAuth({onAuth,onCancel}){
 function JudicialPanel({user,cases,judgments,statutes,appointments,onAction,notify,setProcessing}){
   const isEmperor=user.role==="emperor";
   const [sec,setSec]=useState("cases");
-  const secs=[["cases","Cases"],["judgments","Judgments"],["statutes","Statutes"],
-    ...(isEmperor?[["appointments","Appointments"]]:[])]
+  const secs=[["cases","Cases"],["judgments","Render Judgment"],["statutes","Statutes"]];
+  if(isEmperor) secs.push(["appointments","Appointments"]);
   return <div className="fadeIn">
     <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:"1.25rem",flexWrap:"wrap"}}>
       <STitle style={{marginBottom:0}}>Judicial Panel</STitle>
@@ -643,167 +798,367 @@ function JudicialPanel({user,cases,judgments,statutes,appointments,onAction,noti
                  borderBottom:`2px solid ${sec===v?C.accent:"transparent"}`,
                  color:sec===v?C.accent:C.textD}}>{l}</button>)}
     </div>
-    {sec==="cases"&&<PanelCases cases={cases} onAction={onAction} notify={notify} setProcessing={setProcessing} isEmperor={isEmperor}/>}
-    {sec==="judgments"&&<PanelJudgments cases={cases} judgments={judgments} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
-    {sec==="statutes"&&<PanelStatutes statutes={statutes} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+    {sec==="cases"&&<CasePipeline cases={cases} appointments={appointments} onAction={onAction} notify={notify} setProcessing={setProcessing} isEmperor={isEmperor}/>}
+    {sec==="judgments"&&<JudgmentPanel cases={cases} judgments={judgments} statutes={statutes} appointments={appointments} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+    {sec==="statutes"&&<PanelStatutes statutes={statutes} cases={cases} onAction={onAction} notify={notify} setProcessing={setProcessing} isEmperor={isEmperor}/>}
     {sec==="appointments"&&isEmperor&&<PanelAppointments appointments={appointments} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
   </div>;
 }
 
-function PanelCases({cases,onAction,notify,setProcessing,isEmperor}){
-  const list=Object.values(cases||{}).sort((a,b)=>(b.filed||0)-(a.filed||0));
+// ── CASE PIPELINE MANAGER ─────────────────────────────────────────────────────
+function CasePipeline({cases,appointments,onAction,notify,setProcessing,isEmperor}){
+  const [filter,setFilter]=useState("open");
+  const list=Object.values(cases||{}).filter(c=>{
+    if(filter==="open") return !["withdrawn","final_upheld","final_overturned"].includes(c.status);
+    if(filter==="closed") return ["withdrawn","decided","dismissed","final_upheld","final_overturned"].includes(c.status);
+    return true;
+  }).sort((a,b)=>(b.filed||0)-(a.filed||0));
   return <div>
-    <STitle>Case Management</STitle>
-    <div style={{fontSize:13,color:C.textD,fontStyle:"italic",marginBottom:"1rem"}}>
-      Cases are filed publicly via the Case Docket tab. Manage status and presiding justice below.
-      {isEmperor&&" As Emperor, you may also elevate cases to the Constitutional Court."}
+    <div style={{display:"flex",gap:6,marginBottom:"1.25rem"}}>
+      {[["open","Open Cases"],["closed","Closed"],["all","All"]].map(([v,l])=>
+        <button key={v} onClick={()=>setFilter(v)}
+          style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",
+                   padding:"4px 12px",background:filter===v?C.s2:"transparent",
+                   border:`1px solid ${filter===v?C.accent:C.border}`,
+                   color:filter===v?C.accent:C.textD,borderRadius:1,cursor:"pointer"}}>{l}</button>)}
     </div>
-    {list.length===0&&<div style={{fontSize:14,color:C.textDD,fontStyle:"italic"}}>No cases on record yet.</div>}
-    {list.map(c=><PanelCaseRow key={c.id} caseData={c} onAction={onAction} notify={notify} setProcessing={setProcessing} isEmperor={isEmperor}/>)}
+    {list.length===0&&<div style={{fontSize:14,color:C.textDD,fontStyle:"italic"}}>No cases in this view.</div>}
+    {list.map(c=><CasePipelineRow key={c.id} caseData={c} appointments={appointments} onAction={onAction}
+      notify={notify} setProcessing={setProcessing} isEmperor={isEmperor} allCases={cases}/>)}
   </div>;
 }
-function PanelCaseRow({caseData:c,onAction,notify,setProcessing,isEmperor}){
+function CasePipelineRow({caseData:c,appointments,onAction,notify,setProcessing,isEmperor,allCases}){
   const [open,setOpen]=useState(false);
-  const [status,setStatus]=useState(c.status||"filed");
+  const [presiding,setPresiding]=useState(c.presiding||[]);
   const [court,setCourt]=useState(c.court||"regional");
-  const [presiding,setPresiding]=useState(c.presiding||"");
   const [saving,setSaving]=useState(false);
   const ct=COURTS.find(x=>x.v===c.court)||COURTS[1];
+  const pipeline=CASE_PIPELINE[c.status]||{next:[],nextLabels:{},nextWarnings:{}};
+  const [pendingNext,setPendingNext]=useState(null);
+  const appealCase=c.appealedBy?allCases?.[c.appealedBy]:null;
+  const originCase=c.appealOf?allCases?.[c.appealOf]:null;
+  async function moveStatus(newStatus){
+    const now=Date.now();
+    const hist=[...(c.statusHistory||[]),{status:newStatus,at:now}];
+    setProcessing("Updating case...");
+    if(newStatus==="appealed"){
+      // Auto-create CC case
+      const ccNum="CC-"+new Date().getFullYear()+"-"+String(Math.floor(Math.random()*900)+100).padStart(3,"0");
+      const ccId="case_"+uid();
+      const ccCase={id:ccId,number:ccNum,title:"Appeal of "+c.number+" — "+c.title,
+        court:"constitutional",type:c.type,parties:c.parties,presiding:[],summary:c.summary,
+        status:"filed",filed:now,statusHistory:[{status:"filed",at:now}],
+        appealOf:c.id,contestedStatute:c.contestedStatute||null,contestedStatuteTitle:c.contestedStatuteTitle||null};
+      const updatedCases={...allCases,[ccId]:ccCase};
+      const updatedOriginal={...c,status:"appealed",statusHistory:hist,appealedBy:ccId};
+      updatedCases[c.id]=updatedOriginal;
+      await onAction("bulkUpdateCases",{cases:updatedCases});
+      notify("Appeal filed. New CC case: "+ccNum,"#cc6a10");
+    } else {
+      await onAction("updateCase",{id:c.id,status:newStatus,statusHistory:hist,presiding,court});
+      notify(c.number+" → "+(CASE_PIPELINE[newStatus]||{label:newStatus}).label,C.accent);
+    }
+    setProcessing(null);setPendingNext(null);
+  }
+  async function savePresiding(){
+    setSaving(true);setProcessing("Updating...");
+    await onAction("updateCase",{id:c.id,presiding,court});
+    setProcessing(null);setSaving(false);notify(c.number+" updated.",C.gold);
+  }
   return <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${ct.color}`,
-    borderRadius:"0 3px 3px 0",marginBottom:"0.5rem",overflow:"hidden"}}>
+    borderRadius:"0 3px 3px 0",marginBottom:"0.6rem",overflow:"hidden"}}>
     <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,
-      padding:"0.65rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
+      padding:"0.75rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
       <CourtBadge court={c.court}/>
-      <StatusBadge status={c.status}/>
+      <StatusPill status={c.status}/>
       <span className="mono" style={{fontSize:9,color:C.textD}}>{c.number}</span>
       <span style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text,flex:1}}>{c.title}</span>
+      {appealCase&&<span className="mono" style={{fontSize:8,color:"#cc6a10"}}>ON APPEAL</span>}
       <span style={{fontSize:11,color:C.textDD}}>{open?"▲":"▼"}</span>
     </div>
     {open&&<div style={{borderTop:`1px solid ${C.border}`,padding:"1rem",background:C.s2}}>
-      <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap",alignItems:"flex-end",marginBottom:"0.75rem"}}>
-        <div style={{flex:1,minWidth:160}}><FL>STATUS</FL><DD value={status} onChange={setStatus} options={CASE_STATUSES.map(s=>({v:s.v,l:s.l}))}/></div>
-        {isEmperor&&<div style={{flex:1,minWidth:160}}>
-          <FL>COURT {c.court==="regional"&&court==="constitutional"?"(ELEVATING ↑)":""}</FL>
-          <DD value={court} onChange={setCourt} options={COURTS.map(x=>({v:x.v,l:x.l}))}/>
-        </div>}
-        <div style={{flex:2,minWidth:200}}><FL>PRESIDING JUSTICE(S)</FL><Inp value={presiding} onChange={setPresiding}/></div>
-        <Btn small variant="gold" disabled={saving} onClick={async()=>{
-          setSaving(true); setProcessing("Updating case...");
-          await onAction("updateCase",{id:c.id,status,court,presiding:presiding.trim()});
-          setProcessing(null); setSaving(false); notify(c.number+" updated.",C.gold);
-        }}>{saving?"Saving...":"Update"}</Btn>
-        <ArmBtn small label="Strike" confirmLabel="Strike case from record?" onConfirm={async()=>{
-          setProcessing("Removing case..."); await onAction("deleteCase",{id:c.id});
+      <CaseTimeline status={c.status} appealCase={appealCase?.number}/>
+      {originCase&&<div style={{background:C.s1,border:`1px solid #cc6a1044`,borderLeft:`3px solid #cc6a10`,
+        borderRadius:"0 3px 3px 0",padding:"6px 10px",marginBottom:"0.75rem",fontSize:12,color:"#cc8040"}}>
+        Appeal of {originCase.number} {" \u2014 "} {originCase.title}
+      </div>}
+      <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:4}}>{pipeline.desc}</div>
+      {/* Presiding selector */}
+      <div style={{marginBottom:"1rem"}}>
+        <FL>PRESIDING JUSTICE(S)</FL>
+        <JusticeSelector value={presiding} onChange={setPresiding} appointments={appointments} court={c.court}/>
+      </div>
+      {/* Court elevation (emperor only) */}
+      {isEmperor&&c.court==="regional"&&!["appealed","withdrawn","final_upheld","final_overturned"].includes(c.status)&&<div style={{marginBottom:"1rem"}}>
+        <FL>COURT ELEVATION (EMPEROR ONLY)</FL>
+        <DD value={court} onChange={setCourt} options={COURTS.map(x=>({v:x.v,l:x.l}))}/>
+        {court==="constitutional"&&c.court==="regional"&&<Disclaimer type="danger">
+          Elevating this case to the Constitutional Court is a significant step. It should only be done where the matter directly involves constitutional questions that cannot be addressed at the Regional level.
+        </Disclaimer>}
+      </div>}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:"0.75rem"}}>
+        <Btn small variant="gold" disabled={saving} onClick={savePresiding}>{saving?"Saving...":"Save Assignment"}</Btn>
+        <ArmBtn small label="Strike Case" confirmLabel="Strike from record?" onConfirm={async()=>{
+          setProcessing("Removing..."); await onAction("deleteCase",{id:c.id});
           setProcessing(null); notify(c.number+" struck from record.",C.textD);
         }}/>
       </div>
+      {/* Pipeline actions */}
+      {pipeline.next.length>0&&<div style={{borderTop:`1px solid ${C.border}`,paddingTop:"0.85rem"}}>
+        <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:8}}>AVAILABLE ACTIONS</div>
+        {pendingNext&&<div style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:3,padding:"1rem",marginBottom:"0.75rem"}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:12,color:C.text,marginBottom:6}}>
+            Confirm: Move to <strong>{(CASE_PIPELINE[pendingNext]||{label:pendingNext}).label}</strong>?
+          </div>
+          {pipeline.nextWarnings?.[pendingNext]&&<Disclaimer type="warning">{pipeline.nextWarnings[pendingNext]}</Disclaimer>}
+          <div style={{display:"flex",gap:8,marginTop:"0.75rem"}}>
+            <Btn small onClick={()=>moveStatus(pendingNext)}>Confirm</Btn>
+            <Btn small variant="ghost" onClick={()=>setPendingNext(null)}>Cancel</Btn>
+          </div>
+        </div>}
+        {!pendingNext&&<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {pipeline.next.map(ns=>{
+            const nDef=CASE_PIPELINE[ns]||{};
+            const isDestructive=ns==="dismissed"||ns==="withdrawn";
+            const isAppeal=ns==="appealed";
+            return <Btn key={ns} small variant={isDestructive?"danger":isAppeal?"gold":"primary"}
+              onClick={()=>setPendingNext(ns)}>
+              {(pipeline.nextLabels||{})[ns]||nDef.label}
+            </Btn>;
+          })}
+        </div>}
+        {pipeline.requiresJudgment&&<Disclaimer type="info">
+          This case is under deliberation. To advance it, render a formal judgment using the <strong>Render Judgment</strong> tab. The status will update automatically based on the judgment outcome.
+        </Disclaimer>}
+      </div>}
     </div>}
   </div>;
 }
 
-function PanelJudgments({cases,judgments,onAction,notify,setProcessing}){
-  const [caseId,setCaseId]=useState("");const [title,setTitle]=useState("");
-  const [type,setType]=useState("judgment");const [summary,setSummary]=useState("");
-  const [outcome,setOutcome]=useState("");const [saving,setSaving]=useState(false);
-  const caseList=Object.values(cases||{}).sort((a,b)=>(a.number||"").localeCompare(b.number||""));
-  const list=Object.values(judgments||{}).sort((a,b)=>(b.date||0)-(a.date||0));
+// ── JUDGMENT PANEL ────────────────────────────────────────────────────────────
+function JudgmentPanel({cases,judgments,statutes,appointments,onAction,notify,setProcessing}){
+  const deliberating=Object.values(cases||{}).filter(c=>c.status==="deliberating");
+  const [caseId,setCaseId]=useState("");
+  const [title,setTitle]=useState("");const [jType,setJType]=useState("judgment");
+  const [summary,setSummary]=useState("");const [outcome,setOutcome]=useState("");
+  const [statuteAction,setStatuteAction]=useState("none");const [statuteTarget,setStatuteTarget]=useState("");
+  const [newStatuteTitle,setNewStatuteTitle]=useState("");const [newStatuteCat,setNewStatuteCat]=useState("other");
+  const [newStatuteBody,setNewStatuteBody]=useState("");const [saving,setSaving]=useState(false);
+  const [done,setDone]=useState(false);
+  const selCase=caseId?cases?.[caseId]:null;
+  const isAppeal=selCase?.appealOf!=null;
+  const outcomes=isAppeal?APPEAL_OUTCOMES:JUDGMENT_OUTCOMES;
+  const outDef=outcomes.find(o=>o.v===outcome)||null;
+  const canTriggerStatute=outcome==="in_favor_complainant"||outcome==="partial"||outcome==="appeal_upheld";
+  const allStatutes=Object.values(statutes||{}).filter(s=>!s.repealed).sort((a,b)=>(a.title||"").localeCompare(b.title||""));
+  const JUDGMENT_TYPE_OPTS=[{v:"judgment",l:"Judgment"},{v:"ruling",l:"Ruling"},{v:"order",l:"Court Order"},{v:"opinion",l:"Advisory Opinion"},{v:"dismissal",l:"Order of Dismissal"}];
+  async function renderJudgment(){
+    setSaving(true);setProcessing("Recording judgment...");
+    const jId="jdg_"+uid();const now=Date.now();
+    // Determine new case status
+    let newStatus="decided";
+    if(outcome==="dismiss_on_merits") newStatus="dismissed";
+    if(outcome==="appeal_upheld") newStatus="final_overturned";
+    if(outcome==="appeal_denied") newStatus="final_upheld";
+    const hist=[...(selCase.statusHistory||[]),{status:newStatus,at:now}];
+    // If this appeal overturns an original, update original too
+    let extraUpdates={};
+    if(isAppeal&&selCase.appealOf){
+      const orig=cases?.[selCase.appealOf];
+      if(orig){
+        const origNewStatus=outcome==="appeal_upheld"?"final_overturned":"final_upheld";
+        const origHist=[...(orig.statusHistory||[]),{status:origNewStatus,at:now}];
+        extraUpdates[orig.id]={...orig,status:origNewStatus,statusHistory:origHist};
+      }
+    }
+    // Statute action
+    let statuteEffect=null;
+    if(canTriggerStatute&&statuteAction!=="none"){
+      if(statuteAction==="repeal"&&statuteTarget){
+        const st=statutes?.[statuteTarget];
+        if(st){
+          const updated={...st,repealed:true,repealedAt:now,repealedRef:selCase.number};
+          extraUpdates["statute_"+statuteTarget]=updated;
+          statuteEffect={action:"repeal",statuteId:statuteTarget,title:st.title};
+        }
+      } else if(statuteAction==="create"&&newStatuteTitle.trim()){
+        const sid="stat_"+uid();
+        extraUpdates["new_statute_"+sid]={id:sid,title:newStatuteTitle.trim(),cat:newStatuteCat,
+          body:newStatuteBody.trim(),enacted:now,src:"custom",caseRef:selCase.number,
+          caseId:selCase.id,judgmentId:jId,repealed:false};
+        statuteEffect={action:"create",title:newStatuteTitle.trim()};
+      } else if(statuteAction==="modify"&&statuteTarget){
+        const st=statutes?.[statuteTarget];
+        if(st) statuteEffect={action:"modify",statuteId:statuteTarget,title:st.title};
+      }
+    }
+    await onAction("renderJudgment",{
+      judgment:{id:jId,caseId,title:title.trim(),type:jType,summary:summary.trim(),outcome,
+        date:now,statuteEffect},
+      caseUpdate:{id:caseId,status:newStatus,statusHistory:hist},
+      extraUpdates,
+    });
+    setProcessing(null);setSaving(false);setDone(true);
+    notify("Judgment recorded.",C.accent);
+  }
+  if(done) return <div style={{maxWidth:480}}>
+    <div style={{background:C.s1,border:"1px solid #1e3e5a",borderLeft:"4px solid #4a7acc",
+      borderRadius:"0 3px 3px 0",padding:"1.25rem",marginBottom:"1rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.blueL,marginBottom:6}}>{"✓ Judgment Recorded"}</div>
+      <div style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>The case status has been updated automatically.</div>
+    </div>
+    <Btn variant="ghost" onClick={()=>{setDone(false);setCaseId("");setTitle("");setSummary("");setOutcome("");setStatuteAction("none");setStatuteTarget("");setNewStatuteTitle("");setNewStatuteBody("");}}>Render Another Judgment</Btn>
+  </div>;
   return <div>
     <STitle>Render Judgment</STitle>
-    <div style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:3,padding:"1.25rem",marginBottom:"1.5rem"}}>
-      <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
-        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
-          <div style={{flex:2,minWidth:180}}>
-            <FL>CASE *</FL>
-            <DD value={caseId} onChange={setCaseId} options={[{v:"",l:"-- Select case --"},...caseList.map(c=>({v:c.id,l:c.number+" — "+c.title}))]}/>
-          </div>
-          <div style={{flex:1,minWidth:160}}><FL>INSTRUMENT TYPE</FL><DD value={type} onChange={setType} options={JUDGMENT_TYPES.map(t=>({v:t.v,l:t.l}))}/></div>
-        </div>
-        <div><FL>TITLE *</FL><Inp value={title} onChange={setTitle} placeholder="e.g. Judgment in the matter of..."/></div>
-        <div><FL>SUMMARY / GROUNDS</FL><TA value={summary} onChange={setSummary} placeholder="Summary of reasoning and grounds..." rows={4}/></div>
-        <div><FL>OUTCOME / DISPOSITIF</FL><Inp value={outcome} onChange={setOutcome} placeholder="e.g. Appeal allowed; Petition dismissed; Conviction upheld"/></div>
-        <Btn small disabled={!caseId||!title.trim()||saving} onClick={async()=>{
-          setSaving(true); setProcessing("Recording judgment...");
-          await onAction("createJudgment",{caseId,title:title.trim(),type,summary:summary.trim(),outcome:outcome.trim(),date:Date.now()});
-          setProcessing(null); setSaving(false); notify("Judgment recorded.",C.accent);
-          setTitle(""); setSummary(""); setOutcome(""); setCaseId("");
-        }}>{saving?"Recording...":"Record Judgment"}</Btn>
-      </div>
-    </div>
-    <STitle>All Judgments</STitle>
-    {list.length===0&&<div style={{fontSize:14,color:C.textDD,fontStyle:"italic"}}>No judgments on record.</div>}
-    {list.map(j=>{
-      const jt=JUDGMENT_TYPES.find(t=>t.v===j.type)||JUDGMENT_TYPES[0];
-      const relCase=cases?.[j.caseId];
-      return <div key={j.id} style={{background:C.s1,border:`1px solid ${C.border}`,
-        borderTop:`2px solid ${C.silver}`,borderRadius:"0 0 3px 3px",padding:"0.85rem 1rem",
-        marginBottom:"0.5rem",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-        <div style={{flex:1}}>
-          <div className="mono" style={{fontSize:9,color:C.silverD,marginBottom:2}}>{jt.l}{relCase?" — "+relCase.number:""}</div>
-          <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text}}>{j.title}</div>
-          {j.outcome&&<div style={{fontSize:12,color:C.textD,fontStyle:"italic",marginTop:2}}>{j.outcome}</div>}
-        </div>
-        {j.date&&<div className="mono" style={{fontSize:9,color:C.textDD}}>
-          {new Date(j.date).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}
+    {deliberating.length===0&&<div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:3,padding:"1.25rem"}}>
+      <div style={{fontSize:14,color:C.textDD,fontStyle:"italic"}}>No cases are currently under deliberation.</div>
+      <Disclaimer type="info">Only cases in the "Under Deliberation" status can receive a formal judgment. Advance a case to deliberation from the Cases tab first.</Disclaimer>
+    </div>}
+    {deliberating.length>0&&<div style={{display:"flex",flexDirection:"column",gap:"1rem"}}>
+      <div>
+        <FL>SELECT CASE *</FL>
+        <DD value={caseId} onChange={setCaseId} options={[{v:"",l:"-- Select a deliberating case --"},...deliberating.map(c=>({v:c.id,l:c.number+" \u2014 "+c.title}))]}/>
+        {selCase&&<div style={{marginTop:4,background:C.s2,border:`1px solid ${C.border}`,borderRadius:2,padding:"6px 10px",display:"flex",gap:10,alignItems:"center"}}>
+          <CourtBadge court={selCase.court}/>
+          <span style={{fontSize:12,color:C.textD,fontStyle:"italic"}}>{selCase.parties}</span>
+          {isAppeal&&<span className="mono" style={{fontSize:8,color:"#cc6a10"}}>APPEAL CASE</span>}
         </div>}
-        <ArmBtn small label="Remove" confirmLabel="Remove judgment?" onConfirm={async()=>{
-          setProcessing("Removing..."); await onAction("deleteJudgment",{id:j.id});
-          setProcessing(null); notify("Judgment removed.",C.textD);
-        }}/>
-      </div>;
-    })}
+      </div>
+      {selCase&&<>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:2,minWidth:200}}><FL>JUDGMENT TITLE *</FL><Inp value={title} onChange={setTitle} placeholder="e.g. Judgment in Crown v. PlayerName"/></div>
+          <div style={{flex:1,minWidth:160}}><FL>INSTRUMENT TYPE</FL><DD value={jType} onChange={setJType} options={JUDGMENT_TYPE_OPTS}/></div>
+        </div>
+        <div>
+          <FL>OUTCOME *</FL>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {outcomes.map(o=><div key={o.v} onClick={()=>setOutcome(o.v)}
+              style={{display:"flex",gap:8,padding:"0.65rem",cursor:"pointer",
+                background:outcome===o.v?C.s2:C.s1,
+                border:`1px solid ${outcome===o.v?C.accent:C.border}`,borderRadius:2}}>
+              <div style={{width:14,height:14,borderRadius:"50%",border:`2px solid ${outcome===o.v?C.accent:C.textDD}`,
+                background:outcome===o.v?C.accent:"transparent",flexShrink:0,marginTop:2}}/>
+              <div>
+                <div style={{fontFamily:"'Cinzel',serif",fontSize:12,color:outcome===o.v?C.text:C.textD,marginBottom:2}}>{o.l}</div>
+                <div style={{fontSize:11,color:C.textDD,fontStyle:"italic",lineHeight:1.5}}>{o.desc}</div>
+              </div>
+            </div>)}
+          </div>
+        </div>
+        <div><FL>GROUNDS / SUMMARY *</FL><TA value={summary} onChange={setSummary} placeholder="Full reasoning of the court..." rows={5}/></div>
+        {/* Statute action — only when outcome warrants */}
+        {canTriggerStatute&&<div style={{background:C.s2,border:`1px solid ${C.gold}33`,borderTop:`2px solid ${C.gold}66`,borderRadius:"0 0 3px 3px",padding:"1rem"}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.2em",color:C.gold,marginBottom:"0.75rem"}}>LEGAL CODE ACTION</div>
+          <Disclaimer type="warning">
+            The selected outcome may affect the Imperial Legal Code. Select an action below. If you select "No Statute Action", the legal code is unchanged — the judgment stands but no law is created or repealed.
+          </Disclaimer>
+          <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:"0.75rem"}}>
+            {STATUTE_ACTIONS.map(a=><div key={a.v} onClick={()=>setStatuteAction(a.v)}
+              style={{display:"flex",gap:8,padding:"0.65rem",cursor:"pointer",
+                background:statuteAction===a.v?C.s1:"transparent",
+                border:`1px solid ${statuteAction===a.v?C.gold:C.border}`,borderRadius:2}}>
+              <div style={{width:14,height:14,borderRadius:2,border:`2px solid ${statuteAction===a.v?C.gold:C.textDD}`,
+                background:statuteAction===a.v?C.goldD:"transparent",flexShrink:0,marginTop:2}}/>
+              <div>
+                <div style={{fontFamily:"'Cinzel',serif",fontSize:12,color:statuteAction===a.v?C.gold:C.textD,marginBottom:2}}>{a.l}</div>
+                <div style={{fontSize:11,color:C.textDD,fontStyle:"italic",lineHeight:1.5}}>{a.desc}</div>
+              </div>
+            </div>)}
+          </div>
+          {statuteAction==="repeal"&&<div style={{marginTop:"0.75rem"}}>
+            <FL>SELECT STATUTE TO REPEAL *</FL>
+            <DD value={statuteTarget} onChange={setStatuteTarget} options={[{v:"",l:"-- Select statute --"},...allStatutes.map(s=>({v:s.id,l:s.title}))]}/>
+            <Disclaimer type="danger">Repealing a statute permanently removes it from force. This cannot be undone except by a new enactment or a successful appeal that overturns this judgment.</Disclaimer>
+          </div>}
+          {statuteAction==="modify"&&<div style={{marginTop:"0.75rem"}}>
+            <FL>SELECT STATUTE BEING MODIFIED *</FL>
+            <DD value={statuteTarget} onChange={setStatuteTarget} options={[{v:"",l:"-- Select statute --"},...allStatutes.map(s=>({v:s.id,l:s.title}))]}/>
+            <Disclaimer type="info">A modification note will be recorded against the statute. The text itself will not change — only the interpretation per this judgment.</Disclaimer>
+          </div>}
+          {statuteAction==="create"&&<div style={{display:"flex",flexDirection:"column",gap:"0.75rem",marginTop:"0.75rem"}}>
+            <Disclaimer type="info">A new statute will be created and linked to this case and judgment. It will immediately appear in the Legal Code as "In Force".</Disclaimer>
+            <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+              <div style={{flex:2,minWidth:180}}><FL>STATUTE TITLE *</FL><Inp value={newStatuteTitle} onChange={setNewStatuteTitle} placeholder="Title of the new statute"/></div>
+              <div style={{flex:1,minWidth:160}}><FL>CATEGORY</FL><DD value={newStatuteCat} onChange={setNewStatuteCat} options={STATUTE_CATS.map(c=>({v:c.v,l:c.l}))}/></div>
+            </div>
+            <div><FL>STATUTE TEXT</FL><TA value={newStatuteBody} onChange={setNewStatuteBody} placeholder="Full text of the statute..." rows={4}/></div>
+          </div>}
+        </div>}
+        <Btn full disabled={!title.trim()||!outcome||!summary.trim()||saving
+          ||(canTriggerStatute&&statuteAction==="repeal"&&!statuteTarget)
+          ||(canTriggerStatute&&statuteAction==="create"&&!newStatuteTitle.trim())
+          ||(canTriggerStatute&&statuteAction==="modify"&&!statuteTarget)}
+          onClick={renderJudgment}>{saving?"Recording...":"Record Judgment"}</Btn>
+      </>}
+    </div>}
+    {/* Existing judgments */}
+    {Object.values(judgments||{}).length>0&&<div style={{marginTop:"2rem"}}>
+      <STitle>Judgment Record</STitle>
+      {Object.values(judgments||{}).sort((a,b)=>(b.date||0)-(a.date||0)).map(j=>{
+        const rc=cases?.[j.caseId];
+        return <div key={j.id} style={{background:C.s1,border:`1px solid ${C.border}`,
+          borderTop:`2px solid ${C.silver}`,borderRadius:"0 0 3px 3px",padding:"0.85rem 1rem",marginBottom:"0.5rem",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <div style={{flex:1}}>
+            <div className="mono" style={{fontSize:9,color:C.silverD,marginBottom:2}}>{rc?rc.number+"\u2014":""}</div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text}}>{j.title}</div>
+            {j.outcome&&<div className="mono" style={{fontSize:8,color:C.textD,marginTop:2}}>
+              {([...JUDGMENT_OUTCOMES,...APPEAL_OUTCOMES].find(o=>o.v===j.outcome)||{l:j.outcome}).l}
+            </div>}
+          </div>
+          {j.date&&<div className="mono" style={{fontSize:9,color:C.textDD}}>
+            {new Date(j.date).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}</div>}
+        </div>;
+      })}
+    </div>}
   </div>;
 }
 
-function PanelStatutes({statutes,onAction,notify,setProcessing}){
-  const [title,setTitle]=useState("");const [number,setNumber]=useState("");
-  const [cat,setCat]=useState("other");const [body,setBody]=useState("");
-  const [saving,setSaving]=useState(false);
-  const list=Object.values(statutes||{}).sort((a,b)=>(a.title||"").localeCompare(b.title||""));
+// ── PANEL STATUTES (emperor-only free form, + view all) ───────────────────────
+function PanelStatutes({statutes,cases,onAction,notify,setProcessing,isEmperor}){
+  const [title,setTitle]=useState("");const [cat,setCat]=useState("other");
+  const [body,setBody]=useState("");const [saving,setSaving]=useState(false);
+  const list=Object.values(statutes||{}).sort((a,b)=>{
+    if(!a.repealed&&b.repealed) return -1;if(a.repealed&&!b.repealed) return 1;
+    return (a.title||"").localeCompare(b.title||"");
+  });
   return <div>
-    <STitle>Enrol Custom Statute</STitle>
-    <div style={{fontSize:13,color:C.textD,fontStyle:"italic",marginBottom:"1rem",lineHeight:1.7}}>
-      Passed Bundeskongress bills appear automatically in the Legal Code. Use this to enrol additional statutes, codifications, or instruments not originating from the Bundeskongress.
-    </div>
-    <div style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:3,padding:"1.25rem",marginBottom:"1.5rem"}}>
-      <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
-        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
-          <div style={{flex:2,minWidth:200}}><FL>STATUTE TITLE *</FL><Inp value={title} onChange={setTitle} placeholder="Title of the statute"/></div>
-          <div style={{flex:1,minWidth:120}}><FL>NUMBER / CITATION</FL><Inp value={number} onChange={setNumber} placeholder="e.g. ILC-2026-001"/></div>
-          <div style={{flex:1,minWidth:160}}><FL>CATEGORY</FL><DD value={cat} onChange={setCat} options={STATUTE_CATS.map(c=>({v:c.v,l:c.l}))}/></div>
+    {isEmperor&&<><STitle>Enrol Imperial Statute</STitle>
+      <Disclaimer type="info">
+        Statutes normally arise from judicial judgments. Use this only for codification, consolidation, or instruments that do not originate from a court ruling — for example, foundational constitutional provisions.
+      </Disclaimer>
+      <div style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:3,padding:"1.25rem",marginTop:"0.75rem",marginBottom:"1.5rem"}}>
+        <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+          <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+            <div style={{flex:2,minWidth:200}}><FL>STATUTE TITLE *</FL><Inp value={title} onChange={setTitle} placeholder="Title of the statute"/></div>
+            <div style={{flex:1,minWidth:160}}><FL>CATEGORY</FL><DD value={cat} onChange={setCat} options={STATUTE_CATS.map(c=>({v:c.v,l:c.l}))}/></div>
+          </div>
+          <div><FL>TEXT</FL><TA value={body} onChange={setBody} placeholder="Full text of the statute..." rows={5}/></div>
+          <Btn small disabled={!title.trim()||saving} onClick={async()=>{
+            setSaving(true);setProcessing("Enrolling...");
+            await onAction("createStatute",{title:title.trim(),cat,body:body.trim(),enacted:Date.now(),src:"custom",repealed:false});
+            setProcessing(null);setSaving(false);notify(title+" enrolled.",C.accent);
+            setTitle("");setBody("");
+          }}>{saving?"Enrolling...":"Enrol Statute"}</Btn>
         </div>
-        <div><FL>TEXT</FL><TA value={body} onChange={setBody} placeholder="Full text of the statute..." rows={5}/></div>
-        <Btn small disabled={!title.trim()||saving} onClick={async()=>{
-          setSaving(true); setProcessing("Enrolling statute...");
-          await onAction("createStatute",{title:title.trim(),number:number.trim(),cat,body:body.trim(),enacted:Date.now()});
-          setProcessing(null); setSaving(false); notify(title+" enrolled.",C.accent);
-          setTitle(""); setNumber(""); setBody("");
-        }}>{saving?"Enrolling...":"Enrol Statute"}</Btn>
-      </div>
-    </div>
-    <STitle>Custom Statutes</STitle>
+      </div></>}
+    <STitle>All Statutes on Record</STitle>
     {list.length===0&&<div style={{fontSize:14,color:C.textDD,fontStyle:"italic"}}>No custom statutes enrolled.</div>}
-    {list.map(s=><div key={s.id} style={{background:C.s1,border:`1px solid ${C.border}`,
-      borderLeft:`4px solid ${C.accent}`,borderRadius:"0 3px 3px 0",padding:"0.65rem 1rem",
-      marginBottom:4,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-      {s.number&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{s.number}</span>}
-      <span style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text,flex:1}}>{s.title}</span>
-      <span className="mono" style={{fontSize:9,color:C.textD}}>{(STATUTE_CATS.find(c=>c.v===s.cat)||{l:""}).l}</span>
-      <ArmBtn small label="Repeal" confirmLabel="Repeal this statute?" onConfirm={async()=>{
-        setProcessing("Repealing..."); await onAction("deleteStatute",{id:s.id});
-        setProcessing(null); notify(s.title+" repealed.",C.textD);
-      }}/>
+    {list.map(s=><div key={s.id} style={{background:s.repealed?"transparent":C.s1,
+      border:`1px solid ${s.repealed?C.border+"66":C.border}`,borderLeft:`4px solid ${s.repealed?C.textDD:C.accent}`,
+      borderRadius:"0 3px 3px 0",padding:"0.65rem 1rem",marginBottom:4,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",opacity:s.repealed?.65:1}}>
+      <span style={{fontFamily:"'Cinzel',serif",fontSize:13,color:s.repealed?C.textD:C.text,flex:1}}>{s.title}</span>
+      <span className="mono" style={{fontSize:9,color:s.repealed?C.redL:"#2a9a4a"}}>{s.repealed?"REPEALED":"IN FORCE"}</span>
+      {s.caseRef&&<span className="mono" style={{fontSize:8,color:C.textDD}}>{s.caseRef}</span>}
     </div>)}
   </div>;
 }
 
+// ── PANEL APPOINTMENTS ────────────────────────────────────────────────────────
 function PanelAppointments({appointments,onAction,notify,setProcessing}){
   const [name,setName]=useState("");const [role,setRole]=useState("cc_justice");
-  const [since,setSince]=useState("");const [notes,setNotes]=useState("");
-  const [saving,setSaving]=useState(false);
-  const list=Object.values(appointments||{}).sort((a,b)=>{
-    const o={president:0,cc_justice:1,rc_justice:2};
-    return (o[a.role]||3)-(o[b.role]||3)||(a.name||"").localeCompare(b.name||"");
-  });
+  const [since,setSince]=useState("");const [saving,setSaving]=useState(false);
+  const list=Object.values(appointments||{}).sort((a,b)=>{const o={president:0,cc_justice:1,rc_justice:2};return(o[a.role]||3)-(o[b.role]||3)||(a.name||"").localeCompare(b.name||"");});
   return <div>
     <STitle>Judicial Appointments</STitle>
     <div style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:3,padding:"1.25rem",marginBottom:"1.25rem"}}>
@@ -814,46 +1169,37 @@ function PanelAppointments({appointments,onAction,notify,setProcessing}){
           <div style={{flex:1,minWidth:200}}><FL>ROLE</FL><DD value={role} onChange={setRole} options={APPOINTMENT_ROLES.map(r=>({v:r.v,l:r.l}))}/></div>
           <div style={{flex:1,minWidth:120}}><FL>DATE OF APPOINTMENT</FL><Inp value={since} onChange={setSince} placeholder="e.g. 1 January 2026"/></div>
         </div>
-        <div><FL>NOTES</FL><Inp value={notes} onChange={setNotes} placeholder="Additional notes..."/></div>
         <Btn small disabled={!name.trim()||saving} onClick={async()=>{
-          setSaving(true); setProcessing("Appointing...");
-          await onAction("createAppointment",{name:name.trim(),role,since:since.trim(),notes:notes.trim()});
-          setProcessing(null); setSaving(false); notify(name+" appointed.",C.accent);
-          setName(""); setSince(""); setNotes("");
+          setSaving(true);setProcessing("Appointing...");
+          await onAction("createAppointment",{name:name.trim(),role,since:since.trim()});
+          setProcessing(null);setSaving(false);notify(name+" appointed.",C.accent);
+          setName("");setSince("");
         }}>{saving?"Appointing...":"Appoint"}</Btn>
       </div>
     </div>
-    <div style={{display:"flex",flexDirection:"column",gap:4}}>
-      {list.map(a=>{
-        const r=APPOINTMENT_ROLES.find(x=>x.v===a.role)||APPOINTMENT_ROLES[1];
-        const ct=COURTS.find(c=>c.v===r.court)||{color:C.silver};
-        return <div key={a.id} style={{background:C.s1,border:`1px solid ${C.border}`,
-          borderLeft:`4px solid ${ct.color}`,borderRadius:"0 3px 3px 0",
-          padding:"0.65rem 1rem",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-          <span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{a.name}</span>
-          <span style={{fontSize:12,color:ct.color,fontStyle:"italic"}}>{r.l}</span>
-          <ArmBtn small label="Remove" confirmLabel="Remove appointment?" onConfirm={async()=>{
-            setProcessing("Removing..."); await onAction("deleteAppointment",{id:a.id});
-            setProcessing(null); notify(a.name+" removed.",C.textD);
-          }}/>
-        </div>;
-      })}
-    </div>
+    {list.map(a=>{const r=APPOINTMENT_ROLES.find(x=>x.v===a.role)||APPOINTMENT_ROLES[1];const ct=COURTS.find(c=>c.v===r.court)||{color:C.silver};
+      return <div key={a.id} style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${ct.color}`,
+        borderRadius:"0 3px 3px 0",padding:"0.65rem 1rem",marginBottom:4,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+        <span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{a.name}</span>
+        <span style={{fontSize:12,color:ct.color,fontStyle:"italic"}}>{r.l}</span>
+        {a.since&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{a.since}</span>}
+        <ArmBtn small label="Remove" confirmLabel="Remove appointment?" onConfirm={async()=>{
+          setProcessing("Removing...");await onAction("deleteAppointment",{id:a.id});
+          setProcessing(null);notify(a.name+" removed.",C.textD);
+        }}/>
+      </div>;})}
   </div>;
 }
 
 // ── APP ───────────────────────────────────────────────────────────────────────
 function App(){
   const [tab,setTab]=useState("docket");
-  const [raw,setRaw]=useState({});
-  const [loaded,setLoaded]=useState(false);
-  const [panelUser,setPanelUser]=useState(null);
-  const [panelAuth,setPanelAuth]=useState(false);
-  const [toast,setToast]=useState({msg:"",color:""});
-  const [processing,setProcessing]=useState(null);
+  const [raw,setRaw]=useState({});const [loaded,setLoaded]=useState(false);
+  const [panelUser,setPanelUser]=useState(null);const [panelAuth,setPanelAuth]=useState(false);
+  const [toast,setToast]=useState({msg:"",color:""});const [processing,setProcessing]=useState(null);
 
   const notify=useCallback((msg,color=C.accent)=>{
-    setToast({msg,color}); setTimeout(()=>setToast(t=>t.msg===msg?{msg:"",color}:t),4000);
+    setToast({msg,color});setTimeout(()=>setToast(t=>t.msg===msg?{msg:"",color}:t),4000);
   },[]);
 
   useEffect(()=>{
@@ -865,69 +1211,62 @@ function App(){
         Object.entries(d.data||{}).forEach(([k,v])=>{if(v){try{out[k]=JSON.parse(v);}catch{}}});
         return out;
       }).catch(()=>({}))
-    ]).then(([moiRaw,bkRaw])=>{
-      setRaw({...moiRaw,...bkRaw});
-      setLoaded(true);
-    });
+    ]).then(([moiRaw,bkRaw])=>{setRaw({...moiRaw,...bkRaw});setLoaded(true);});
   },[]);
 
   const cases=useMemo(()=>raw["ij_cases"]||{},[raw]);
   const judgments=useMemo(()=>raw["ij_judgments"]||{},[raw]);
   const statutes=useMemo(()=>raw["ij_statutes"]||{},[raw]);
   const appointments=useMemo(()=>raw["ij_appointments"]||{},[raw]);
-  // Pull passed bills from BK for legal code
   const bills=useMemo(()=>{
-    const bkBills=raw["bk_bill"]||{};
-    // Also try individual bill keys
     const all={};
-    Object.entries(raw).forEach(([k,v])=>{
-      if(k.startsWith("bk_bill_")&&v) all[k]=v;
-    });
-    return {...bkBills,...all};
+    Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("bk_bill_")&&v)all[k]=v;});
+    return all;
   },[raw]);
 
   const onAction=useCallback(async(type,payload)=>{
     if(type==="createCase"){
-      const id="case_"+uid(); const next={...cases,[id]:{...payload,id}};
-      setRaw(r=>({...r,ij_cases:next})); await sset("ij_cases",next);
+      const id="case_"+uid();const next={...cases,[id]:{...payload,id}};
+      setRaw(r=>({...r,ij_cases:next}));await sset("ij_cases",next);
     } else if(type==="updateCase"){
-      const {id,...rest}=payload; const next={...cases,[id]:{...cases[id],...rest}};
-      setRaw(r=>({...r,ij_cases:next})); await sset("ij_cases",next);
+      const {id,...rest}=payload;const next={...cases,[id]:{...cases[id],...rest}};
+      setRaw(r=>({...r,ij_cases:next}));await sset("ij_cases",next);
+    } else if(type==="bulkUpdateCases"){
+      const next={...cases,...payload.cases};
+      setRaw(r=>({...r,ij_cases:next}));await sset("ij_cases",next);
     } else if(type==="deleteCase"){
-      const next={...cases}; delete next[payload.id];
-      setRaw(r=>({...r,ij_cases:next})); await sset("ij_cases",next);
-    } else if(type==="createJudgment"){
-      const id="jdg_"+uid(); const next={...judgments,[id]:{...payload,id}};
-      setRaw(r=>({...r,ij_judgments:next})); await sset("ij_judgments",next);
-    } else if(type==="deleteJudgment"){
-      const next={...judgments}; delete next[payload.id];
-      setRaw(r=>({...r,ij_judgments:next})); await sset("ij_judgments",next);
+      const next={...cases};delete next[payload.id];
+      setRaw(r=>({...r,ij_cases:next}));await sset("ij_cases",next);
+    } else if(type==="renderJudgment"){
+      const {judgment,caseUpdate,extraUpdates}=payload;
+      const newJudgments={...judgments,[judgment.id]:judgment};
+      const newCases={...cases,[caseUpdate.id]:{...cases[caseUpdate.id],...caseUpdate}};
+      let newStatutes={...statutes};
+      Object.entries(extraUpdates||{}).forEach(([k,v])=>{
+        if(k.startsWith("statute_")){const sid=k.replace("statute_","");newStatutes[sid]=v;}
+        else if(k.startsWith("new_statute_")){const sid=k.replace("new_statute_","");newStatutes[sid]=v;}
+        else if(k in cases||true){newCases[v.id]=v;}
+      });
+      // Fix: extra updates for cases
+      Object.values(extraUpdates||{}).forEach(v=>{if(v.id&&cases[v.id])newCases[v.id]=v;});
+      setRaw(r=>({...r,ij_judgments:newJudgments,ij_cases:newCases,ij_statutes:newStatutes}));
+      await sset("ij_judgments",newJudgments);
+      await sset("ij_cases",newCases);
+      if(Object.keys(newStatutes).length!==Object.keys(statutes).length) await sset("ij_statutes",newStatutes);
     } else if(type==="createStatute"){
-      const id="stat_"+uid(); const next={...statutes,[id]:{...payload,id}};
-      setRaw(r=>({...r,ij_statutes:next})); await sset("ij_statutes",next);
-    } else if(type==="deleteStatute"){
-      const next={...statutes}; delete next[payload.id];
-      setRaw(r=>({...r,ij_statutes:next})); await sset("ij_statutes",next);
+      const id="stat_"+uid();const next={...statutes,[id]:{...payload,id}};
+      setRaw(r=>({...r,ij_statutes:next}));await sset("ij_statutes",next);
     } else if(type==="createAppointment"){
-      const id="appt_"+uid(); const next={...appointments,[id]:{...payload,id}};
-      setRaw(r=>({...r,ij_appointments:next})); await sset("ij_appointments",next);
+      const id="appt_"+uid();const next={...appointments,[id]:{...payload,id}};
+      setRaw(r=>({...r,ij_appointments:next}));await sset("ij_appointments",next);
     } else if(type==="deleteAppointment"){
-      const next={...appointments}; delete next[payload.id];
-      setRaw(r=>({...r,ij_appointments:next})); await sset("ij_appointments",next);
+      const next={...appointments};delete next[payload.id];
+      setRaw(r=>({...r,ij_appointments:next}));await sset("ij_appointments",next);
     }
   },[raw,cases,judgments,statutes,appointments]);
 
-  const TABS=[
-    {v:"docket",      l:"Case Docket",     icon:"📋"},
-    {v:"code",        l:"Legal Code",      icon:"📖"},
-    {v:"appointments",l:"The Bench",       icon:"⚖"},
-    {v:"panel",       l:"Judicial Panel",  icon:"⚙"},
-  ];
-
-  function handleTab(v){
-    if(v==="panel"&&!panelUser){setPanelAuth(true);return;}
-    setTab(v); setPanelAuth(false);
-  }
+  const TABS=[{v:"docket",l:"Case Docket",icon:"📋"},{v:"code",l:"Legal Code",icon:"📖"},{v:"bench",l:"The Bench",icon:"⚖"},{v:"panel",l:"Judicial Panel",icon:"⚙"}];
+  function handleTab(v){if(v==="panel"&&!panelUser){setPanelAuth(true);return;}setTab(v);setPanelAuth(false);}
 
   return <div style={{background:C.bg,minHeight:"100vh",color:C.text}}>
     <Toast msg={toast.msg} color={toast.color}/>
@@ -936,8 +1275,8 @@ function App(){
       <div style={{maxWidth:1100,margin:"0 auto"}}>
         <div style={{display:"flex",alignItems:"center",gap:12,padding:"0.85rem 0",borderBottom:`1px solid ${C.border}`}}>
           <a href="index.html" style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",
-            color:C.textD,textDecoration:"none",border:`1px solid ${C.border}`,
-            borderRadius:2,padding:"3px 10px",flexShrink:0}}>{"← Network"}</a>
+            color:C.textD,textDecoration:"none",border:`1px solid ${C.border}`,borderRadius:2,
+            padding:"3px 10px",flexShrink:0}}>{"← Network"}</a>
           <div style={{flex:1,textAlign:"center"}}>
             <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.5em",color:C.textDD,marginBottom:3,textTransform:"uppercase"}}>Empire of Lech</div>
             <div style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:18,letterSpacing:"0.12em",color:C.text}}>Imperial Judiciary</div>
@@ -963,9 +1302,9 @@ function App(){
       {loaded&&panelAuth&&!panelUser&&<PanelAuth
         onAuth={(u,r)=>{setPanelUser(u);setRaw(prev=>({...prev,...r}));setPanelAuth(false);setTab("panel");notify("Authenticated.",C.accent);}}
         onCancel={()=>setPanelAuth(false)}/>}
-      {loaded&&!panelAuth&&tab==="docket"&&<DocketTab cases={cases} judgments={judgments} onAction={onAction} notify={notify}/>}
-      {loaded&&!panelAuth&&tab==="code"&&<LegalCodeTab statutes={statutes} bills={bills}/>}
-      {loaded&&!panelAuth&&tab==="appointments"&&<AppointmentsTab appointments={appointments}/>}
+      {loaded&&!panelAuth&&tab==="docket"&&<DocketTab cases={cases} judgments={judgments} statutes={statutes} onAction={onAction} notify={notify}/>}
+      {loaded&&!panelAuth&&tab==="code"&&<LegalCodeTab statutes={statutes} bills={bills} cases={cases}/>}
+      {loaded&&!panelAuth&&tab==="bench"&&<AppointmentsTab appointments={appointments}/>}
       {loaded&&!panelAuth&&tab==="panel"&&panelUser&&<JudicialPanel user={panelUser} cases={cases}
         judgments={judgments} statutes={statutes} appointments={appointments}
         onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
@@ -975,9 +1314,7 @@ function App(){
     </div>
     <div style={{borderTop:`1px solid ${C.border}`,padding:"0.75rem 1.25rem",marginTop:"3rem"}}>
       <div className="mono" style={{maxWidth:1100,margin:"0 auto",fontSize:9,color:C.textDD,
-        letterSpacing:"0.15em",textAlign:"center"}}>
-        {"Imperial Judiciary \u00B7 Empire of Lech \u00B7 Fiat Justitia"}
-      </div>
+        letterSpacing:"0.15em",textAlign:"center"}}>{"Imperial Judiciary \u00B7 Empire of Lech \u00B7 Fiat Justitia"}</div>
     </div>
   </div>;
 }
