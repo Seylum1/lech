@@ -1654,12 +1654,12 @@ function ScheduleEventCard({event,canManage,onAction,notify,setProcessing,isPast
 }
 
 // ── MINISTER / EMPEROR PANEL ──────────────────────────────────────────────────
-function AdminPanel({currentUser,accounts,alertData,wartime,announcement,canSetAlert,isEmperor,onAction,notify,setProcessing}){
+function AdminPanel({currentUser,alertData,wartime,announcement,canSetAlert,isEmperor,onAction,notify,setProcessing}){
   const [sec,setSec]=useState("alert");
   const SECS=[
     ["alert","⚠ Readiness"],
     ["announce","📢 Announcement"],
-    ...(isEmperor?[["wartime","⚔ Wartime"],["accounts","Accounts"]]:[]),
+    ...(isEmperor?[["wartime","⚔ Wartime"]]:[]),
   ];
   return(
     <div className="fadeIn">
@@ -1678,7 +1678,6 @@ function AdminPanel({currentUser,accounts,alertData,wartime,announcement,canSetA
       {sec==="alert"&&<AlertEditor alertData={alertData} canSetAlert={canSetAlert} currentUser={currentUser} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
       {sec==="announce"&&<AnnouncementEditor announcement={announcement} currentUser={currentUser} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
       {sec==="wartime"&&isEmperor&&<WartimeEditor wartime={wartime} currentUser={currentUser} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
-      {sec==="accounts"&&isEmperor&&<MowAccountManager accounts={accounts} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
     </div>
   );
 }
@@ -1792,65 +1791,6 @@ function WartimeEditor({wartime,currentUser,onAction,notify,setProcessing}){
     </div>
   );
 }
-function MowAccountManager({accounts,onAction,notify,setProcessing}){
-  const [search,setSearch]=useState("");
-  const list=Object.values(accounts||{})
-    .filter(a=>!search||(a.displayName||a.username).toLowerCase().includes(search.toLowerCase()))
-    .sort((a,b)=>(a.displayName||a.username).localeCompare(b.displayName||b.username));
-  return(
-    <div>
-      <STitle>MOW Account Access</STitle>
-      <div style={{marginBottom:"1rem"}}><Inp value={search} onChange={setSearch} placeholder="Search accounts…"/></div>
-      {list.map(acc=><MowAccountRow key={acc.username} acc={acc} onAction={onAction} notify={notify} setProcessing={setProcessing}/>)}
-    </div>
-  );
-}
-function MowAccountRow({acc,onAction,notify,setProcessing}){
-  const [open,setOpen]=useState(false);
-  const [mowAccess,setMowAccess]=useState(acc.mowAccess||false);
-  const [mowRole,setMowRole]=useState(acc.mowRole||"officer");
-  const [canSetAlert,setCanSetAlert]=useState(acc.canSetAlert||false);
-  const [saving,setSaving]=useState(false);
-  return(
-    <div style={{background:C.s1,border:`1px solid ${open?C.accentD:C.border}`,borderRadius:3,marginBottom:4,overflow:"hidden"}}>
-      <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"0.65rem 1rem",cursor:"pointer"}}>
-        <span style={{flex:1,fontFamily:"'Cinzel',serif",fontSize:13,color:C.text}}>{acc.displayName||acc.username}</span>
-        <span className="mono" style={{fontSize:9,color:C.textD}}>{acc.username}</span>
-        {acc.mowAccess&&<span className="mono" style={{fontSize:9,color:C.accent,border:`1px solid ${C.accentD}44`,padding:"1px 6px"}}>MOW</span>}
-        <span style={{fontSize:11,color:C.textDD}}>{open?"▲":"▼"}</span>
-      </div>
-      {open&&(
-        <div style={{borderTop:`1px solid ${C.border}`,padding:"0.75rem 1rem",
-          display:"flex",gap:"1rem",flexWrap:"wrap",alignItems:"flex-end"}}>
-          <div onClick={()=>setMowAccess(v=>!v)} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
-            <div style={{width:16,height:16,border:`2px solid ${mowAccess?C.accent:C.border}`,borderRadius:2,
-              background:mowAccess?C.accentD:"transparent",display:"flex",alignItems:"center",
-              justifyContent:"center",fontSize:10,color:C.accent}}>{mowAccess?"✓":""}</div>
-            <span style={{fontSize:13,color:mowAccess?C.text:C.textD}}>MOW Access</span>
-          </div>
-          {mowAccess&&<div style={{minWidth:160}}>
-            <FL>ROLE</FL>
-            <DD value={mowRole} onChange={setMowRole} options={[
-              {v:"officer",l:"Officer"},{v:"commander",l:"Commander"},{v:"minister",l:"Minister"}
-            ]}/>
-          </div>}
-          <div onClick={()=>setCanSetAlert(v=>!v)} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
-            <div style={{width:16,height:16,border:`2px solid ${canSetAlert?"#cc6a10":C.border}`,borderRadius:2,
-              background:canSetAlert?"#3a1a00":"transparent",display:"flex",alignItems:"center",
-              justifyContent:"center",fontSize:10,color:"#cc6a10"}}>{canSetAlert?"✓":""}</div>
-            <span style={{fontSize:13,color:canSetAlert?C.text:C.textD}}>Can Set Alert Level</span>
-          </div>
-          <Btn small variant="gold" disabled={saving} onClick={async()=>{
-            setSaving(true); setProcessing("Updating account…");
-            await onAction("updateAccountMow",{username:acc.username,mowAccess,mowRole,canSetAlert});
-            setProcessing(null); setSaving(false);
-            notify(acc.username+" updated.",C.gold);
-          }}>{saving?"Saving…":"Save"}</Btn>
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── APP ───────────────────────────────────────────────────────────────────────
 function App(){
@@ -1873,13 +1813,6 @@ function App(){
   const alertData=useMemo(()=>raw["mow_alert"]||{level:5},[raw]);
   const wartime=useMemo(()=>raw["mow_wartime"]||{active:false},[raw]);
   const announcement=useMemo(()=>raw["mow_announcement"]||{},[raw]);
-  const accounts=useMemo(()=>{
-    const a={};
-    Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v) a[v.username]=v;});
-    Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(!a[k]) a[k]=v;});
-    return a;
-  },[raw]);
-
   const handleLogin=(u,rawData)=>{ setUser(u); setRaw(rawData); setTab("home"); };
 
   const isEmperor=user?.role==="emperor";
@@ -1974,14 +1907,8 @@ function App(){
     } else if(type==="setMowAnnouncement"){
       setRaw(r=>({...r,mow_announcement:payload})); await sset("mow_announcement",payload);
     }
-    // Account MOW access
-    else if(type==="updateAccountMow"){
-      const {username,...patch}=payload;
-      const rowKey="mi_acc_"+username;
-      const updated={...accounts[username],...patch};
-      setRaw(r=>({...r,[rowKey]:updated})); await sset(rowKey,updated);
-    }
-  },[raw,personnel,ships,commands,operations,schedule,accounts]);
+
+  },[raw,personnel,ships,commands,operations,schedule]);
 
   if(!user) return<LoginScreen onLogin={handleLogin}/>;
 
@@ -2105,7 +2032,7 @@ function App(){
         {tab==="schedule"&&<ScheduleSection schedule={schedule}
           canManage={canManage} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
         {tab==="admin"&&(isMowMinister||isEmperor)&&(
-          <AdminPanel currentUser={user} accounts={accounts} alertData={alertData} wartime={wartime}
+          <AdminPanel currentUser={user} alertData={alertData} wartime={wartime}
             announcement={announcement} canSetAlert={canSetAlert} isEmperor={isEmperor}
             onAction={onAction} notify={notify} setProcessing={setProcessing}/>
         )}

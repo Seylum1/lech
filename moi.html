@@ -1238,7 +1238,8 @@ function AccountRow({acc,currentUser,onUpdate,notify,setProcessing,canSetMiniste
   const [isContractor,setIsContractor]=useState(acc.isContractor||false);
   const [agentAssigned,setAgentAssigned]=useState(acc.agentAssigned||false);
   const [officerAssigned,setOfficerAssigned]=useState(acc.officerAssigned||false);
-  const [mowAccess,setMowAccess]=useState(acc.mowAccess||false);
+  const [mowRole,setMowRole]=useState(acc.mowRole||"");
+  const [canSetAlert,setCanSetAlert]=useState(acc.canSetAlert||false);
   const [mfaAccess,setMfaAccess]=useState(acc.mfaAccess||false);
   const [ijAccess,setIjAccess]=useState(acc.ijAccess||"");
   const [clearance,setClearance]=useState(String(acc.clearance||0));
@@ -1279,7 +1280,6 @@ function AccountRow({acc,currentUser,onUpdate,notify,setProcessing,canSetMiniste
             {[["isContractor","External Contractor",isContractor,setIsContractor],
               ["agentAssigned","LSS Agent Assigned",agentAssigned,setAgentAssigned],
               ["officerAssigned","LFP Officer Assigned",officerAssigned,setOfficerAssigned],
-              ["mowAccess","War Office Access",mowAccess,setMowAccess],
               ["mfaAccess","Foreign Affairs Panel",mfaAccess,setMfaAccess],
             ].map(([k,l,val,set])=>(
               <div key={k} onClick={()=>set(v=>!v)} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
@@ -1289,6 +1289,25 @@ function AccountRow({acc,currentUser,onUpdate,notify,setProcessing,canSetMiniste
                 <span style={{fontSize:13,color:val?C.text:C.textD}}>{l}</span>
               </div>
             ))}
+          </div>
+          <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap",alignItems:"flex-end"}}>
+            <div style={{flex:1,minWidth:180}}>
+              <FL>WAR OFFICE ACCESS</FL>
+              <select value={mowRole} onChange={e=>setMowRole(e.target.value)}
+                style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
+                         padding:"8px 12px",color:C.text,fontSize:14,outline:"none",fontFamily:"'Crimson Text',serif"}}>
+                <option value="">No Access</option>
+                <option value="officer">Officer</option>
+                <option value="commander">Commander</option>
+                <option value="minister">Minister of War</option>
+              </select>
+            </div>
+            {mowRole&&<div onClick={()=>setCanSetAlert(v=>!v)} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",paddingBottom:2}}>
+              <div style={{width:16,height:16,border:`2px solid ${canSetAlert?"#cc6a10":C.border}`,borderRadius:2,
+                background:canSetAlert?"#3a1a00":"transparent",display:"flex",alignItems:"center",
+                justifyContent:"center",fontSize:10,color:"#cc6a10"}}>{canSetAlert?"✓":""}</div>
+              <span style={{fontSize:13,color:canSetAlert?C.text:C.textD}}>Can Set Alert Level</span>
+            </div>}
           </div>
           <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap",alignItems:"flex-end"}}>
             <div style={{flex:1,minWidth:200}}>
@@ -1309,7 +1328,7 @@ function AccountRow({acc,currentUser,onUpdate,notify,setProcessing,canSetMiniste
             </div>
             <Btn small variant="gold" disabled={saving} onClick={async()=>{
               setSaving(true); setProcessing("Saving account…");
-              const patch={role,ministry,isContractor,agentAssigned,officerAssigned,mowAccess,mfaAccess,ijAccess,clearance:parseInt(clearance)};
+              const patch={role,ministry,isContractor,agentAssigned,officerAssigned,mowAccess:!!mowRole,mowRole,canSetAlert:canSetAlert&&!!mowRole,mfaAccess,ijAccess,clearance:parseInt(clearance)};
               if(newPw.trim()) patch.passwordHash=await sha256(newPw.trim());
               await onUpdate(acc.username,patch);
               setProcessing(null); setSaving(false); setNewPw("");
