@@ -59,8 +59,9 @@ const CASE_PIPELINE={
     label:"Active",color:"#4a7acc",
     desc:"A justice has been assigned. Proceedings are underway.",
     next:["hearing","dismissed","withdrawn"],
-    nextLabels:{hearing:"Schedule Hearing",dismissed:"Dismiss",withdrawn:"Mark Withdrawn"},
+    nextLabels:{hearing:"Move to Before the Court",dismissed:"Dismiss",withdrawn:"Mark Withdrawn"},
     nextWarnings:{
+      hearing:"Moving to 'Before the Court' means the court is now in active proceedings. Set the hearing date using the scheduler above before advancing.",
       dismissed:"Dismissing an active case means it has been rejected before full hearing. The parties retain the right to appeal.",
       withdrawn:"The petitioner has ended their filing voluntarily. This closes the case without a ruling.",
     },
@@ -109,42 +110,176 @@ const CASE_PIPELINE={
   appealed:{label:"On Appeal",color:"#cc6a10",desc:"An appeal is before the Constitutional Court. See linked case.",next:[]},
   final_upheld:{label:"Final \u2014 Upheld",color:"#2a7a6a",desc:"Original judgment upheld on appeal. This case is closed and the record is final.",next:[]},
   final_overturned:{label:"Final \u2014 Overturned",color:"#cc2222",desc:"Original judgment overturned on appeal. Any statute effects from the original judgment should be reviewed.",next:[]},
+  overruled:{label:"Overruled by Emperor",color:"#cc2222",desc:"This judgment has been set aside by Imperial authority. Visible on the public record.",next:[]},
 };
+// ── CASE TYPES ───────────────────────────────────────────────────────────────
+// allowedTitles: title template keys that make sense for this case type (in preferred order)
+const CASE_TYPES=[
+  {v:"criminal",               l:"Criminal Prosecution",
+   desc:"The Crown alleges an individual has committed an offence under Imperial law. The burden of proof lies with the prosecution. Standard style: Crown v. Defendant.",
+   defaultTitle:"crown_v",defaultParty:"crown_v_ind",
+   allowedTitles:["crown_v","indiv_v"]},
+  {v:"civil",                  l:"Civil Action",
+   desc:"A dispute between two private parties over rights, obligations, or damages. Neither party faces criminal sanction. Standard style: Plaintiff v. Defendant.",
+   defaultTitle:"indiv_v",defaultParty:"ind_v_ind",
+   allowedTitles:["indiv_v","v_crown","crown_v","petition"]},
+  {v:"administrative",         l:"Administrative Review",
+   desc:"A challenge to a decision made by a government body or official. The court reviews whether the decision was lawful and procedurally correct.",
+   defaultTitle:"re",defaultParty:"ind_v_crown",
+   allowedTitles:["re","v_crown","petition"]},
+  {v:"constitutional_challenge",l:"Constitutional Challenge",
+   desc:"A claim that a law, act, or Imperial action is incompatible with the Constitution. Only the Constitutional Court may finally determine constitutional questions.",
+   defaultTitle:"re",defaultParty:"ind_v_crown",
+   allowedTitles:["re","v_crown","petition"]},
+  {v:"impeachment",            l:"Impeachment Proceedings",
+   desc:"Formal proceedings to remove an officeholder for misconduct or breach of Imperial law. Brought by the Crown.",
+   defaultTitle:"crown_v",defaultParty:"crown_v_ind",
+   allowedTitles:["crown_v","indiv_v","re"]},
+  {v:"treaty",                 l:"Treaty Interpretation",
+   desc:"A request for the court to authoritatively interpret the meaning or application of an Imperial treaty or international agreement.",
+   defaultTitle:"re",defaultParty:"ind_v_crown",
+   allowedTitles:["re","petition"]},
+  {v:"appeal_judgment",        l:"Appeal of a Judgment",
+   desc:"A challenge to a judgment already handed down by a lower court. The appellant argues the original decision was wrong in law or fact. Appeals proceed directly to the Constitutional Court.",
+   defaultTitle:"appeal",defaultParty:"ind_v_crown",
+   allowedTitles:["appeal","v_crown"]},
+];
+
+// ── TITLE TEMPLATES ───────────────────────────────────────────────────────────
+// allowedFor: which case types may use this title style (empty = all)
+const TITLE_TEMPLATES=[
+  {v:"crown_v",  l:"Crown v. [Name]",
+   desc:"Standard criminal style. The Crown (state) prosecutes an individual.",
+   needsSubject:false,twoNames:false,
+   allowedFor:["criminal","impeachment","civil"],
+   build:(a)=>`Crown v. ${a}`},
+  {v:"v_crown",  l:"[Name] v. The Crown",
+   desc:"An individual challenges the state — administrative review, civil claims against the government, or constitutional challenges.",
+   needsSubject:false,twoNames:false,
+   allowedFor:["civil","administrative","constitutional_challenge","treaty","appeal_judgment"],
+   build:(a)=>`${a} v. The Crown`},
+  {v:"indiv_v",  l:"[Name] v. [Name]",
+   desc:"Civil or impeachment style for disputes between two named parties. Neither is the Crown.",
+   needsSubject:false,twoNames:true,
+   allowedFor:["civil","impeachment","appeal_judgment"],
+   build:(a,b)=>`${a} v. ${b}`},
+  {v:"re",       l:"In re [Subject]",
+   desc:"Latin: 'In the matter of'. Used for proceedings concerning a subject rather than opposing parties — treaties, constitutional references, administrative matters.",
+   needsSubject:true,twoNames:false,
+   allowedFor:["administrative","constitutional_challenge","treaty","impeachment"],
+   build:(a)=>`In re ${a}`},
+  {v:"petition", l:"Petition of [Name]",
+   desc:"Used when an individual petitions the court for a remedy or declaration without a clearly named opposing party.",
+   needsSubject:false,twoNames:false,
+   allowedFor:["administrative","constitutional_challenge","treaty"],
+   build:(a)=>`Petition of ${a}`},
+  {v:"appeal",   l:"[Name] v. [Name] (Appeal)",
+   desc:"Standard appeal style. The appellant (who lost below) is listed first, respondent second.",
+   needsSubject:false,twoNames:true,
+   allowedFor:["appeal_judgment"],
+   build:(a,b)=>`${a} v. ${b}`},
+];
+
+// ── PARTY PRESETS ─────────────────────────────────────────────────────────────
+const PARTY_PRESETS=[
+  {v:"crown_v_ind",l:"The Crown v. Individual",
+   desc:"The state prosecutes or opposes an individual. Standard for criminal and impeachment cases. The Crown is listed first as prosecutor.",
+   build:(a)=>`The Crown v. ${a}`},
+  {v:"ind_v_crown",l:"Individual v. The Crown",
+   desc:"An individual challenges the state. Used in judicial review, constitutional challenges, and civil claims against a government body.",
+   build:(a)=>`${a} v. The Crown`},
+  {v:"ind_v_ind",  l:"Individual v. Individual",
+   desc:"A dispute between two private parties. Neither is the Crown. Used in civil matters, property disputes, and contract claims.",
+   build:(a,b)=>`${a} v. ${b}`},
+];
+
+// ── JUDGMENT INSTRUMENT TYPES ─────────────────────────────────────────────────
+// disposes:true = closes the case (moves to decided/dismissed)
+// defaultTpl = which JUDGMENT_TITLE_TEMPLATE to auto-select when this type is picked
+const JUDGMENT_TYPES=[
+  {v:"judgment",
+   l:"Judgment",
+   disposes:true, defaultTpl:"judgment_in",
+   desc:"The final, binding determination of the court. Closes the case. Use for all final decisions on the merits or on appeal."},
+  {v:"order_dismissal",
+   l:"Order of Dismissal",
+   disposes:true, defaultTpl:"order_of_dis",
+   desc:"A final order terminating the case without a decision on the merits — for procedural failures, lack of standing, or withdrawal. Closes the case."},
+  {v:"ruling",
+   l:"Ruling",
+   disposes:false, defaultTpl:"ruling_on",
+   desc:"An interlocutory decision on procedure, evidence, or a preliminary matter. Does not close the case — proceedings continue."},
+  {v:"order",
+   l:"Court Order",
+   disposes:false, defaultTpl:"order_re",
+   desc:"A formal direction to a party to do or refrain from something. Enforceable but does not close the case unless it is a final order."},
+  {v:"opinion",
+   l:"Advisory Opinion",
+   disposes:false, defaultTpl:"advisory",
+   desc:"A non-binding statement on a legal question, typically at the request of the Emperor or a government body. Does not constitute a judgment and does not close the case."},
+];
+
+// ── JUDGMENT TITLE TEMPLATES ──────────────────────────────────────────────────
+// allowedFor: which instrument types can use this title format
+const JUDGMENT_TITLE_TEMPLATES=[
+  {v:"judgment_in",  l:"Judgment in [Case]",              needsSubject:false, allowedFor:["judgment"],
+   build:(a)=>`Judgment in ${a}`},
+  {v:"ruling_on",    l:"Ruling on [Matter]",              needsSubject:true,  allowedFor:["ruling"],
+   build:(a)=>`Ruling on ${a}`},
+  {v:"order_of_dis", l:"Order of Dismissal — [Case]", needsSubject:false, allowedFor:["order_dismissal"],
+   build:(a)=>`Order of Dismissal — ${a}`},
+  {v:"advisory",     l:"Advisory Opinion on [Subject]",   needsSubject:true,  allowedFor:["opinion"],
+   build:(a)=>`Advisory Opinion on ${a}`},
+  {v:"order_re",     l:"Court Order re: [Subject]",        needsSubject:true,  allowedFor:["order"],
+   build:(a)=>`Court Order re: ${a}`},
+  {v:"appeal_judg",  l:"Appeal Judgment — [Case]",    needsSubject:false, allowedFor:["judgment"],
+   build:(a)=>`Appeal Judgment — ${a}`},
+];
+
+// ── JUDGMENT OUTCOMES ─────────────────────────────────────────────────────────
 const JUDGMENT_OUTCOMES=[
-  {v:"in_favor_complainant", l:"In Favour of Complainant / Petitioner",
-   desc:"The complainant's case succeeds. If a statute was contested and the complainant prevails, you will be prompted to review the legal code."},
-  {v:"in_favor_respondent",  l:"In Favour of Respondent / The Crown",
-   desc:"The respondent's position is upheld. Existing law and the state of affairs stands unchanged."},
-  {v:"partial",              l:"Partially Granted",
-   desc:"The court grants part of the claim but not all. Partial outcomes may still trigger a review of the relevant statute."},
-  {v:"dismiss_on_merits",    l:"Dismissed \u2014 On the Merits",
-   desc:"The court has heard the case and rules against the complainant on its merits. This is a substantive ruling. It may still be appealed."},
+  {v:"in_favor_complainant",
+   l:"Judgment for the Complainant / Petitioner",
+   desc:"The court finds in favour of the party who brought the case. The claim is upheld. If a statute was contested, you will be prompted to take action on the legal code."},
+  {v:"in_favor_respondent",
+   l:"Judgment for the Respondent / The Crown",
+   desc:"The court finds in favour of the defending party. The claim fails. Existing law and the status quo stands unchanged."},
+  {v:"partial",
+   l:"Partial Judgment — Some Claims Upheld",
+   desc:"The court upholds part of the complainant's case but not all heads of claim. Each successful element must be specifically noted in the grounds of judgment."},
+  {v:"dismiss_on_merits",
+   l:"Dismissed on the Merits",
+   desc:"The court has fully considered the case but rules the complainant has not made out their claim. This is a substantive finding — not a procedural dismissal — and may be appealed."},
 ];
+
 const APPEAL_OUTCOMES=[
-  {v:"appeal_upheld",   l:"Appeal Upheld \u2014 Original Overturned",
-   desc:"The appeal succeeds. The original judgment is overturned. If the original ruling created or repealed a statute, that effect will be reversed."},
-  {v:"appeal_denied",   l:"Appeal Denied \u2014 Original Upheld",
-   desc:"The appeal is denied. The original judgment stands as the final word of the court. No further appeal is available."},
+  {v:"appeal_upheld",
+   l:"Appeal Allowed — Original Judgment Overturned",
+   desc:"The appellate court finds the original judgment was wrong in law or fact. The decision is set aside. Any statute created or repealed by the original judgment will be reversed."},
+  {v:"appeal_denied",
+   l:"Appeal Dismissed — Original Judgment Upheld",
+   desc:"The appellate court finds no error in the original judgment. The original decision stands and is now final. No further appeal lies within this system."},
 ];
+
+// ── STATUTE ACTIONS ───────────────────────────────────────────────────────────
 const STATUTE_ACTIONS=[
-  {v:"repeal",  l:"Repeal a Statute",    desc:"Remove an existing statute from force. This is a significant action \u2014 the law ceases to have effect."},
-  {v:"create",  l:"Create a New Statute",desc:"Enact a new statute arising from this judgment."},
-  {v:"modify",  l:"Record a Modification",desc:"Record that an existing statute has been modified in scope or interpretation by this judgment."},
-  {v:"none",    l:"No Statute Action",   desc:"This judgment does not affect the legal code."},
+  {v:"repeal",
+   l:"Repeal a Statute",
+   desc:"The statute is struck from force entirely. It ceases to have legal effect from the date of this judgment. Cannot be undone except by new legislation or a successful appeal overturning this judgment."},
+  {v:"create",
+   l:"Enact a New Statute",
+   desc:"The court's ruling gives rise to a new rule of law. The statute is recorded in the Legal Code as arising from this judgment and takes immediate effect."},
+  {v:"modify",
+   l:"Record a Judicial Modification",
+   desc:"The court narrows, expands, or reinterprets an existing statute without repealing it. The original text stands but this judgment is recorded as a binding interpretive gloss."},
+  {v:"none",
+   l:"No Effect on the Legal Code",
+   desc:"This judgment resolves the dispute between the parties only. The legal code is unchanged."},
 ];
 
 const COURTS=[
   {v:"constitutional",l:"Constitutional Court",short:"CC",color:"#4a6aaa",border:"#2a4a8a",bg:"#0a1020"},
   {v:"regional",      l:"Regional Court",       short:"RC",color:"#6a8aaa",border:"#3a5a7a",bg:"#0c1418"},
-];
-const CASE_TYPES=[
-  {v:"criminal",                l:"Criminal Prosecution"},
-  {v:"civil",                   l:"Civil Action"},
-  {v:"administrative",          l:"Administrative Review"},
-  {v:"constitutional_challenge",l:"Constitutional Challenge"},
-  {v:"impeachment",             l:"Impeachment Proceedings"},
-  {v:"treaty",                  l:"Treaty Interpretation"},
-  {v:"other",                   l:"Other"},
 ];
 const APPOINTMENT_ROLES=[
   {v:"president",  l:"President of the Courts",               court:"both",          style:"The Right Honourable"},
@@ -161,21 +296,6 @@ const STATUTE_CATS=[
   {v:"fiscal",        l:"Fiscal Law"},
   {v:"other",         l:"Other"},
 ];
-const TITLE_TEMPLATES=[
-  {v:"crown_v",    l:"Crown v. [Name]",             build:(a)=>`Crown v. ${a}`},
-  {v:"v_crown",    l:"[Name] v. The Crown",          build:(a)=>`${a} v. The Crown`},
-  {v:"indiv_v",    l:"[Name] v. [Name]",             build:(a,b)=>`${a} v. ${b}`},
-  {v:"re",         l:"In re [Subject]",              build:(a)=>`In re ${a}`},
-  {v:"matter_of",  l:"In the matter of [Subject]",  build:(a)=>`In the matter of ${a}`},
-  {v:"petition",   l:"Petition of [Name]",           build:(a)=>`Petition of ${a}`},
-  {v:"application",l:"Application of [Name]",        build:(a)=>`Application of ${a}`},
-];
-const PARTY_PRESETS=[
-  {v:"crown_v_ind", l:"Crown v. Individual",      build:(a)=>`The Crown v. ${a}`},
-  {v:"ind_v_crown", l:"Individual v. Crown",      build:(a)=>`${a} v. The Crown`},
-  {v:"ind_v_ind",   l:"Individual v. Individual", build:(a,b)=>`${a} v. ${b}`},
-];
-
 // ── UTILS ─────────────────────────────────────────────────────────────────────
 async function sha256(t){
   const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));
@@ -342,7 +462,7 @@ function JusticeSelector({value,onChange,appointments,court}){
 }
 
 // ── PUBLIC DOCKET ─────────────────────────────────────────────────────────────
-function DocketTab({cases,judgments,statutes,onAction,notify}){
+function DocketTab({cases,judgments,statutes,appointments,onAction,notify}){
   const [sub,setSub]=useState("browse");
   const [courtFilter,setCourtFilter]=useState("all");
   const [statusFilter,setStatusFilter]=useState("all");
@@ -364,8 +484,8 @@ function DocketTab({cases,judgments,statutes,onAction,notify}){
                    padding:"0.6rem 1.1rem",background:"transparent",border:"none",cursor:"pointer",
                    borderBottom:`2px solid ${sub===v?C.accent:"transparent"}`,color:sub===v?C.accent:C.textD}}>{l}</button>)}
     </div>
-    {sub==="file"&&<PublicCaseForm onAction={onAction} notify={notify} statutes={statutes} onDone={()=>setSub("browse")}/>}
-    {sub==="track"&&<CaseTracker cases={cases} judgments={judgments}/>}
+    {sub==="file"&&<PublicCaseForm onAction={onAction} notify={notify} statutes={statutes} cases={cases} onDone={()=>setSub("browse")}/>}
+    {sub==="track"&&<CaseTracker cases={cases} judgments={judgments} appointments={appointments}/>}
     {sub==="browse"&&<div>
       <div style={{display:"flex",gap:"0.75rem",marginBottom:"1.25rem",flexWrap:"wrap"}}>
         <div style={{flex:2,minWidth:180}}><Inp value={search} onChange={setSearch} placeholder="Search case number, title, parties..."/></div>
@@ -375,13 +495,13 @@ function DocketTab({cases,judgments,statutes,onAction,notify}){
       {list.length===0
         ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No cases on record.</div>
         :<div style={{display:"flex",flexDirection:"column",gap:"0.6rem"}}>
-          {list.map(c=><CaseCard key={c.id} caseData={c} judgments={judgments} cases={cases}/>)}
+          {list.map(c=><CaseCard key={c.id} caseData={c} judgments={judgments} cases={cases} appointments={appointments}/>)}
         </div>}
     </div>}
   </div>;
 }
 
-function CaseCard({caseData:c,judgments,cases}){
+function CaseCard({caseData:c,judgments,cases,appointments}){
   const [open,setOpen]=useState(false);
   const ct=COURTS.find(x=>x.v===c.court)||COURTS[0];
   const caseJudgments=Object.values(judgments||{}).filter(j=>j.caseId===c.id).sort((a,b)=>(b.date||0)-(a.date||0));
@@ -401,12 +521,14 @@ function CaseCard({caseData:c,judgments,cases}){
     {open&&<div style={{borderTop:`1px solid ${C.border}`,padding:"1rem",background:C.s2}}>
       <CaseTimeline status={c.status} appealCase={appealCase?.number}/>
       <div style={{display:"flex",gap:"2rem",flexWrap:"wrap",marginBottom:"0.85rem",marginTop:"0.5rem"}}>
+        {c.hearingDate&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>HEARING SCHEDULED</div>
+          <span style={{fontSize:13,color:C.gold}}>{new Date(c.hearingDate).toLocaleDateString("en-GB",{weekday:"long",day:"2-digit",month:"long",year:"numeric"})} at {c.hearingTime} {c.hearingTz}</span></div>}
         {c.filed&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>FILED</div>
           <span style={{fontSize:13,color:C.text}}>{new Date(c.filed).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})}</span></div>}
         {c.type&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>TYPE</div>
           <span style={{fontSize:13,color:C.text}}>{(CASE_TYPES.find(t=>t.v===c.type)||{l:c.type}).l}</span></div>}
         {c.presiding?.length>0&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>PRESIDING</div>
-          <span style={{fontSize:13,color:C.text}}>{c.presiding.join(", ")}</span></div>}
+          <span style={{fontSize:13,color:C.text}}>{c.presiding.map(pid=>{const ap=Object.values(appointments||{}).find(a=>a.id===pid);return ap?ap.name:pid;}).join(", ")}</span></div>}
       </div>
       {originCase&&<div style={{background:C.s1,border:`1px solid #cc6a1044`,borderLeft:`3px solid #cc6a10`,
         borderRadius:"0 3px 3px 0",padding:"6px 10px",marginBottom:"0.75rem",fontSize:12,color:"#cc8040"}}>
@@ -418,6 +540,11 @@ function CaseCard({caseData:c,judgments,cases}){
         {c.contestedStatuteTitle}
       </div>}
       {c.summary&&<div style={{fontSize:14,color:C.textD,lineHeight:1.7,fontStyle:"italic",marginBottom:"0.85rem"}}>{c.summary}</div>}
+      {c.overruleReason&&<div style={{background:"#1a0808",border:`1px solid #8b1a1a44`,borderLeft:"3px solid #cc2222",
+        borderRadius:"0 3px 3px 0",padding:"0.65rem 1rem",marginBottom:"0.85rem"}}>
+        <div className="mono" style={{fontSize:9,color:"#c05050",marginBottom:3}}>OVERRULED BY IMPERIAL AUTHORITY</div>
+        <div style={{fontSize:13,color:"#e0b0b0",fontStyle:"italic"}}>{c.overruleReason}</div>
+      </div>}
       {caseJudgments.length>0&&<div>
         <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:6}}>JUDGMENTS {"&"} ORDERS</div>
         {caseJudgments.map(j=>{
@@ -439,7 +566,7 @@ function CaseCard({caseData:c,judgments,cases}){
 }
 
 // ── CASE TRACKER (public) ─────────────────────────────────────────────────────
-function CaseTracker({cases,judgments}){
+function CaseTracker({cases,judgments,appointments}){
   const [ref,setRef]=useState("");const [found,setFound]=useState(null);const [notFound,setNotFound]=useState(false);
   function doLookup(){
     const q=ref.trim().toUpperCase();
@@ -474,7 +601,7 @@ function CaseTracker({cases,judgments}){
         <CaseTimeline status={found.status}/>
         {found.presiding?.length>0&&<div style={{marginTop:"0.5rem"}}>
           <span className="mono" style={{fontSize:9,color:C.textDD}}>PRESIDING </span>
-          <span style={{fontSize:13,color:C.text}}>{found.presiding.join(", ")}</span>
+          <span style={{fontSize:13,color:C.text}}>{found.presiding.map(pid=>{const ap=Object.values(appointments||{}).find(a=>a.id===pid);return ap?ap.name:pid;}).join(", ")}</span>
         </div>}
       </div>
       {(found.statusHistory||[]).length>0&&<div style={{marginBottom:"1rem"}}>
@@ -497,206 +624,791 @@ function CaseTracker({cases,judgments}){
   </div>;
 }
 
-// ── PUBLIC CASE FILING ────────────────────────────────────────────────────────
-function PublicCaseForm({onAction,notify,statutes,onDone}){
-  const [titleTpl,setTitleTpl]=useState("crown_v");const [titleA,setTitleA]=useState("");const [titleB,setTitleB]=useState("");
-  const [partyPreset,setPartyPreset]=useState("crown_v_ind");const [partyA,setPartyA]=useState("");const [partyB,setPartyB]=useState("");
-  const [type,setType]=useState("criminal");const [summary,setSummary]=useState("");
-  const [contestedId,setContestedId]=useState("");const [done,setDone]=useState(null);const [saving,setSaving]=useState(false);
-  const tpl=TITLE_TEMPLATES.find(t=>t.v===titleTpl)||TITLE_TEMPLATES[0];
-  const ppl=PARTY_PRESETS.find(p=>p.v===partyPreset)||PARTY_PRESETS[0];
-  const twoTitle=titleTpl==="indiv_v";const twoParty=partyPreset==="ind_v_ind";
-  const isSubjectTitle=titleTpl==="re"||titleTpl==="matter_of";
-  const builtTitle=titleA.trim()?(twoTitle?tpl.build(titleA.trim(),titleB.trim()||"[Name]"):tpl.build(titleA.trim())):"";
-  const builtParties=partyA.trim()||partyPreset==="crown_v_ind"
-    ?(partyPreset==="crown_v_ind"?(partyA.trim()?ppl.build(partyA.trim()):"")
-      :twoParty?ppl.build(partyA.trim(),partyB.trim()||"[Name]"):ppl.build(partyA.trim())):"";
-  const canContest=type==="constitutional_challenge"||type==="civil"||type==="criminal";
-  const allStatutes=Object.values(statutes||{}).filter(s=>!s.repealed).sort((a,b)=>(a.title||"").localeCompare(b.title||""));
-  function genRC(){const yr=new Date().getFullYear();return `RC-${yr}-${String(Math.floor(Math.random()*900)+100).padStart(3,"0")}`;}
-  if(done) return <div style={{maxWidth:540}}>
-    <div style={{background:C.s1,border:"1px solid #1e3e5a",borderLeft:"4px solid #4a7acc",
-      borderRadius:"0 3px 3px 0",padding:"1.25rem",marginBottom:"1rem"}}>
-      <div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.blueL,marginBottom:6}}>{"✓ Case Filed"}</div>
-      <div style={{fontSize:14,color:C.textD,marginBottom:"0.5rem"}}>Your case reference number is:</div>
-      <div className="mono" style={{fontSize:16,color:C.silver,marginBottom:"0.75rem"}}>{done.number}</div>
-      <div style={{fontSize:13,color:C.text,marginBottom:2}}>{done.title}</div>
-      <div style={{fontSize:12,color:C.textD,fontStyle:"italic",marginBottom:"0.75rem"}}>{done.parties}</div>
-      <div style={{fontSize:13,color:C.textD,fontStyle:"italic",borderTop:`1px solid ${C.border}`,paddingTop:"0.65rem"}}>
-        All cases begin in the Regional Court. Use Track My Case to follow progress.
+
+// ── DESCRIBED OPTION SELECTOR ─────────────────────────────────────────────────
+function DescSelect({options,value,onChange,cols=1}){
+  return <div style={{display:"grid",gridTemplateColumns:`repeat(${cols},1fr)`,gap:6}}>
+    {options.map(o=><div key={o.v} onClick={()=>onChange(o.v)}
+      style={{padding:"0.65rem 0.85rem",cursor:"pointer",borderRadius:2,
+        background:value===o.v?C.s2:C.s1,
+        border:`1px solid ${value===o.v?C.accent:C.border}`,
+        transition:"all .12s"}}>
+      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:o.desc?3:0}}>
+        <div style={{width:12,height:12,borderRadius:"50%",border:`2px solid ${value===o.v?C.accent:C.textDD}`,
+          background:value===o.v?C.accent:"transparent",flexShrink:0}}/>
+        <span style={{fontFamily:"'Cinzel',serif",fontSize:11,color:value===o.v?C.text:C.textD,fontWeight:value===o.v?700:400}}>{o.l}</span>
       </div>
-    </div>
-    <Btn variant="ghost" onClick={()=>{setDone(null);setTitleA("");setTitleB("");setPartyA("");setPartyB("");setSummary("");setContestedId("");onDone();}}>Back to Docket</Btn>
+      {o.desc&&<div style={{fontSize:11,color:C.textDD,lineHeight:1.5,paddingLeft:18}}>{o.desc}</div>}
+    </div>)}
   </div>;
-  return <div style={{maxWidth:620}}>
-    <STitle>File a Case</STitle>
-    <div style={{background:C.s2,border:`1px solid ${C.border}`,borderLeft:`4px solid ${COURTS[1].color}`,
-      borderRadius:"0 3px 3px 0",padding:"0.65rem 1rem",marginBottom:"1.5rem",display:"flex",alignItems:"center",gap:10}}>
-      <CourtBadge court="regional"/>
-      <span style={{fontSize:13,color:C.textD}}>All cases are filed to the <strong style={{color:C.text}}>Regional Court</strong>. The court may elevate to the Constitutional Court if warranted.</span>
-    </div>
-    <div style={{display:"flex",flexDirection:"column",gap:"1.25rem"}}>
-      <div>
-        <FL>CASE TYPE *</FL>
-        <DD value={type} onChange={setType} options={CASE_TYPES.filter(t=>t.v!=="constitutional_challenge").map(t=>({v:t.v,l:t.l}))}/>
-        <Disclaimer type="info">Choose the type that best describes your matter. Constitutional challenges must be elevated by the court from a qualifying filing.</Disclaimer>
-      </div>
-      <div>
-        <FL>CASE TITLE *</FL>
-        <div style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:2,padding:"0.85rem",display:"flex",flexDirection:"column",gap:"0.65rem"}}>
-          <div><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>TITLE FORMAT</div>
-            <DD value={titleTpl} onChange={v=>{setTitleTpl(v);setTitleA("");setTitleB("");}} options={TITLE_TEMPLATES.map(t=>({v:t.v,l:t.l}))}/></div>
-          <div style={{display:"flex",gap:"0.65rem",flexWrap:"wrap"}}>
-            <div style={{flex:1,minWidth:160}}>
-              <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>{isSubjectTitle?"SUBJECT *":"NAME / USERNAME *"}</div>
-              <Inp value={titleA} onChange={setTitleA} placeholder={isSubjectTitle?"e.g. the Imperial Succession Act":"e.g. PlayerName"}/>
+}
+
+// ── PUBLIC CASE FILING ────────────────────────────────────────────────────────
+function PublicCaseForm({onAction,notify,statutes,cases,onDone}){
+  const [step,setStep]=useState(1);
+  const [type,setType]=useState("criminal");
+  const [nameA,setNameA]=useState("");
+  const [nameB,setNameB]=useState("");
+  const [subject,setSubject]=useState("");
+  const [appealOfId,setAppealOfId]=useState("");
+  const [contestedId,setContestedId]=useState("");
+  const [summary,setSummary]=useState("");
+  const [done,setDone]=useState(null);
+  const [saving,setSaving]=useState(false);
+
+  const isAppeal=type==="appeal_judgment";
+  const isTreaty=type==="treaty";
+  const isCrown=type==="criminal"||type==="impeachment";
+  const isCivil=type==="civil";
+  const isConstitutional=type==="constitutional_challenge";
+  const isAdmin=type==="administrative";
+  const filingCourt=(isAppeal||isConstitutional)?"constitutional":"regional";
+  const canContest=["constitutional_challenge","civil","criminal"].includes(type);
+  const appealCase=appealOfId?Object.values(cases||{}).find(x=>x.id===appealOfId):null;
+  const a=nameA.trim(),b=nameB.trim(),s=subject.trim();
+  const allStatutes=Object.values(statutes||{}).filter(s=>!s.repealed).sort((x,y)=>(x.title||"").localeCompare(y.title||""));
+
+  // Build title and parties directly from type + inputs — no template picker needed
+  const builtTitle=(()=>{
+    switch(type){
+      case "criminal":                return a?`Crown v. ${a}`:"";
+      case "civil":                   return a?(b?`${a} v. ${b}`:`${a} v. The Crown`):"";
+      case "administrative":          return a?`${a} v. The Crown`:"";
+      case "constitutional_challenge":return a?`${a} v. The Crown`:"";
+      case "impeachment":             return a?`Crown v. ${a}`:"";
+      case "treaty":                  return s?`In re ${s}`:"";
+      case "appeal_judgment":         return appealCase?`Appeal \u2014 ${appealCase.title}`:"";
+      default:                        return a?`${a} v. The Crown`:"";
+    }
+  })();
+  const builtParties=(()=>{
+    switch(type){
+      case "criminal":                return a?`The Crown v. ${a}`:"";
+      case "civil":                   return a?(b?`${a} v. ${b}`:`${a} v. The Crown`):"";
+      case "administrative":          return a?`${a} v. The Crown`:"";
+      case "constitutional_challenge":return a?`${a} v. The Crown`:"";
+      case "impeachment":             return a?`The Crown v. ${a}`:"";
+      case "treaty":                  return s?(a?`${a} \u2014 re: ${s}`:`In re ${s}`):"";
+      case "appeal_judgment":         return appealCase?appealCase.parties:"";
+      default:                        return a?`${a} v. The Crown`:"";
+    }
+  })();
+
+  function genNumber(court){
+    const prefix=court==="constitutional"?"CC":"RC";const yr=new Date().getFullYear();
+    const existing=new Set(Object.values(cases||{}).map(c=>c.number));
+    let num,attempts=0;
+    do{num=`${prefix}-${yr}-${String(Math.floor(Math.random()*900)+100).padStart(3,"0")}`;attempts++;}
+    while(existing.has(num)&&attempts<50);return num;
+  }
+  function handleTypeChange(v){setType(v);setNameA("");setNameB("");setSubject("");setAppealOfId("");}
+
+  const step1Valid=!isAppeal||!!appealOfId;
+  const step2Valid=isAppeal||(isTreaty?!!s:!!a);
+  const step3Valid=!!summary.trim();
+
+  function StepBar(){
+    const labels=["Proceedings","Parties","Grounds","Review"];
+    return <div style={{display:"flex",alignItems:"center",marginBottom:"1.75rem",paddingBottom:"1.25rem",borderBottom:`1px solid ${C.border}`}}>
+      {labels.map((label,i)=>{
+        const n=i+1,isDone=step>n,isActive=step===n;
+        const col=isDone||isActive?C.accent:C.textDD;
+        return <React.Fragment key={n}>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,flexShrink:0}}>
+            <div style={{width:28,height:28,borderRadius:"50%",
+              background:isDone?C.accentD:isActive?C.accent:"transparent",
+              border:`2px solid ${col}`,display:"flex",alignItems:"center",justifyContent:"center",
+              fontSize:10,fontFamily:"'Cinzel',serif",fontWeight:700,color:isDone||isActive?"#fff":C.textDD}}>
+              {isDone?"\u2713":n}
             </div>
-            {twoTitle&&<div style={{flex:1,minWidth:160}}>
-              <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>SECOND NAME *</div>
-              <Inp value={titleB} onChange={setTitleB} placeholder="e.g. OtherPlayer"/>
-            </div>}
+            <span className="mono" style={{fontSize:7,color:col,letterSpacing:"0.1em",textTransform:"uppercase",whiteSpace:"nowrap"}}>{label}</span>
           </div>
-          {builtTitle&&<div style={{background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
-            padding:"6px 12px",fontFamily:"'Cinzel',serif",fontSize:13,color:C.silver}}>Preview: {builtTitle}</div>}
-        </div>
+          {i<labels.length-1&&<div style={{flex:1,height:1,background:step>n?C.accentD:C.border,margin:"0 8px",marginBottom:18}}/>}
+        </React.Fragment>;
+      })}
+    </div>;
+  }
+
+  if(done) return <div style={{maxWidth:500}}>
+    <div style={{background:C.s1,border:"1px solid #1e3e5a",borderLeft:"4px solid #4a7acc",
+      borderRadius:"0 3px 3px 0",padding:"1.5rem",marginBottom:"1rem"}}>
+      <div className="mono" style={{fontSize:9,letterSpacing:"0.25em",color:C.blueL,marginBottom:8}}>CASE FILED</div>
+      <div className="mono" style={{fontSize:20,color:C.silver,marginBottom:8}}>{done.number}</div>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,marginBottom:3}}>{done.title}</div>
+      <div style={{fontSize:13,color:C.textD,fontStyle:"italic",marginBottom:"1rem"}}>{done.parties}</div>
+      <div style={{fontSize:13,color:C.textD,lineHeight:1.7,borderTop:`1px solid ${C.border}`,paddingTop:"0.75rem"}}>
+        {filingCourt==="constitutional"
+          ?(isAppeal?"Filed to the Constitutional Court.":"Filed to the Constitutional Court. A justice will be assigned to determine admissibility.")
+          :"Filed to the Regional Court. The court may elevate to the Constitutional Court if warranted."}
+        {" "}Use <strong>Track My Case</strong> with the reference number above to follow progress.
       </div>
-      <div>
-        <FL>PARTIES *</FL>
-        <div style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:2,padding:"0.85rem",display:"flex",flexDirection:"column",gap:"0.65rem"}}>
-          <div><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>PARTY FORMAT</div>
-            <DD value={partyPreset} onChange={v=>{setPartyPreset(v);setPartyA("");setPartyB("");}} options={PARTY_PRESETS.map(p=>({v:p.v,l:p.l}))}/></div>
-          <div style={{display:"flex",gap:"0.65rem",flexWrap:"wrap"}}>
-            {partyPreset==="crown_v_ind"
-              ?<div style={{flex:1,minWidth:160}}><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>DEFENDANT USERNAME *</div><Inp value={partyA} onChange={setPartyA} placeholder="In-game username"/></div>
-              :<div style={{flex:1,minWidth:160}}><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>{partyPreset==="ind_v_crown"?"PETITIONER USERNAME *":"PLAINTIFF USERNAME *"}</div><Inp value={partyA} onChange={setPartyA} placeholder="In-game username"/></div>}
-            {twoParty&&<div style={{flex:1,minWidth:160}}><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>DEFENDANT USERNAME *</div><Inp value={partyB} onChange={setPartyB} placeholder="In-game username"/></div>}
+    </div>
+    <Btn variant="ghost" onClick={()=>{setDone(null);setStep(1);setNameA("");setNameB("");setSubject("");setSummary("");setContestedId("");setAppealOfId("");setType("criminal");}}>File Another Case</Btn>
+  </div>;
+
+  return <div style={{maxWidth:620}}>
+    <StepBar/>
+
+    {/* ── STEP 1 ── */}
+    {step===1&&<div className="fadeIn">
+      <div className="mono" style={{fontSize:9,letterSpacing:"0.2em",color:C.textD,marginBottom:"0.85rem"}}>STEP 1 — NATURE OF THE PROCEEDINGS</div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.4rem"}}>
+        {CASE_TYPES.map(ct=>{const sel=type===ct.v;return <div key={ct.v} onClick={()=>handleTypeChange(ct.v)}
+          style={{padding:"0.75rem 1rem",cursor:"pointer",borderRadius:2,display:"flex",gap:10,alignItems:"flex-start",
+            background:sel?C.s2:C.s1,border:`1px solid ${sel?C.accent:C.border}`,transition:"all .12s"}}>
+          <div style={{width:14,height:14,borderRadius:"50%",border:`2px solid ${sel?C.accent:C.textDD}`,
+            background:sel?C.accent:"transparent",flexShrink:0,marginTop:3}}/>
+          <div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:12,color:sel?C.text:C.textD,fontWeight:sel?700:400,marginBottom:ct.desc?2:0}}>{ct.l}</div>
+            {ct.desc&&<div style={{fontSize:12,color:C.textDD,lineHeight:1.5}}>{ct.desc}</div>}
           </div>
-          {builtParties&&<div style={{background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
-            padding:"6px 12px",fontFamily:"'Cinzel',serif",fontSize:13,color:C.silver}}>Preview: {builtParties}</div>}
-        </div>
+        </div>;})}
       </div>
-      {canContest&&allStatutes.length>0&&<div>
-        <FL>CONTESTED STATUTE (optional)</FL>
-        <DD value={contestedId} onChange={setContestedId} options={[{v:"",l:"\u2014 Not contesting a specific statute \u2014"},...allStatutes.map(s=>({v:s.id,l:s.title}))]}/>
-        <Disclaimer type="info">If your case challenges the validity or application of a specific statute, select it here. It will be referenced on the case docket.</Disclaimer>
+      {isAppeal&&<div style={{marginTop:"1rem"}}>
+        <FL>CASE BEING APPEALED *</FL>
+        {Object.values(cases||{}).filter(c=>["decided","dismissed"].includes(c.status)).length===0
+          ?<Disclaimer type="info">No decided or dismissed cases are available to appeal.</Disclaimer>
+          :<><DD value={appealOfId} onChange={setAppealOfId}
+            options={[{v:"",l:"\u2014 Select the case you are appealing \u2014"},
+              ...Object.values(cases||{}).filter(c=>["decided","dismissed"].includes(c.status))
+                .sort((a,b)=>(a.number||"").localeCompare(b.number||""))
+                .map(c=>({v:c.id,l:c.number+" \u2014 "+c.title}))]}/>
+          {appealCase&&<div style={{marginTop:4,background:C.s2,border:`1px solid ${C.border}`,borderRadius:2,padding:"6px 10px",fontSize:12,color:C.textD,fontStyle:"italic"}}>
+            {appealCase.parties} {"\u2014"} {(CASE_PIPELINE[appealCase.status]||{label:appealCase.status}).label}
+          </div>}</>}
       </div>}
-      <div>
-        <FL>GROUNDS FOR FILING *</FL>
-        <TA value={summary} onChange={setSummary} placeholder={"Describe the matter and the legal grounds for your filing.\n\nInclude:\n\u2022 What occurred or what is being challenged\n\u2022 Which law or right you believe has been violated\n\u2022 The remedy or outcome you are seeking"} rows={6}/>
+      <div style={{display:"flex",justifyContent:"flex-end",marginTop:"1.25rem"}}>
+        <Btn disabled={!step1Valid} onClick={()=>setStep(isAppeal?3:2)}>Next {"\u2192"}</Btn>
       </div>
-      <Btn full disabled={!builtTitle||!builtParties||!summary.trim()||saving||(twoTitle&&!titleB.trim())||(twoParty&&!partyB.trim())}
-        onClick={async()=>{
-          setSaving(true);const number=genRC();
+    </div>}
+
+    {/* ── STEP 2: PARTIES ── */}
+    {step===2&&<div className="fadeIn">
+      <div className="mono" style={{fontSize:9,letterSpacing:"0.2em",color:C.textD,marginBottom:"0.85rem"}}>STEP 2 — PARTIES</div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.85rem"}}>
+        {isCrown&&<>
+          <Disclaimer type="info">The Crown is the prosecuting party in this type of case. Provide the username of the individual being prosecuted.</Disclaimer>
+          <div><FL>DEFENDANT USERNAME *</FL>
+            <Inp value={nameA} onChange={setNameA} placeholder="In-game username of the defendant"/>
+          </div>
+        </>}
+        {isCivil&&<>
+          <div><FL>YOUR USERNAME — PLAINTIFF *</FL>
+            <Inp value={nameA} onChange={setNameA} placeholder="Your in-game username"/>
+          </div>
+          <div>
+            <FL>DEFENDANT USERNAME <span style={{fontStyle:"italic",color:C.textDD,fontSize:9,fontFamily:"'Crimson Text',serif",fontWeight:400,letterSpacing:0}}>(leave blank to file against The Crown)</span></FL>
+            <Inp value={nameB} onChange={setNameB} placeholder="Leave blank for The Crown"/>
+          </div>
+        </>}
+        {(isAdmin||isConstitutional)&&<div>
+          <FL>YOUR USERNAME — PETITIONER *</FL>
+          <Inp value={nameA} onChange={setNameA} placeholder="Your in-game username"/>
+        </div>}
+        {isTreaty&&<>
+          <div><FL>SUBJECT MATTER *</FL>
+            <Inp value={subject} onChange={setSubject} placeholder="e.g. the Lech Maritime Treaty 2024"/>
+          </div>
+          <div>
+            <FL>YOUR USERNAME — FILING PARTY <span style={{fontStyle:"italic",color:C.textDD,fontSize:9,fontFamily:"'Crimson Text',serif",fontWeight:400,letterSpacing:0}}>(optional)</span></FL>
+            <Inp value={nameA} onChange={setNameA} placeholder="Your in-game username"/>
+          </div>
+        </>}
+      </div>
+      {builtTitle&&<div style={{marginTop:"1.25rem",background:C.s1,border:`1px solid ${C.accent}44`,borderRadius:2,padding:"0.85rem",display:"flex",flexDirection:"column",gap:5}}>
+        <div><span className="mono" style={{fontSize:8,color:C.textDD,marginRight:6}}>CASE TITLE</span>
+          <span style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.silver}}>{builtTitle}</span></div>
+        {builtParties&&<div><span className="mono" style={{fontSize:8,color:C.textDD,marginRight:6}}>PARTIES</span>
+          <span style={{fontSize:13,color:C.textD}}>{builtParties}</span></div>}
+        <div><span className="mono" style={{fontSize:8,color:C.textDD,marginRight:6}}>COURT</span><CourtBadge court={filingCourt}/></div>
+      </div>}
+      <div style={{display:"flex",justifyContent:"space-between",marginTop:"1.25rem"}}>
+        <Btn variant="ghost" onClick={()=>setStep(1)}>{"\u2190"} Back</Btn>
+        <Btn disabled={!step2Valid} onClick={()=>setStep(3)}>Next {"\u2192"}</Btn>
+      </div>
+    </div>}
+
+    {/* ── STEP 3: GROUNDS ── */}
+    {step===3&&<div className="fadeIn">
+      <div className="mono" style={{fontSize:9,letterSpacing:"0.2em",color:C.textD,marginBottom:"0.85rem"}}>STEP 3 — GROUNDS FOR FILING</div>
+      <div><FL>GROUNDS *</FL>
+        <TA value={summary} onChange={setSummary} rows={8}
+          placeholder={"Describe the matter and the legal grounds for your filing.\n\nInclude:\n\u2022 What occurred or what decision is being challenged\n\u2022 Which law or right you believe has been violated\n\u2022 The remedy or outcome you are seeking"}/>
+      </div>
+      {canContest&&allStatutes.length>0&&<div style={{marginTop:"1rem"}}>
+        <FL>CONTESTED STATUTE <span style={{fontStyle:"italic",color:C.textDD,fontSize:9,fontFamily:"'Crimson Text',serif",fontWeight:400,letterSpacing:0}}>(optional)</span></FL>
+        <DD value={contestedId} onChange={setContestedId}
+          options={[{v:"",l:"\u2014 Not contesting a specific statute \u2014"},...allStatutes.map(s=>({v:s.id,l:s.title}))]}/>
+        <Disclaimer type="info">If your case challenges the validity or application of a specific statute, select it here to flag it on the docket.</Disclaimer>
+      </div>}
+      <div style={{display:"flex",justifyContent:"space-between",marginTop:"1.25rem"}}>
+        <Btn variant="ghost" onClick={()=>setStep(isAppeal?1:2)}>{"\u2190"} Back</Btn>
+        <Btn disabled={!step3Valid} onClick={()=>setStep(4)}>Review {"\u2192"}</Btn>
+      </div>
+    </div>}
+
+    {/* ── STEP 4: REVIEW ── */}
+    {step===4&&<div className="fadeIn">
+      <div className="mono" style={{fontSize:9,letterSpacing:"0.2em",color:C.textD,marginBottom:"0.85rem"}}>STEP 4 — REVIEW YOUR FILING</div>
+      <div style={{background:C.s1,border:`1px solid ${C.border}`,borderTop:`3px solid ${C.accent}`,
+        borderRadius:"0 0 4px 4px",padding:"1.25rem",marginBottom:"1rem",display:"flex",flexDirection:"column",gap:"0.85rem"}}>
+        <div>
+          <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>CASE TITLE</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:15,color:C.text}}>{builtTitle}</div>
+        </div>
+        <div style={{display:"flex",gap:"2rem",flexWrap:"wrap"}}>
+          {builtParties&&<div>
+            <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>PARTIES</div>
+            <div style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>{builtParties}</div>
+          </div>}
+          <div>
+            <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>CASE TYPE</div>
+            <div style={{fontSize:13,color:C.textD}}>{(CASE_TYPES.find(t=>t.v===type)||{l:type}).l}</div>
+          </div>
+          <div>
+            <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>COURT</div>
+            <CourtBadge court={filingCourt}/>
+          </div>
+        </div>
+        {appealCase&&<div>
+          <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>APPEAL OF</div>
+          <div style={{fontSize:13,color:C.textD}}>{appealCase.number} {"\u2014"} {appealCase.title}</div>
+        </div>}
+        {contestedId&&<div>
+          <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>CONTESTED STATUTE</div>
+          <div style={{fontSize:13,color:C.textD}}>{allStatutes.find(s=>s.id===contestedId)?.title||contestedId}</div>
+        </div>}
+        <div style={{borderTop:`1px solid ${C.border}`,paddingTop:"0.75rem"}}>
+          <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>GROUNDS</div>
+          <div style={{fontSize:13,color:C.text,lineHeight:1.75,whiteSpace:"pre-wrap",maxHeight:140,overflowY:"auto"}}>{summary}</div>
+        </div>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
+        <Btn variant="ghost" onClick={()=>setStep(3)}>{"\u2190"} Edit</Btn>
+        <Btn disabled={saving} onClick={async()=>{
+          setSaving(true);const number=genNumber(filingCourt);
           const contestedS=contestedId?allStatutes.find(s=>s.id===contestedId):null;
-          await onAction("createCase",{number,title:builtTitle,court:"regional",type,parties:builtParties,
+          await onAction("createCase",{number,title:builtTitle,court:filingCourt,type,parties:builtParties,
             presiding:[],summary:summary.trim(),status:"filed",filed:Date.now(),
             statusHistory:[{status:"filed",at:Date.now()}],
-            contestedStatute:contestedId||null,contestedStatuteTitle:contestedS?.title||null});
+            contestedStatute:contestedId||null,contestedStatuteTitle:contestedS?.title||null,
+            appealOf:appealOfId||null,appealOfNumber:appealCase?.number||null});
           setSaving(false);setDone({number,title:builtTitle,parties:builtParties});
           notify("Case "+number+" filed.",C.accent);
         }}>{saving?"Filing...":"File Case"}</Btn>
+      </div>
+    </div>}
+  </div>;
+}
+
+
+
+// ── LEGAL CODE — shared BK constants & helpers ───────────────────────────────
+const NON_LAW_TYPES=["motion","decree","appointment","resolution","nomination","vote","procedural"];
+const BK_PARTIES=[
+  {id:"catholic",    name:"Lech Catholic Social Union", color:"#C9A84C"},
+  {id:"lech_first",  name:"Lech First Party",           color:"#8B0000"},
+  {id:"sup",         name:"Social Unity Party",         color:"#C05050"},
+  {id:"rappier",     name:"Rappier of Order",           color:"#4A5A8A"},
+  {id:"independent", name:"Independent",                 color:"#888888"},
+];
+const BK_BT_SEATS=1000,BK_BT_THRESH=501,BK_BT_SUPER=667;
+const BK_BILL_TYPES={
+  regular:            {label:"Regular Bill",                       icon:"📜",skipBH:false},
+  appoint_bt_pres:    {label:"Nominate President of Bundestag",    icon:"🏛", skipBH:true},
+  appoint_chancellor: {label:"Nominate Chancellor",                icon:"⚜",  skipBH:true},
+  appoint_bh_pres:    {label:"Nominate President of Bundesherren", icon:"🏰", skipBH:true,bhOrigin:true},
+  nominate_minister:  {label:"Nominate Minister",                  icon:"🎖",  skipBH:true},
+  constitutional_amendment:{label:"Constitutional Amendment",      icon:"⚖",  skipBH:false,superMajority:true},
+  budget:             {label:"Budget Bill",                        icon:"💰", skipBH:true},
+  budget_supplementary:{label:"Supplementary Budget",             icon:"💰", skipBH:true},
+  motion:             {label:"Motion",                             icon:"✋", skipBH:false,skipEmperor:true},
+  dissolve_government:{label:"Dissolve Government",               icon:"🏚", skipBH:true,dissolve:true},
+};
+const BK_STATUS_META={
+  pending:       {label:"Pending BT President Approval",  color:"#888888",icon:"⏳"},
+  pending_bh:    {label:"Pending BH President Approval",  color:"#9a7840",icon:"⏳"},
+  pending_emperor:{label:"Pending Imperial Approval",     color:"#C9A84C",icon:"👑"},
+  docket:        {label:"On the Docket",                  color:"#5a9a5a",icon:"📋"},
+  bt_voting:     {label:"Session — Active Vote",          color:"#4a88ff",icon:"🗳"},
+  bh_voting:     {label:"Bundesherren — Open Vote",       color:"#f0a050",icon:"🗳"},
+  ratification:  {label:"Awaiting Imperial Ratification", color:"#C9A84C",icon:"👑"},
+  vetoed:        {label:"Vetoed by the Emperor",          color:"#8b1a1a",icon:"🚫"},
+  pulled:        {label:"Pulled",                         color:"#6a3a6a",icon:"📥"},
+  returned:      {label:"Returned for Revisions",         color:"#b05a10",icon:"↩"},
+  passed:        {label:"Passed — Now Law",               color:"#3a9c3a",icon:"✅"},
+  motion_passed: {label:"Motion Passed",                  color:"#5a9a8a",icon:"✋"},
+  decree:        {label:"Imperial Decree",                color:"#C9A84C",icon:"⚜"},
+  motion_failed: {label:"Motion Failed",                  color:"#c02020",icon:"❌"},
+  failed_bt:     {label:"Failed — Bundestag Rejected",   color:"#c02020",icon:"❌"},
+  failed_bh:     {label:"Failed — Bundesherren Rejected",color:"#c02020",icon:"❌"},
+  repealed:      {label:"Repealed",                       color:"#8b2020",icon:"🚫"},
+};
+const BK_DECREE_SUBTYPES=[
+  {v:"imperial_decree",l:"Imperial Decree"},{v:"royal_warrant",l:"Royal Warrant"},
+  {v:"imperial_proclamation",l:"Imperial Proclamation"},{v:"imperial_order",l:"Imperial Order in Council"},
+];
+const BK_LAW_CATEGORIES=[
+  {v:"criminal",      l:"Criminal Law",        color:"#9a2020"},
+  {v:"civil",         l:"Civil Law",           color:"#4a6a9a"},
+  {v:"civil_rights",  l:"Civil Rights Law",    color:"#4a8a6a"},
+  {v:"revenue",       l:"Revenue Law",         color:"#8a7a20"},
+  {v:"court_proc",    l:"Court Procedural Law",color:"#6a4a8a"},
+  {v:"administrative",l:"Administrative Law",  color:"#4a6a6a"},
+  {v:"nobility",      l:"Nobility Law",        color:"#8a6a30"},
+  {v:"transport",     l:"Transport Law",       color:"#4a6a8a"},
+];
+const BK_PEERAGE_RANKS=[
+  {v:"crown_prince",l:"Crown Prince of Lech",color:"#cc2222"},{v:"prince",l:"Prince",color:"#9a44cc"},
+  {v:"princess",l:"Princess",color:"#9a44cc"},{v:"duke",l:"Duke",color:"#C9A84C"},
+  {v:"marquess",l:"Marquess",color:"#8899bb"},{v:"count",l:"Count",color:"#7aaa88"},
+  {v:"viscount",l:"Viscount",color:"#aa8866"},{v:"baron",l:"Baron",color:"#8899aa"},
+  {v:"baronet",l:"Baronet",color:"#9a9a9a"},
+];
+function bkCalcBT(members,votes,threshold=BK_BT_THRESH){
+  let f=0,a=0,ab=0;
+  Object.entries(votes||{}).forEach(([id,v])=>{
+    const s=(members[id]?.seats)||0;
+    if(v==="for") f+=s; else if(v==="against") a+=s; else if(v==="abstain"||v==="absent") ab+=s;
+  });
+  return {for_seats:f,against_seats:a,abstain_seats:ab,passed:f>=threshold,threshold};
+}
+function bkCalcBH(bh,votes){
+  let f=0,a=0,ab=0;const total=Object.keys(bh||{}).length;
+  Object.entries(votes||{}).forEach(([id,v])=>{
+    if(!bh[id]) return;
+    if(v==="for") f++; else if(v==="against") a++; else if(v==="abstain") ab++;
+  });
+  const thresh=Math.floor(total/2)+1;
+  return {for_count:f,against_count:a,abstain_count:ab,total,threshold:thresh,passed:f>=thresh};
+}
+
+function LegalVoteBar({fv,av,abv,total,thresh,isBT}){
+  const pf=total>0?(fv/total)*100:0,pa=total>0?(av/total)*100:0,pab=total>0?(abv/total)*100:0;
+  const tp=total>0?(thresh/total)*100:50.1;const passed=fv>=thresh;
+  return <div>
+    <div style={{height:18,background:C.s1,borderRadius:3,overflow:"hidden",display:"flex",border:`1px solid ${C.border}`,position:"relative"}}>
+      <div style={{width:pf+"%",background:"#1a4a1a",flexShrink:0}}/>
+      <div style={{width:pa+"%",background:"#4a1a1a",flexShrink:0}}/>
+      <div style={{width:pab+"%",background:"#2a2a1a",flexShrink:0}}/>
+      <div style={{position:"absolute",left:tp+"%",top:0,bottom:0,width:2,background:"rgba(255,255,255,.3)",zIndex:1}}/>
+    </div>
+    <div style={{display:"flex",justifyContent:"space-between",marginTop:3,fontFamily:"'Cinzel',serif",fontSize:8,letterSpacing:"0.08em"}}>
+      <span style={{color:"#5aaa5a"}}>FOR {isBT?fv+" seats":fv}</span>
+      <span style={{color:passed?"#5aaa5a":C.redL,fontWeight:700}}>{passed?"\u2713 PASSES":"NEEDS "+thresh+(isBT?" SEATS":"")}</span>
+      <span style={{color:C.redL}}>AGAINST {isBT?av+" seats":av}</span>
+    </div>
+    {abv>0&&<div style={{fontSize:10,color:C.textDD,textAlign:"center",marginTop:1}}>{abv}{isBT?" seat abstention/absent"+(abv!==1?"s":""):" abstention"+(abv!==1?"s":"")}</div>}
+  </div>;
+}
+
+function LegalBillPipeline({bill}){
+  const bt=BK_BILL_TYPES[bill.type]||BK_BILL_TYPES.regular;
+  const skipBH=bt.skipBH,bhOriginBill=bill.origin==="bh",bhSkipBT=bt.bhOrigin,s=bill.status;
+  const stages=[];
+  stages.push({key:"submitted",label:"Submitted",icon:"📝"});
+  if(bill.type==="motion"){
+    if(bill.origin==="bh"){stages.push({key:"bh_voting",label:"BH Vote",icon:"🏰"});if(bill.motion_scope==="dual")stages.push({key:"bt_voting",label:"BT Vote",icon:"🏛"});}
+    else{stages.push({key:"bt_voting",label:"BT Vote",icon:"🏛"});if(bill.motion_scope==="dual")stages.push({key:"bh_voting",label:"BH Vote",icon:"🏰"});}
+    stages.push({key:"motion_passed",label:"Passed",icon:"✋"});
+  } else if(bhOriginBill){
+    stages.push({key:"bh_voting",label:"BH Vote",icon:"🏰"});
+    if(!bhSkipBT)stages.push({key:"bt_voting",label:"BT Vote",icon:"🗳"});
+  } else {
+    stages.push({key:"docket",label:"Docket",icon:"📋"});
+    stages.push({key:"bt_voting",label:"BT Vote",icon:"🗳"});
+    if(!skipBH)stages.push({key:"bh_voting",label:"BH Vote",icon:"⚜"});
+  }
+  if(bill.type!=="motion"){stages.push({key:"emperor",label:"Emperor",icon:"👑"});stages.push({key:"passed",label:"Law",icon:"✅"});}
+  const stageKey=(()=>{
+    if(["pending_emperor"].includes(s))return "submitted";
+    if(s==="pending_bh")return "submitted";
+    if(s==="pending")return bhOriginBill?"bt_voting":"submitted";
+    if(s==="docket")return "docket";if(s==="bt_voting")return "bt_voting";
+    if(s==="bh_voting")return "bh_voting";
+    if(["ratification","returned"].includes(s))return "emperor";
+    if(s==="passed")return "passed";if(s==="motion_passed")return "motion_passed";
+    return null;
+  })();
+  const stageIdx=stages.findIndex(st=>st.key===stageKey);
+  const failed=["failed_bt","failed_bh","vetoed","repealed","motion_failed"].includes(s);
+  return <div style={{marginBottom:"0.85rem",padding:"0.65rem 0.85rem",background:C.s1,borderRadius:3,border:`1px solid ${C.border}`}}>
+    <div className="mono" style={{fontSize:8,letterSpacing:"0.2em",color:C.textDD,marginBottom:6,textTransform:"uppercase"}}>Bill Progress</div>
+    <div style={{display:"flex",alignItems:"center",flexWrap:"nowrap",overflowX:"auto",paddingBottom:2}}>
+      {stages.map((stage,i)=>{
+        const done=stageIdx>i||s==="passed";const active=stageIdx===i&&!failed;
+        const color=done?"#5aaa5a":active?(s==="returned"&&stage.key==="emperor"?"#f0a050":"#4a88ff"):C.textDD;
+        return <React.Fragment key={stage.key}>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",flexShrink:0,minWidth:48}}>
+            <div style={{width:24,height:24,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
+              background:done?"#0a1e0a":active?(s==="returned"&&stage.key==="emperor"?"#1e1000":"#000c1e"):"transparent",
+              border:`2px solid ${color}`,fontSize:11,marginBottom:2,boxShadow:active?`0 0 6px ${color}44`:"none"}}>
+              {done?"\u2713":stage.icon}
+            </div>
+            <div className="mono" style={{fontSize:7,color,letterSpacing:"0.04em",textAlign:"center",lineHeight:1.2,maxWidth:46}}>{stage.label}</div>
+          </div>
+          {i<stages.length-1&&<div style={{flex:1,height:2,minWidth:6,maxWidth:28,
+            background:done?"#2a6a2a":C.border,marginBottom:14,flexShrink:1}}/>}
+        </React.Fragment>;
+      })}
+      {failed&&<div style={{marginLeft:8,fontFamily:"'Cinzel',serif",fontSize:9,color:C.redL,letterSpacing:"0.1em",marginBottom:14,flexShrink:0}}>
+        {s==="failed_bt"?"\u2717 Failed BT":s==="failed_bh"?"\u2717 Failed BH":s==="vetoed"?"\uD83D\uDEAB Vetoed":s==="repealed"?"\uD83D\uDEAB Repealed":"\u2717 Failed"}
+      </div>}
     </div>
   </div>;
 }
 
-// ── LEGAL CODE ────────────────────────────────────────────────────────────────
-const LAW_TYPES=["bill","constitutional_amendment","act","statute","law"];
-const NON_LAW_TYPES=["motion","decree","appointment","resolution","nomination","vote","procedural"];
-function LegalCodeTab({statutes,bills,cases}){
-  const [source,setSource]=useState("all");
-  const [cat,setCat]=useState("all");
+function LegalBillCard({bill,members,bundesherren,ijStatutes}){
+  const [open,setOpen]=useState(false);
+  const sm=BK_STATUS_META[bill.status]||{label:bill.status,color:C.textD,icon:"\u2022"};
+  const bt=BK_BILL_TYPES[bill.type]||BK_BILL_TYPES.regular;
+  const fmtD=ts=>ts?new Date(ts).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}):"—";
+  const btData=bill.bt_result||(Object.keys(bill.bt_votes||{}).length>0?bkCalcBT(members,bill.bt_votes,bill.type==="constitutional_amendment"?BK_BT_SUPER:BK_BT_THRESH):null);
+  const bhData=bill.bh_result||(Object.keys(bill.bh_votes||{}).length>0?bkCalcBH(bundesherren,bill.bh_votes):null);
+  const isConstitution=bill.grandfathered&&bill.type==="constitutional_amendment";
+  const isDecree=bill.status==="decree";
+  const bkStatuteId="bk_"+bill.id;
+  const courtRepealRecord=ijStatutes?Object.values(ijStatutes).find(s=>
+    s.src==="court_repeal"&&(s.repealOf===bkStatuteId||s.repealOfTitle===bill.title)):null;
+  const isCourtRepealed=!!courtRepealRecord;
+  const effectiveSm=isCourtRepealed?{label:"Repealed by Court Order",color:"#c05050",icon:"\uD83D\uDEAB"}:sm;
+  const mods=ijStatutes?Object.values(ijStatutes).filter(s=>s.modifies&&(s.modifies===bkStatuteId||s.modifiesTitle===bill.title)):[];
+
+  const finalBg=isCourtRepealed?"#100808":isConstitution?"#14100a":isDecree?"#120810":C.s1;
+  const finalBorderL=isCourtRepealed?"4px solid #8b1a1a":isConstitution?"4px solid #C9A84C":isDecree?"4px solid #8b1a4a":`4px solid ${sm.color}`;
+  const finalBorder=isCourtRepealed?`1px solid #8b1a1a55`:isConstitution?`1px solid #c8a87055`:isDecree?`1px solid #8b1a4a44`:`1px solid ${C.border}`;
+
+  return <div className="fadeIn" style={{background:finalBg,border:finalBorder,borderLeft:finalBorderL,
+    borderRadius:"0 3px 3px 0",marginBottom:"0.5rem",overflow:"hidden",opacity:isCourtRepealed?0.72:1}}>
+    {isConstitution&&<div style={{background:"linear-gradient(135deg,#1e1600,#140e00)",borderBottom:`1px solid ${C.gold}33`,padding:"3px 10px",display:"flex",alignItems:"center",gap:6}}>
+      <span style={{fontSize:12}}>📜</span>
+      <span style={{fontFamily:"'Cinzel',serif",fontSize:7,letterSpacing:"0.3em",color:C.gold,textTransform:"uppercase"}}>Imperial Constitution of the Empire of Lech</span>
+      <span style={{fontSize:12}}>📜</span>
+    </div>}
+    {isDecree&&<div style={{background:"linear-gradient(135deg,#120008,#0a0010)",borderBottom:"1px solid #8b1a4a33",padding:"3px 10px",display:"flex",alignItems:"center",gap:6}}>
+      <span style={{fontSize:12}}>⚜</span>
+      <span style={{fontFamily:"'Cinzel',serif",fontSize:7,letterSpacing:"0.3em",color:"#c060a0",textTransform:"uppercase"}}>Imperial Instrument of Law</span>
+    </div>}
+    <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",padding:"0.75rem 1rem",cursor:"pointer",gap:8}}>
+      <div style={{flex:1}}>
+        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3,flexWrap:"wrap"}}>
+          <span style={{fontFamily:"'Cinzel',serif",fontSize:13,color:isConstitution?C.gold:isCourtRepealed?"#c05050":C.text,fontWeight:700}}>{isConstitution?"\u2B50":effectiveSm.icon} {bill.title}</span>
+          {bill.type!=="regular"&&bill.type!=="motion"&&<span style={{fontFamily:"'Cinzel',serif",fontSize:8,color:C.gold,border:`1px solid ${C.gold}44`,padding:"1px 5px",borderRadius:2}}>{bt.icon} {bt.label}</span>}
+          {bill.grandfathered&&<span style={{fontFamily:"'Cinzel',serif",fontSize:8,color:"#8a7040",border:"1px solid #8a704044",padding:"1px 5px",borderRadius:2,background:"#12100a"}}>⚜ Grandfathered</span>}
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+          <span style={{fontFamily:"'Cinzel',serif",fontSize:8,color:effectiveSm.color,border:`1px solid ${effectiveSm.color}44`,padding:"1px 6px",borderRadius:2}}>{effectiveSm.label}</span>
+          {(()=>{const lc=bill.category?BK_LAW_CATEGORIES.find(x=>x.v===bill.category):null;return lc?<span style={{fontFamily:"'Cinzel',serif",fontSize:8,color:lc.color,border:`1px solid ${lc.color}44`,padding:"1px 6px",borderRadius:2}}>{lc.l}</span>:null;})()}
+          {mods.length>0&&!isCourtRepealed&&<span className="mono" style={{fontSize:7,color:"#4a7acc",background:"#0a1020",border:"1px solid #2a4a8a44",padding:"1px 5px",borderRadius:1}}>MODIFIED</span>}
+          <span style={{fontSize:12,color:C.textD,fontStyle:"italic"}}>by {bill.submitter}</span>
+          <span style={{fontSize:11,color:C.textDD}}>{fmtD(bill.created)}</span>
+        </div>
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,marginTop:2}}>
+        {bill.origin&&<span className="mono" style={{fontSize:7,color:C.textDD}}>orig. <span style={{color:bill.origin==="bh"?"#c8a870":"#4a88ff"}}>{bill.origin==="bh"?"BH":"BT"}</span></span>}
+        <span style={{fontSize:10,color:C.textDD}}>{open?"\u25B2":"\u25BC"}</span>
+      </div>
+    </div>
+    {open&&<div style={{borderTop:`1px solid ${C.border}`,padding:"0.85rem 1rem",background:C.s2}}>
+      <LegalBillPipeline bill={bill}/>
+      {bill.gdoc_url&&<div style={{marginBottom:"0.85rem"}}>
+        <a href={bill.gdoc_url} target="_blank" rel="noopener noreferrer"
+          style={{fontFamily:"'Cinzel',serif",fontSize:10,letterSpacing:"0.1em",padding:"4px 12px",borderRadius:2,
+                   border:`1px solid ${C.gold}55`,background:"#1a1400",color:C.gold,textDecoration:"none",display:"inline-block"}}>
+          📄 View Bill Document {"\u2192"}
+        </a>
+      </div>}
+      {bill.type==="motion"&&bill.motion_text&&<div style={{background:C.s1,border:"1px solid #2a4a3a",borderLeft:"3px solid #4a7a6a",borderRadius:"0 3px 3px 0",padding:"0.65rem 0.85rem",marginBottom:"0.85rem"}}>
+        <div className="mono" style={{fontSize:8,color:"#5aaf8a",letterSpacing:"0.15em",marginBottom:4}}>✋ MOTION TEXT</div>
+        <div style={{fontSize:13,color:C.text,lineHeight:1.8,whiteSpace:"pre-wrap"}}>{bill.motion_text}</div>
+      </div>}
+      {bill.status==="decree"&&bill.decree_text&&<div style={{background:"#120008",border:"1px solid #8b1a4a33",borderLeft:`3px solid #8b1a4a`,borderRadius:"0 3px 3px 0",padding:"0.65rem 0.85rem",marginBottom:"0.85rem"}}>
+        <div className="mono" style={{fontSize:8,color:"#c060a0",letterSpacing:"0.15em",marginBottom:4}}>⚜ IMPERIAL DECREE TEXT</div>
+        <div style={{fontSize:13,color:C.text,lineHeight:1.8,whiteSpace:"pre-wrap"}}>{bill.decree_text}</div>
+      </div>}
+      {btData&&<div style={{marginBottom:"1rem"}}>
+        <div className="mono" style={{fontSize:8,color:C.textDD,letterSpacing:"0.15em",marginBottom:5}}>BUNDESTAG VOTE {bill.bt_result?"(CLOSED)":"(LIVE)"}</div>
+        <LegalVoteBar fv={btData.for_seats} av={btData.against_seats} abv={btData.abstain_seats}
+          total={BK_BT_SEATS} thresh={bill.type==="constitutional_amendment"?BK_BT_SUPER:BK_BT_THRESH} isBT={true}/>
+        {Object.keys(bill.bt_votes||{}).length>0&&<div style={{marginTop:"0.6rem",display:"flex",flexWrap:"wrap",gap:3}}>
+          {Object.entries(bill.bt_votes).sort((a,b)=>(members[b[0]]?.seats||0)-(members[a[0]]?.seats||0)).map(([mid,vote])=>{
+            const m=members[mid];if(!m)return null;
+            const p=BK_PARTIES.find(x=>x.id===m.party);
+            const vc=vote==="for"?"#5aaa5a":vote==="against"?C.redL:vote==="absent"?"#8888bb":C.textDD;
+            return <div key={mid} style={{background:C.s3,border:`1px solid ${C.border}`,borderLeft:`2px solid ${p?.color||C.border}`,borderRadius:"0 2px 2px 0",padding:"2px 7px",display:"flex",alignItems:"center",gap:4}}>
+              <span style={{fontSize:12,color:C.text}}>{m.name}</span>
+              <span style={{fontSize:9,color:C.textDD}}>({m.seats})</span>
+              <span className="mono" style={{fontSize:8,fontWeight:700,color:vc}}>{vote.toUpperCase()}</span>
+            </div>;
+          })}
+        </div>}
+      </div>}
+      {bhData&&Object.keys(bill.bh_votes||{}).length>0&&<div style={{marginBottom:"0.85rem"}}>
+        <div className="mono" style={{fontSize:8,color:C.textDD,letterSpacing:"0.15em",marginBottom:5}}>BUNDESHERREN VOTE {bill.bh_result?"(CLOSED)":"(LIVE)"}</div>
+        <LegalVoteBar fv={bhData.for_count} av={bhData.against_count} abv={bhData.abstain_count}
+          total={Math.max(bhData.total,1)} thresh={bhData.threshold} isBT={false}/>
+        <div style={{marginTop:"0.6rem",display:"flex",flexWrap:"wrap",gap:3}}>
+          {Object.entries(bill.bh_votes).map(([bid,vote])=>{
+            const bh=bundesherren[bid];if(!bh)return null;
+            const pr=bh.rank?BK_PEERAGE_RANKS.find(r=>r.v===bh.rank):null;
+            const vc=vote==="for"?"#5aaa5a":vote==="against"?C.redL:C.textDD;
+            return <div key={bid} style={{background:C.s3,border:`1px solid ${C.gold}33`,borderLeft:`2px solid ${C.gold}55`,borderRadius:"0 2px 2px 0",padding:"2px 7px",display:"flex",alignItems:"center",gap:5}}>
+              <span style={{fontSize:9,color:C.gold}}>⚜</span>
+              <div>
+                {pr&&<span className="mono" style={{fontSize:7,letterSpacing:"0.1em",color:pr.color,display:"block"}}>{pr.l}</span>}
+                <span style={{fontSize:12,color:C.text}}>{bh.name}</span>
+              </div>
+              <span className="mono" style={{fontSize:8,fontWeight:700,color:vc}}>{vote.toUpperCase()}</span>
+            </div>;
+          })}
+        </div>
+      </div>}
+      {bill.ratified_at&&<div style={{fontSize:13,color:C.gold,fontStyle:"italic",marginBottom:3}}>⚜ Ratified by the Emperor {" \u2014 "} {new Date(bill.ratified_at).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})}</div>}
+      {bill.repealed_at&&<div style={{fontSize:13,color:"#c05050",fontStyle:"italic",marginBottom:3}}>🚫 Repealed {" \u2014 "} {new Date(bill.repealed_at).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})}</div>}
+      {bill.vetoed_at&&<div style={{background:"#100808",border:`1px solid #8b1a1a55`,borderLeft:`3px solid #8b1a1a`,borderRadius:"0 3px 3px 0",padding:"0.5rem 0.75rem",marginTop:6}}>
+        <div className="mono" style={{fontSize:8,color:C.redL,letterSpacing:"0.15em",marginBottom:bill.veto_reason?3:0}}>IMPERIAL VETO {" \u2014 "} {new Date(bill.vetoed_at).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})}</div>
+        {bill.veto_reason&&<div style={{fontSize:12,color:"#d08080",fontStyle:"italic",lineHeight:1.7}}>{bill.veto_reason}</div>}
+      </div>}
+      {bill.pulled_at&&<div style={{background:"#0e080e",border:`1px solid #6a3a6a55`,borderLeft:`3px solid #9a5a9a`,borderRadius:"0 3px 3px 0",padding:"0.5rem 0.75rem",marginTop:6}}>
+        <div className="mono" style={{fontSize:8,color:"#c080c0",letterSpacing:"0.15em",marginBottom:bill.pull_reason?3:0}}>📥 PULLED {" \u2014 "} {new Date(bill.pulled_at).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})}</div>
+        {bill.pull_reason&&<div style={{fontSize:12,color:"#c0a0c0",fontStyle:"italic",lineHeight:1.7}}>{bill.pull_reason}</div>}
+      </div>}
+      {bill.returned_at&&<div style={{background:"#0e0a00",border:`1px solid #b05a1055`,borderLeft:`3px solid #f0a050`,borderRadius:"0 3px 3px 0",padding:"0.5rem 0.75rem",marginTop:6}}>
+        <div className="mono" style={{fontSize:8,color:"#f0a050",letterSpacing:"0.15em",marginBottom:bill.return_notes?3:0}}>RETURNED FOR REVISIONS {" \u2014 "} {new Date(bill.returned_at).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})}</div>
+        {bill.return_notes&&<div style={{fontSize:12,color:"#d0b090",fontStyle:"italic",lineHeight:1.7}}>{bill.return_notes}</div>}
+      </div>}
+      {courtRepealRecord&&<div style={{background:"#100808",border:`1px solid ${C.redD}44`,borderLeft:"3px solid #cc2222",borderRadius:"0 3px 3px 0",padding:"0.65rem 0.85rem",marginTop:6}}>
+        <div className="mono" style={{fontSize:8,color:"#c05050",letterSpacing:"0.15em",marginBottom:3}}>{"\u2696 REPEALED BY COURT ORDER"}</div>
+        <div style={{fontSize:12,color:"#e0b0b0",marginBottom:(courtRepealRecord.presidingNames||[]).length>0?2:0}}>
+          {courtRepealRecord.caseRef&&<span className="mono" style={{fontSize:8,color:"#c05050",marginRight:5}}>{courtRepealRecord.caseRef}</span>}
+          {courtRepealRecord.caseTitle||""}
+          {courtRepealRecord.enacted&&<span style={{color:"#9a7070",marginLeft:5}}>{" \u2014 "}{new Date(courtRepealRecord.enacted).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})}</span>}
+        </div>
+        {(courtRepealRecord.presidingNames||[]).length>0&&<div style={{fontSize:11,color:"#9a7070",fontStyle:"italic"}}>{"Presiding: "}{courtRepealRecord.presidingNames.join(", ")}</div>}
+      </div>}
+      {mods.length>0&&<div style={{marginTop:6,display:"flex",flexDirection:"column",gap:3}}>
+        {mods.map((m,i)=><div key={m.id||i} style={{background:"#080a10",border:"1px solid #2a4a8a44",borderLeft:"3px solid #4a6aaa",borderRadius:"0 3px 3px 0",padding:"0.5rem 0.75rem"}}>
+          <div className="mono" style={{fontSize:8,color:"#6a8acc",letterSpacing:"0.15em",marginBottom:3}}>{"\u2696 MODIFIED BY COURT ORDER"}</div>
+          <div style={{fontSize:12,color:"#a0b8e0",marginBottom:(m.presidingNames||[]).length>0?2:0}}>
+            {m.caseRef&&<span className="mono" style={{fontSize:8,color:"#5a7acc",marginRight:5}}>{m.caseRef}</span>}
+            {m.caseTitle||""}
+            {m.enacted&&<span style={{color:"#5a7090",marginLeft:5}}>{" \u2014 "}{new Date(m.enacted).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})}</span>}
+          </div>
+          {(m.presidingNames||[]).length>0&&<div style={{fontSize:11,color:"#5a7090",fontStyle:"italic",marginBottom:m.body?3:0}}>{"Presiding: "}{m.presidingNames.join(", ")}</div>}
+          {m.body&&<details style={{marginTop:3}}><summary style={{fontSize:10,color:"#6a8acc",cursor:"pointer",fontFamily:"'Cinzel',serif",letterSpacing:"0.1em"}}>VIEW MODIFICATION</summary>
+            <div style={{fontSize:12,color:"#a0b8e0",lineHeight:1.7,marginTop:5,paddingTop:5,borderTop:`1px solid ${C.border}`,whiteSpace:"pre-wrap"}}>{m.body}</div>
+          </details>}
+        </div>)}
+      </div>}
+    </div>}
+  </div>;
+}
+
+// ── JUDICIAL STATUTE CARD ─────────────────────────────────────────────────────
+function JudicialStatuteCard({statute:s,caseCount,mods,courtRepealRecord}){
+  const [open,setOpen]=useState(false);
+  const repealRecord=s.repealed?s:null;
+  const hasMods=(mods||[]).length>0;
+  const fmtD=ts=>ts?new Date(ts).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"}):"—";
+  const cat=STATUTE_CATS.find(c=>c.v===s.cat)||{l:"Other"};
+  return <div style={{background:s.repealed?"transparent":C.s1,border:`1px solid ${s.repealed?C.border+"66":C.border}`,
+    borderLeft:`4px solid ${s.repealed?C.textDD:C.accent}`,borderRadius:"0 3px 3px 0",overflow:"hidden",opacity:s.repealed?.65:1}}>
+    <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"0.65rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
+      <span style={{fontFamily:"'Cinzel',serif",fontSize:13,color:s.repealed?C.textD:C.text,flex:1}}>{s.title}</span>
+      <span className="mono" style={{fontSize:8,color:C.textD}}>{cat.l.toUpperCase()}</span>
+      {hasMods&&!s.repealed&&<span className="mono" style={{fontSize:7,color:"#4a7acc",background:"#0a1020",border:"1px solid #2a4a8a44",padding:"1px 5px"}}>MODIFIED</span>}
+      {s.repealed
+        ?<span className="mono" style={{fontSize:8,color:C.redL,background:"#1a0808",border:`1px solid ${C.redD}44`,padding:"1px 6px"}}>REPEALED</span>
+        :<span className="mono" style={{fontSize:8,color:"#2a9a4a",background:"#0a1a0e",border:"1px solid #1a4a2a",padding:"1px 6px"}}>IN FORCE</span>}
+      {caseCount>0&&<span className="mono" style={{fontSize:7,color:C.textD}}>{caseCount} CASE{caseCount!==1?"S":""}</span>}
+      {s.enacted&&<span className="mono" style={{fontSize:8,color:C.textDD}}>{new Date(s.enacted).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}</span>}
+      <span style={{fontSize:10,color:C.textDD}}>{open?"\u25B2":"\u25BC"}</span>
+    </div>
+    {open&&<div style={{borderTop:`1px solid ${C.border}`,padding:"0.85rem 1rem",background:C.s2}}>
+      {s.caseRef&&!s.repealed&&<div style={{fontSize:12,color:C.textD,fontStyle:"italic",marginBottom:"0.65rem"}}>
+        Arising from {s.caseTitle?`${s.caseRef} \u2014 ${s.caseTitle}`:s.caseRef}
+        {(s.presidingNames||[]).length>0&&<span style={{color:C.textDD}}>{" \u2014 Presiding: "}{s.presidingNames.join(", ")}</span>}
+      </div>}
+      {s.body?<div style={{fontSize:14,color:C.text,lineHeight:1.8,whiteSpace:"pre-wrap"}}>{s.body}</div>
+        :<div style={{fontSize:13,color:C.textDD,fontStyle:"italic"}}>No text on record.</div>}
+      {repealRecord&&<div style={{marginTop:"0.65rem",background:"#100808",border:`1px solid ${C.redD}44`,
+        borderLeft:"3px solid #cc2222",borderRadius:"0 3px 3px 0",padding:"0.65rem 0.85rem"}}>
+        <div className="mono" style={{fontSize:8,color:"#c05050",letterSpacing:"0.15em",marginBottom:3}}>{"\u2696 REPEALED BY COURT ORDER"}</div>
+        <div style={{fontSize:12,color:"#e0b0b0",marginBottom:(repealRecord.presidingNames||[]).length>0?3:0}}>
+          {repealRecord.repealedRef&&<span className="mono" style={{fontSize:8,color:"#c05050",marginRight:5}}>{repealRecord.repealedRef}</span>}
+          {repealRecord.repealedCaseTitle||""}
+          {repealRecord.repealedAt&&<span style={{color:"#9a7070",marginLeft:5}}>{" \u2014 "}{fmtD(repealRecord.repealedAt)}</span>}
+        </div>
+        {(repealRecord.presidingNames||[]).length>0&&<div style={{fontSize:11,color:"#9a7070",fontStyle:"italic"}}>{"Presiding: "}{repealRecord.presidingNames.join(", ")}</div>}
+      </div>}
+      {hasMods&&<div style={{marginTop:"0.65rem",display:"flex",flexDirection:"column",gap:3}}>
+        <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:2}}>JUDICIAL MODIFICATIONS</div>
+        {(mods||[]).sort((a,b)=>(a.enacted||0)-(b.enacted||0)).map((m,i)=><div key={m.id||i}
+          style={{background:"#080a10",border:"1px solid #2a4a8a44",borderLeft:"3px solid #4a6aaa",borderRadius:"0 3px 3px 0",padding:"0.5rem 0.75rem"}}>
+          <div className="mono" style={{fontSize:8,color:"#6a8acc",letterSpacing:"0.15em",marginBottom:3}}>{"\u2696 JUDICIAL MODIFICATION"}</div>
+          <div style={{fontSize:12,color:"#a0b8e0",marginBottom:(m.presidingNames||[]).length>0?2:0}}>
+            {m.caseRef&&<span className="mono" style={{fontSize:8,color:"#5a7acc",marginRight:5}}>{m.caseRef}</span>}
+            {m.caseTitle||""}
+            {m.enacted&&<span style={{color:"#5a7090",marginLeft:5}}>{" \u2014 "}{fmtD(m.enacted)}</span>}
+          </div>
+          {(m.presidingNames||[]).length>0&&<div style={{fontSize:11,color:"#5a7090",fontStyle:"italic",marginBottom:m.body?3:0}}>{"Presiding: "}{m.presidingNames.join(", ")}</div>}
+          {m.body&&<details style={{marginTop:3}}><summary style={{fontSize:10,color:"#6a8acc",cursor:"pointer",fontFamily:"'Cinzel',serif",letterSpacing:"0.1em"}}>VIEW MODIFICATION TEXT</summary>
+            <div style={{fontSize:12,color:"#a0b8e0",lineHeight:1.7,marginTop:5,paddingTop:5,borderTop:`1px solid ${C.border}`,whiteSpace:"pre-wrap"}}>{m.body}</div>
+          </details>}
+        </div>)}
+      </div>}
+    </div>}
+  </div>;
+}
+
+// ── LEGAL CODE TAB ────────────────────────────────────────────────────────────
+function LegalCodeTab({statutes,bills,cases,members,bundesherren}){
+  const [section,setSection]=useState("acts");
+  const [statusFilter,setStatusFilter]=useState("all");
+  const [catFilter,setCatFilter]=useState("all");
   const [inForce,setInForce]=useState("force");
   const [search,setSearch]=useState("");
+
   const casesByStatute=useMemo(()=>{
     const m={};
     Object.values(cases||{}).forEach(c=>{if(c.contestedStatute)m[c.contestedStatute]=(m[c.contestedStatute]||0)+1;});
     return m;
   },[cases]);
-  const allStatutes=useMemo(()=>{
-    const list=[];
-    Object.values(statutes||{}).forEach(s=>list.push({...s,src:"custom"}));
-    Object.values(bills||{}).forEach(b=>{
-      if(b.status!=="passed"&&b.status!=="grandfathered") return;
-      const t=(b.type||"").toLowerCase();
-      if(NON_LAW_TYPES.includes(t)) return;
+
+  const courtRepeals=useMemo(()=>{
+    const m={};
+    Object.values(statutes||{}).forEach(s=>{
+      if(s.src==="court_repeal"){if(s.repealOf)m[s.repealOf]=s;if(s.repealOfTitle)m[s.repealOfTitle]=s;}
+    });
+    return m;
+  },[statutes]);
+
+  const modsMap=useMemo(()=>{
+    const m={};
+    Object.values(statutes||{}).forEach(s=>{if(s.modifies){if(!m[s.modifies])m[s.modifies]=[];m[s.modifies].push(s);}});
+    return m;
+  },[statutes]);
+
+  // ── Bundeskongress acts (laws only) ─────────────────────────────────────────
+  const SKIP_TYPES=new Set(["motion","appoint_bt_pres","appoint_chancellor","appoint_bh_pres","nominate_minister","dissolve_government"]);
+  const bkActs=useMemo(()=>{
+    return Object.values(bills||{}).filter(b=>{
+      if(!["passed","grandfathered","decree","repealed","failed_bt","failed_bh","vetoed","pulled"].includes(b.status)) return false;
+      if(SKIP_TYPES.has(b.type)) return false;
       const title=(b.title||"").trim();
-      if(/^(nomination|appointment) of/i.test(title)) return;
-      const cleanNum=b.number||(b.billNumber?String(b.billNumber):null);
-      list.push({id:"bk_"+b.id,title,number:cleanNum,cat:"other",body:b.content||b.description||"",
-        enacted:b.passedAt||b.submittedAt||null,src:"bundeskongress",repealed:false});
-    });
-    return list.filter(s=>{
-      const q=search.toLowerCase();
-      const mQ=!q||s.title?.toLowerCase().includes(q);
-      const mS=source==="all"||(source==="bk"&&s.src==="bundeskongress")||(source==="custom"&&s.src==="custom");
-      const mC=cat==="all"||s.cat===cat;
-      const mF=inForce==="all"||(inForce==="force"&&!s.repealed)||(inForce==="repealed"&&s.repealed);
-      return mQ&&mS&&mC&&mF;
-    }).sort((a,b)=>{
-      if(!a.repealed&&b.repealed) return -1;if(a.repealed&&!b.repealed) return 1;
-      return (a.title||"").localeCompare(b.title||"");
-    });
-  },[statutes,bills,search,source,cat,inForce]);
+      if(/^(nomination|appointment) of/i.test(title)) return false;
+      return true;
+    }).map(b=>{
+      const bkId="bk_"+b.id;
+      const cr=courtRepeals[bkId]||courtRepeals[b.title||""];
+      return {...b,_isCourtRepealed:!!cr,_courtRepealRecord:cr||null};
+    }).filter(b=>{
+      const q=search.trim().toLowerCase();
+      const mQ=!q||b.title?.toLowerCase().includes(q)||b.submitter?.toLowerCase().includes(q);
+      if(!mQ) return false;
+      const isRepealed=b.status==="repealed"||b._isCourtRepealed;
+      const isPassed=b.status==="passed"||b.status==="grandfathered";
+      const isDecree=b.status==="decree";
+      const isFailed=["failed_bt","failed_bh","vetoed","pulled"].includes(b.status);
+      if(statusFilter==="passed")return isPassed&&!isRepealed;
+      if(statusFilter==="decree")return isDecree;
+      if(statusFilter==="repealed")return isRepealed;
+      if(statusFilter==="failed")return isFailed;
+      if(statusFilter==="constitutional")return b.type==="constitutional_amendment";
+      // "all" — show everything
+      return true;
+    }).filter(b=>{
+      if(catFilter==="all") return true;
+      if(catFilter==="constitutional") return b.type==="constitutional_amendment";
+      return b.category===catFilter;
+    }).sort((a,b)=>(b.ratified_at||b.passed_at||b.created||0)-(a.ratified_at||a.passed_at||a.created||0));
+  },[bills,search,statusFilter,catFilter,courtRepeals]);
+
+  // ── Judicial statutes (custom, non-meta) ────────────────────────────────────
+  const judicialStatutes=useMemo(()=>{
+    return Object.values(statutes||{}).filter(s=>s.src!=="court_repeal"&&!s.modifies)
+      .filter(s=>{
+        const q=search.trim().toLowerCase();
+        const mQ=!q||s.title?.toLowerCase().includes(q);
+        const mF=inForce==="all"||(inForce==="force"&&!s.repealed)||(inForce==="repealed"&&s.repealed);
+        return mQ&&mF;
+      }).sort((a,b)=>{
+        if(!a.repealed&&b.repealed)return -1;if(a.repealed&&!b.repealed)return 1;
+        return (a.title||"").localeCompare(b.title||"");
+      });
+  },[statutes,search,inForce]);
+
+  const STATUS_OPTS=[
+    {v:"all",l:"All"},
+    {v:"passed",l:"Passed — In Force"},
+    {v:"constitutional",l:"Constitutional"},
+    {v:"decree",l:"Imperial Decrees"},
+    {v:"repealed",l:"Repealed"},
+    {v:"failed",l:"Failed / Vetoed"},
+  ];
+  const CAT_OPTS=[{v:"all",l:"All Types"},{v:"constitutional",l:"Constitutional Amendments"},...BK_LAW_CATEGORIES.map(c=>({v:c.v,l:c.l}))];
+
   return <div className="fadeIn">
-    <STitle>Imperial Legal Code</STitle>
-    <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.5rem"}}>
-      The consolidated laws of the Empire of Lech. Includes all Acts of the Imperial Bundeskongress and statutes arising from judicial proceedings.
+    {/* Header with cross-link */}
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8,marginBottom:"1.25rem"}}>
+      <STitle style={{marginBottom:0}}>Imperial Legal Code</STitle>
+      <a href="bundeskongress.html" target="_blank" rel="noopener noreferrer"
+        style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",
+                 padding:"4px 12px",borderRadius:2,border:`1px solid ${C.gold}55`,background:"#1a1400",
+                 color:C.gold,textDecoration:"none"}}>
+        {"Bundeskongress Archive \u2192"}
+      </a>
     </div>
-    <div style={{display:"flex",gap:"0.65rem",flexWrap:"wrap",marginBottom:"1rem"}}>
-      {[["all","All Sources"],["bk","Bundeskongress Acts"],["custom","Judicial Statutes"]].map(([v,l])=>
-        <button key={v} onClick={()=>setSource(v)}
-          style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",
-                   padding:"4px 12px",background:source===v?C.s2:"transparent",
-                   border:`1px solid ${source===v?C.accent:C.border}`,
-                   color:source===v?C.accent:C.textD,borderRadius:1,cursor:"pointer"}}>{l}</button>)}
-      {[["force","In Force"],["repealed","Repealed"],["all","All"]].map(([v,l])=>
-        <button key={v} onClick={()=>setInForce(v)}
-          style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",
-                   padding:"4px 12px",background:inForce===v?C.s2:"transparent",
+    <div style={{fontSize:13,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.25rem"}}>
+      The consolidated laws of the Empire of Lech {" \u2014 "} Acts of the Imperial Bundeskongress, Imperial Decrees, and statutes arising from judicial proceedings.
+    </div>
+
+    {/* Section tabs */}
+    <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1.25rem"}}>
+      {[["acts","Bundeskongress Acts \u0026 Decrees"],["judicial","Judicial Statutes"]].map(([v,l])=>
+        <button key={v} onClick={()=>setSection(v)}
+          style={{fontFamily:"'Cinzel',serif",fontSize:10,fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",
+                   padding:"0.6rem 1rem",background:"transparent",border:"none",whiteSpace:"nowrap",cursor:"pointer",flexShrink:0,
+                   borderBottom:`2px solid ${section===v?C.accent:"transparent"}`,
+                   color:section===v?C.accent:C.textD}}>{l}</button>)}
+    </div>
+
+    {section==="acts"&&<div>
+      {/* Filters */}
+      <div style={{display:"flex",gap:"0.5rem",flexWrap:"wrap",marginBottom:"0.85rem"}}>
+        {STATUS_OPTS.map(({v,l})=><button key={v} onClick={()=>setStatusFilter(v)}
+          style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.08em",textTransform:"uppercase",
+                   padding:"3px 10px",background:statusFilter===v?C.s2:"transparent",
+                   border:`1px solid ${statusFilter===v?C.accent:C.border}`,
+                   color:statusFilter===v?C.accent:C.textD,borderRadius:1,cursor:"pointer"}}>{l}</button>)}
+      </div>
+      <div style={{display:"flex",gap:"0.65rem",marginBottom:"1rem",flexWrap:"wrap"}}>
+        <div style={{flex:2,minWidth:180}}><Inp value={search} onChange={setSearch} placeholder="Search by title, submitter..."/></div>
+        <div style={{flex:1,minWidth:180}}><DD value={catFilter} onChange={setCatFilter} options={CAT_OPTS}/></div>
+      </div>
+      <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:"0.75rem"}}>{bkActs.length} ENACTMENT{bkActs.length!==1?"S":""}</div>
+      {bkActs.length===0
+        ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No acts match your filters.</div>
+        :<div>{bkActs.map(b=><LegalBillCard key={b.id} bill={b} members={members||{}} bundesherren={bundesherren||{}} ijStatutes={statutes}/>)}</div>}
+    </div>}
+
+    {section==="judicial"&&<div>
+      <div style={{display:"flex",gap:"0.5rem",flexWrap:"wrap",marginBottom:"0.85rem"}}>
+        {[["force","In Force"],["repealed","Repealed"],["all","All"]].map(([v,l])=><button key={v} onClick={()=>setInForce(v)}
+          style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.08em",textTransform:"uppercase",
+                   padding:"3px 10px",background:inForce===v?C.s2:"transparent",
                    border:`1px solid ${inForce===v?(v==="force"?"#2a9a4a":v==="repealed"?C.redD:C.accent):C.border}`,
                    color:inForce===v?(v==="force"?"#2a9a4a":v==="repealed"?C.redL:C.accent):C.textD,
                    borderRadius:1,cursor:"pointer"}}>{l}</button>)}
-    </div>
-    <div style={{display:"flex",gap:"0.65rem",marginBottom:"1.25rem",flexWrap:"wrap"}}>
-      <div style={{flex:2,minWidth:180}}><Inp value={search} onChange={setSearch} placeholder="Search by title..."/></div>
-      <div style={{flex:1,minWidth:180}}><DD value={cat} onChange={setCat} options={[{v:"all",l:"All Categories"},...STATUTE_CATS.map(c=>({v:c.v,l:c.l}))]}/></div>
-    </div>
-    <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:"0.75rem"}}>{allStatutes.length} ENACTMENT{allStatutes.length!==1?"S":""}</div>
-    {allStatutes.length===0
-      ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No statutes match your filters.</div>
-      :<div style={{display:"flex",flexDirection:"column",gap:"0.4rem"}}>
-        {allStatutes.map(s=><StatuteCard key={s.id} statute={s} caseCount={casesByStatute[s.id]||0}/>)}
-      </div>}
-  </div>;
-}
-function StatuteCard({statute:s,caseCount}){
-  const [open,setOpen]=useState(false);
-  const isBK=s.src==="bundeskongress";
-  const cat=STATUTE_CATS.find(c=>c.v===s.cat)||{l:"Other"};
-  return <div style={{background:s.repealed?"transparent":C.s1,border:`1px solid ${s.repealed?C.border+"66":C.border}`,
-    borderLeft:`4px solid ${s.repealed?C.textDD:isBK?C.gold:C.accent}`,borderRadius:"0 3px 3px 0",
-    overflow:"hidden",opacity:s.repealed?.65:1}}>
-    <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"0.65rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
-      <span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:s.repealed?C.textD:C.text,flex:1}}>{s.title}</span>
-      <span className="mono" style={{fontSize:9,color:isBK?C.goldD:C.textD}}>{isBK?"BUNDESKONGRESS ACT":cat.l.toUpperCase()}</span>
-      {s.repealed
-        ?<span className="mono" style={{fontSize:9,color:C.redL,background:"#1a0808",border:`1px solid ${C.redD}44`,padding:"2px 6px"}}>REPEALED</span>
-        :<span className="mono" style={{fontSize:9,color:"#2a9a4a",background:"#0a1a0e",border:"1px solid #1a4a2a",padding:"2px 6px"}}>IN FORCE</span>}
-      {caseCount>0&&<span className="mono" style={{fontSize:8,color:C.textD}}>{caseCount} CASE{caseCount!==1?"S":""}</span>}
-      {s.enacted&&<span className="mono" style={{fontSize:9,color:C.textDD}}>
-        {new Date(s.enacted).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}</span>}
-      <span style={{fontSize:11,color:C.textDD}}>{open?"▲":"▼"}</span>
-    </div>
-    {open&&<div style={{borderTop:`1px solid ${C.border}`,padding:"1rem",background:C.s2}}>
-      {s.caseRef&&<div style={{fontSize:12,color:C.textD,fontStyle:"italic",marginBottom:"0.65rem"}}>
-        Arising from case {s.caseRef}
-      </div>}
-      {s.body?<div style={{fontSize:14,color:C.text,lineHeight:1.8,whiteSpace:"pre-wrap"}}>{s.body}</div>
-        :<div style={{fontSize:13,color:C.textDD,fontStyle:"italic"}}>Full text not reproduced here. Refer to the Bundeskongress archive.</div>}
-      {s.repealed&&s.repealedRef&&<div style={{marginTop:"0.75rem",background:"#1a0808",border:`1px solid ${C.redD}44`,
-        borderRadius:2,padding:"6px 10px",fontSize:12,color:C.redL,fontStyle:"italic"}}>
-        Repealed by judgment in {s.repealedRef}
-      </div>}
+      </div>
+      <div style={{marginBottom:"1rem"}}><Inp value={search} onChange={setSearch} placeholder="Search by title..."/></div>
+      <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:"0.75rem"}}>{judicialStatutes.length} STATUTE{judicialStatutes.length!==1?"S":""}</div>
+      {judicialStatutes.length===0
+        ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No judicial statutes match your filters.</div>
+        :<div style={{display:"flex",flexDirection:"column",gap:"0.4rem"}}>
+          {judicialStatutes.map(s=><JudicialStatuteCard key={s.id} statute={s} caseCount={casesByStatute[s.id]||0}
+            mods={modsMap[s.id]||[]} courtRepealRecord={null}/>)}
+        </div>}
     </div>}
   </div>;
 }
@@ -758,7 +1470,8 @@ function PanelAuth({onAuth,onCancel}){
       if(!user){setErr("ACCESS DENIED.");setLoading(false);return;}
       const hash=await sha256(password);
       if(hash!==user.passwordHash){setErr("ACCESS DENIED.");setLoading(false);return;}
-      if(user.role!=="emperor"&&!user.ijAccess){setErr("AUTHORISATION DENIED \u2014 Judicial access not granted.");setLoading(false);return;}
+      const hasAccess=user.role==="emperor"||user.ijAccess==="judge"||user.ijAccess==="president";
+      if(!hasAccess){setErr("AUTHORISATION DENIED \u2014 Judicial access not granted.");setLoading(false);return;}
       onAuth(user,raw);
     }catch(e){setErr("Connection error: "+e.message);}
     setLoading(false);
@@ -781,11 +1494,12 @@ function PanelAuth({onAuth,onCancel}){
 }
 
 // ── JUDICIAL PANEL ────────────────────────────────────────────────────────────
-function JudicialPanel({user,cases,judgments,statutes,appointments,onAction,notify,setProcessing}){
+function JudicialPanel({user,cases,judgments,statutes,bills,appointments,onAction,notify,setProcessing}){
   const isEmperor=user.role==="emperor";
+  const isPresident=isEmperor||user.ijAccess==="president";
   const [sec,setSec]=useState("cases");
   const secs=[["cases","Cases"],["judgments","Render Judgment"],["statutes","Statutes"]];
-  if(isEmperor) secs.push(["appointments","Appointments"]);
+  if(isPresident) secs.push(["appointments","Appointments"]);
   return <div className="fadeIn">
     <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:"1.25rem",flexWrap:"wrap"}}>
       <STitle style={{marginBottom:0}}>Judicial Panel</STitle>
@@ -798,15 +1512,15 @@ function JudicialPanel({user,cases,judgments,statutes,appointments,onAction,noti
                  borderBottom:`2px solid ${sec===v?C.accent:"transparent"}`,
                  color:sec===v?C.accent:C.textD}}>{l}</button>)}
     </div>
-    {sec==="cases"&&<CasePipeline cases={cases} appointments={appointments} onAction={onAction} notify={notify} setProcessing={setProcessing} isEmperor={isEmperor}/>}
-    {sec==="judgments"&&<JudgmentPanel cases={cases} judgments={judgments} statutes={statutes} appointments={appointments} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+    {sec==="cases"&&<CasePipeline cases={cases} appointments={appointments} onAction={onAction} notify={notify} setProcessing={setProcessing} isEmperor={isEmperor} isPresident={isPresident} onGotoJudgments={()=>setSec("judgments")}/>}
+    {sec==="judgments"&&<JudgmentPanel cases={cases} judgments={judgments} statutes={statutes} bills={bills} appointments={appointments} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
     {sec==="statutes"&&<PanelStatutes statutes={statutes} cases={cases} onAction={onAction} notify={notify} setProcessing={setProcessing} isEmperor={isEmperor}/>}
-    {sec==="appointments"&&isEmperor&&<PanelAppointments appointments={appointments} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+    {sec==="appointments"&&isPresident&&<PanelAppointments appointments={appointments} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
   </div>;
 }
 
 // ── CASE PIPELINE MANAGER ─────────────────────────────────────────────────────
-function CasePipeline({cases,appointments,onAction,notify,setProcessing,isEmperor}){
+function CasePipeline({cases,appointments,onAction,notify,setProcessing,isEmperor,isPresident,onGotoJudgments}){
   const [filter,setFilter]=useState("open");
   const list=Object.values(cases||{}).filter(c=>{
     if(filter==="open") return !["withdrawn","final_upheld","final_overturned"].includes(c.status);
@@ -824,10 +1538,63 @@ function CasePipeline({cases,appointments,onAction,notify,setProcessing,isEmpero
     </div>
     {list.length===0&&<div style={{fontSize:14,color:C.textDD,fontStyle:"italic"}}>No cases in this view.</div>}
     {list.map(c=><CasePipelineRow key={c.id} caseData={c} appointments={appointments} onAction={onAction}
-      notify={notify} setProcessing={setProcessing} isEmperor={isEmperor} allCases={cases}/>)}
+      notify={notify} setProcessing={setProcessing} isEmperor={isEmperor} isPresident={isPresident} allCases={cases} onGotoJudgments={onGotoJudgments}/>)}
   </div>;
 }
-function CasePipelineRow({caseData:c,appointments,onAction,notify,setProcessing,isEmperor,allCases}){
+function OverrulePanel({caseData:c,onAction,notify,setProcessing}){
+  const [open,setOpen]=useState(false);
+  const [reason,setReason]=useState("");const [saving,setSaving]=useState(false);
+  if(!open) return <div style={{borderTop:`1px solid ${C.redD}44`,paddingTop:"0.75rem",marginTop:"0.25rem"}}>
+    <Btn small variant="danger" onClick={()=>setOpen(true)}>Imperial Overrule</Btn>
+  </div>;
+  return <div style={{background:"#1a0808",border:`1px solid #8b1a1a55`,borderRadius:3,padding:"0.85rem",marginTop:"0.5rem"}}>
+    <div style={{fontFamily:"'Cinzel',serif",fontSize:10,letterSpacing:"0.2em",color:"#c05050",marginBottom:6}}>IMPERIAL OVERRULE</div>
+    <Disclaimer type="danger">
+      An Imperial Overrule sets aside the court's judgment by Imperial authority. This action is permanent, publicly logged, and should only be used in cases of manifest injustice or constitutional necessity. It cannot be undone.
+    </Disclaimer>
+    <div style={{marginTop:"0.65rem"}}><FL>IMPERIAL GROUNDS *</FL>
+      <TA value={reason} onChange={setReason} placeholder="State the Imperial grounds for overruling this judgment..." rows={3}/>
+    </div>
+    <div style={{display:"flex",gap:8,marginTop:"0.65rem"}}>
+      <Btn small variant="armed" disabled={!reason.trim()||saving} onClick={async()=>{
+        setSaving(true);setProcessing("Recording Imperial Overrule...");
+        const now=Date.now();
+        const hist=[...(c.statusHistory||[]),{status:"overruled",at:now}];
+        await onAction("updateCase",{id:c.id,status:"overruled",statusHistory:hist,overruleReason:reason.trim(),overruledAt:now});
+        setProcessing(null);setSaving(false);
+        notify(c.number+" overruled by Imperial authority.","#c05050");
+        setOpen(false);
+      }}>{saving?"Recording...":"Confirm Imperial Overrule"}</Btn>
+      <Btn small variant="ghost" onClick={()=>{setOpen(false);setReason("");}}>Cancel</Btn>
+    </div>
+  </div>;
+}
+const TIMEZONES=["NST","AST","EST","CST","MST","PST","AKST","HST","UTC","GMT","CET","EET","IST","JST","AEST"];
+function HearingScheduler({hearingDate,setHearingDate,hearingTime,setHearingTime,hearingTz,setHearingTz}){
+  return <div style={{marginTop:"0.75rem",display:"flex",flexDirection:"column",gap:"0.5rem"}}>
+    <div className="mono" style={{fontSize:8,color:C.textDD,letterSpacing:"0.1em"}}>HEARING SCHEDULE *</div>
+    <div style={{display:"flex",gap:"0.65rem",flexWrap:"wrap"}}>
+      <div style={{flex:1,minWidth:140}}>
+        <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:3}}>DATE *</div>
+        <Inp type="date" value={hearingDate} onChange={setHearingDate} placeholder=""/>
+      </div>
+      <div style={{flex:1,minWidth:100}}>
+        <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:3}}>TIME *</div>
+        <Inp type="time" value={hearingTime} onChange={setHearingTime} placeholder=""/>
+      </div>
+      <div style={{flex:1,minWidth:110}}>
+        <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:3}}>TIMEZONE</div>
+        <select value={hearingTz} onChange={e=>setHearingTz(e.target.value)}
+          style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
+                   padding:"8px 12px",color:C.text,fontSize:14,outline:"none"}}>
+          {TIMEZONES.map(t=><option key={t} value={t}>{t}</option>)}
+        </select>
+      </div>
+    </div>
+    <Disclaimer type="info">This schedule will be visible on the public case docket.</Disclaimer>
+  </div>;
+}
+function CasePipelineRow({caseData:c,appointments,onAction,notify,setProcessing,isEmperor,isPresident,allCases,onGotoJudgments}){
   const [open,setOpen]=useState(false);
   const [presiding,setPresiding]=useState(c.presiding||[]);
   const [court,setCourt]=useState(c.court||"regional");
@@ -835,6 +1602,9 @@ function CasePipelineRow({caseData:c,appointments,onAction,notify,setProcessing,
   const ct=COURTS.find(x=>x.v===c.court)||COURTS[1];
   const pipeline=CASE_PIPELINE[c.status]||{next:[],nextLabels:{},nextWarnings:{}};
   const [pendingNext,setPendingNext]=useState(null);
+  const [hearingDate,setHearingDate]=useState(c.hearingDate||"");
+  const [hearingTime,setHearingTime]=useState(c.hearingTime||"");
+  const [hearingTz,setHearingTz]=useState(c.hearingTz||"AST");
   const appealCase=c.appealedBy?allCases?.[c.appealedBy]:null;
   const originCase=c.appealOf?allCases?.[c.appealOf]:null;
   async function moveStatus(newStatus){
@@ -842,8 +1612,12 @@ function CasePipelineRow({caseData:c,appointments,onAction,notify,setProcessing,
     const hist=[...(c.statusHistory||[]),{status:newStatus,at:now}];
     setProcessing("Updating case...");
     if(newStatus==="appealed"){
-      // Auto-create CC case
-      const ccNum="CC-"+new Date().getFullYear()+"-"+String(Math.floor(Math.random()*900)+100).padStart(3,"0");
+      // Auto-create CC case with collision-safe number
+      const yr=new Date().getFullYear();
+      const existing=new Set(Object.values(allCases||{}).map(x=>x.number));
+      let ccNum,attempts=0;
+      do{ccNum="CC-"+yr+"-"+String(Math.floor(Math.random()*900)+100).padStart(3,"0");attempts++;}
+      while(existing.has(ccNum)&&attempts<50);
       const ccId="case_"+uid();
       const ccCase={id:ccId,number:ccNum,title:"Appeal of "+c.number+" — "+c.title,
         court:"constitutional",type:c.type,parties:c.parties,presiding:[],summary:c.summary,
@@ -855,14 +1629,15 @@ function CasePipelineRow({caseData:c,appointments,onAction,notify,setProcessing,
       await onAction("bulkUpdateCases",{cases:updatedCases});
       notify("Appeal filed. New CC case: "+ccNum,"#cc6a10");
     } else {
-      await onAction("updateCase",{id:c.id,status:newStatus,statusHistory:hist,presiding,court});
+      await onAction("updateCase",{id:c.id,status:newStatus,statusHistory:hist,presiding,court,...(newStatus==="hearing"&&hearingDate?{hearingDate,hearingTime,hearingTz}:{})});
       notify(c.number+" → "+(CASE_PIPELINE[newStatus]||{label:newStatus}).label,C.accent);
     }
     setProcessing(null);setPendingNext(null);
   }
   async function savePresiding(){
     setSaving(true);setProcessing("Updating...");
-    await onAction("updateCase",{id:c.id,presiding,court});
+    const extra=hearingDate?{hearingDate,hearingTime,hearingTz}:{};
+    await onAction("updateCase",{id:c.id,presiding,court,...extra});
     setProcessing(null);setSaving(false);notify(c.number+" updated.",C.gold);
   }
   return <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${ct.color}`,
@@ -888,13 +1663,17 @@ function CasePipelineRow({caseData:c,appointments,onAction,notify,setProcessing,
         <FL>PRESIDING JUSTICE(S)</FL>
         <JusticeSelector value={presiding} onChange={setPresiding} appointments={appointments} court={c.court}/>
       </div>
-      {/* Court elevation (emperor only) */}
-      {isEmperor&&c.court==="regional"&&!["appealed","withdrawn","final_upheld","final_overturned"].includes(c.status)&&<div style={{marginBottom:"1rem"}}>
-        <FL>COURT ELEVATION (EMPEROR ONLY)</FL>
+      {/* Court elevation (president + emperor) */}
+      {isPresident&&c.court==="regional"&&!["appealed","withdrawn","final_upheld","final_overturned","overruled"].includes(c.status)&&<div style={{marginBottom:"1rem"}}>
+        <FL>COURT ELEVATION (PRESIDENT / EMPEROR)</FL>
         <DD value={court} onChange={setCourt} options={COURTS.map(x=>({v:x.v,l:x.l}))}/>
         {court==="constitutional"&&c.court==="regional"&&<Disclaimer type="danger">
           Elevating this case to the Constitutional Court is a significant step. It should only be done where the matter directly involves constitutional questions that cannot be addressed at the Regional level.
         </Disclaimer>}
+      </div>}
+      {["filed","active","hearing"].includes(c.status)&&<div style={{marginBottom:"1rem",background:C.s1,border:`1px solid ${C.border}`,borderRadius:2,padding:"0.75rem"}}>
+        <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:6,letterSpacing:"0.1em"}}>SCHEDULE HEARING — saves with assignment, does not change status</div>
+        <HearingScheduler hearingDate={hearingDate} setHearingDate={setHearingDate} hearingTime={hearingTime} setHearingTime={setHearingTime} hearingTz={hearingTz} setHearingTz={setHearingTz}/>
       </div>}
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:"0.75rem"}}>
         <Btn small variant="gold" disabled={saving} onClick={savePresiding}>{saving?"Saving...":"Save Assignment"}</Btn>
@@ -903,9 +1682,12 @@ function CasePipelineRow({caseData:c,appointments,onAction,notify,setProcessing,
           setProcessing(null); notify(c.number+" struck from record.",C.textD);
         }}/>
       </div>
+      {isEmperor&&["decided","dismissed","final_upheld","final_overturned"].includes(c.status)&&
+        <OverrulePanel caseData={c} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
       {/* Pipeline actions */}
       {pipeline.next.length>0&&<div style={{borderTop:`1px solid ${C.border}`,paddingTop:"0.85rem"}}>
         <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:8}}>AVAILABLE ACTIONS</div>
+        {c.status==="active"&&pipeline.next.includes("hearing")&&!hearingDate&&<div style={{marginBottom:"0.65rem"}}><Disclaimer type="warning">Set a hearing date in the scheduler above before advancing to Before the Court.</Disclaimer></div>}
         {pendingNext&&<div style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:3,padding:"1rem",marginBottom:"0.75rem"}}>
           <div style={{fontFamily:"'Cinzel',serif",fontSize:12,color:C.text,marginBottom:6}}>
             Confirm: Move to <strong>{(CASE_PIPELINE[pendingNext]||{label:pendingNext}).label}</strong>?
@@ -927,19 +1709,75 @@ function CasePipelineRow({caseData:c,appointments,onAction,notify,setProcessing,
             </Btn>;
           })}
         </div>}
-        {pipeline.requiresJudgment&&<Disclaimer type="info">
-          This case is under deliberation. To advance it, render a formal judgment using the <strong>Render Judgment</strong> tab. The status will update automatically based on the judgment outcome.
-        </Disclaimer>}
+        {pipeline.requiresJudgment&&<div style={{marginTop:"0.5rem"}}>
+          <Disclaimer type="info">
+            This case is under deliberation. A formal judgment must be rendered to advance it. Click below to go to the Render Judgment tab.
+          </Disclaimer>
+          <div style={{marginTop:8}}><Btn small onClick={()=>onGotoJudgments()}>Go to Render Judgment →</Btn></div>
+        </div>}
       </div>}
     </div>}
   </div>;
 }
 
 // ── JUDGMENT PANEL ────────────────────────────────────────────────────────────
-function JudgmentPanel({cases,judgments,statutes,appointments,onAction,notify,setProcessing}){
-  const deliberating=Object.values(cases||{}).filter(c=>c.status==="deliberating");
+
+function JudgmentTitleBuilder({onChange,selCase,jType,setJType}){
+  const [subject,setSubject]=useState("");
+  const jTypeDef=JUDGMENT_TYPES.find(t=>t.v===jType)||JUDGMENT_TYPES[0];
+  // Title template is determined by instrument type — the only allowed template for this type
+  const tplDef=JUDGMENT_TITLE_TEMPLATES.find(t=>(t.allowedFor||[]).includes(jType))||JUDGMENT_TITLE_TEMPLATES[0];
+  const caseTitle=selCase?selCase.title:"[Case Title]";
+  const needsSubject=tplDef.needsSubject||false;
+  const preview=needsSubject?(subject.trim()?tplDef.build(subject.trim()):""):tplDef.build(caseTitle);
+
+  // When instrument type changes, reset subject and push new title
+  function handleTypeChange(v){
+    setJType(v);setSubject("");
+    const newTpl=JUDGMENT_TITLE_TEMPLATES.find(t=>(t.allowedFor||[]).includes(v))||JUDGMENT_TITLE_TEMPLATES[0];
+    if(!newTpl.needsSubject) onChange(newTpl.build(caseTitle)); else onChange("");
+  }
+  function handleSubjectChange(v){
+    setSubject(v);onChange(v.trim()?tplDef.build(v.trim()):"");
+  }
+  // On mount: push initial title for default type
+  React.useEffect(()=>{
+    if(!needsSubject) onChange(tplDef.build(caseTitle));
+  },[]);
+
+  return <div>
+    <FL>INSTRUMENT TYPE *</FL>
+    <div style={{marginBottom:"0.85rem"}}>
+      <DescSelect value={jType} onChange={handleTypeChange} options={JUDGMENT_TYPES} cols={2}/>
+      {!jTypeDef.disposes&&<Disclaimer type="warning">
+        <strong>{jTypeDef.l}</strong> — this instrument does not close the case. Proceedings continue after it is recorded. The case must later receive a <strong>Judgment</strong> or <strong>Order of Dismissal</strong> to be closed.
+      </Disclaimer>}
+    </div>
+    <div style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:2,padding:"0.85rem",display:"flex",flexDirection:"column",gap:"0.65rem"}}>
+      <div className="mono" style={{fontSize:8,color:C.textDD}}>TITLE (auto-generated from instrument type)</div>
+      {needsSubject&&<div>
+        <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>SUBJECT *</div>
+        <Inp value={subject} onChange={handleSubjectChange} placeholder="e.g. the admissibility of the evidence tendered on 12 March"/>
+      </div>}
+      <div style={{background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
+        padding:"6px 12px",fontFamily:"'Cinzel',serif",fontSize:13,
+        color:preview?C.silver:C.textDD,fontStyle:preview?"normal":"italic"}}>
+        {preview?<>Preview: {preview}</>:"Enter a subject above to generate the title."}
+      </div>
+    </div>
+  </div>;
+}
+function JudgmentPanel({cases,judgments,statutes,bills,appointments,onAction,notify,setProcessing}){
   const [caseId,setCaseId]=useState("");
   const [title,setTitle]=useState("");const [jType,setJType]=useState("judgment");
+  const jTypeDef0=JUDGMENT_TYPES.find(t=>t.v===jType)||JUDGMENT_TYPES[0];
+  const eligibleStatuses=jTypeDef0.disposes?["deliberating"]:["active","hearing","deliberating"];
+  const eligible=Object.values(cases||{}).filter(c=>eligibleStatuses.includes(c.status));
+  React.useEffect(()=>{
+    const jtd=JUDGMENT_TYPES.find(t=>t.v===jType)||JUDGMENT_TYPES[0];
+    const es=jtd.disposes?["deliberating"]:["active","hearing","deliberating"];
+    if(caseId&&!es.includes(cases?.[caseId]?.status)) setCaseId("");
+  },[jType]);
   const [summary,setSummary]=useState("");const [outcome,setOutcome]=useState("");
   const [statuteAction,setStatuteAction]=useState("none");const [statuteTarget,setStatuteTarget]=useState("");
   const [newStatuteTitle,setNewStatuteTitle]=useState("");const [newStatuteCat,setNewStatuteCat]=useState("other");
@@ -950,17 +1788,32 @@ function JudgmentPanel({cases,judgments,statutes,appointments,onAction,notify,se
   const outcomes=isAppeal?APPEAL_OUTCOMES:JUDGMENT_OUTCOMES;
   const outDef=outcomes.find(o=>o.v===outcome)||null;
   const canTriggerStatute=outcome==="in_favor_complainant"||outcome==="partial"||outcome==="appeal_upheld";
-  const allStatutes=Object.values(statutes||{}).filter(s=>!s.repealed).sort((a,b)=>(a.title||"").localeCompare(b.title||""));
-  const JUDGMENT_TYPE_OPTS=[{v:"judgment",l:"Judgment"},{v:"ruling",l:"Ruling"},{v:"order",l:"Court Order"},{v:"opinion",l:"Advisory Opinion"},{v:"dismissal",l:"Order of Dismissal"}];
+  const allStatutes=useMemo(()=>{
+    const NON_LAW=["motion","decree","appointment","resolution","nomination","vote","procedural"];
+    const list=Object.values(statutes||{}).filter(s=>!s.repealed).map(s=>({...s,src:"custom"}));
+    Object.values(bills||{}).forEach(b=>{
+      if(b.status!=="passed"&&b.status!=="grandfathered") return;
+      if(NON_LAW.includes((b.type||"").toLowerCase())) return;
+      if(/^(nomination|appointment) of/i.test(b.title||"")) return;
+      list.push({id:"bk_"+b.id,title:b.title,src:"bundeskongress"});
+    });
+    return list.sort((a,b)=>(a.title||"").localeCompare(b.title||""));
+  },[statutes,bills]);
   async function renderJudgment(){
     setSaving(true);setProcessing("Recording judgment...");
     const jId="jdg_"+uid();const now=Date.now();
-    // Determine new case status
-    let newStatus="decided";
-    if(outcome==="dismiss_on_merits") newStatus="dismissed";
-    if(outcome==="appeal_upheld") newStatus="final_overturned";
-    if(outcome==="appeal_denied") newStatus="final_upheld";
-    const hist=[...(selCase.statusHistory||[]),{status:newStatus,at:now}];
+    const jTypeDef=JUDGMENT_TYPES.find(t=>t.v===jType)||JUDGMENT_TYPES[0];
+    const presidingNames=(selCase.presiding||[]).map(pid=>{const ap=Object.values(appointments||{}).find(a=>a.id===pid);return ap?ap.name:pid;});
+    // Only advance case status if this instrument disposes of the case
+    let newStatus=selCase.status; // default: no change
+    if(jTypeDef.disposes){
+      newStatus="decided";
+      if(outcome==="dismiss_on_merits") newStatus="dismissed";
+      if(outcome==="order_dismissal"||jType==="order_dismissal") newStatus="dismissed";
+      if(outcome==="appeal_upheld") newStatus="final_overturned";
+      if(outcome==="appeal_denied") newStatus="final_upheld";
+    }
+    const hist=newStatus!==selCase.status?[...(selCase.statusHistory||[]),{status:newStatus,at:now}]:(selCase.statusHistory||[]);
     // If this appeal overturns an original, update original too
     let extraUpdates={};
     if(isAppeal&&selCase.appealOf){
@@ -973,23 +1826,53 @@ function JudgmentPanel({cases,judgments,statutes,appointments,onAction,notify,se
     }
     // Statute action
     let statuteEffect=null;
+    let statutesWereModified=false;
     if(canTriggerStatute&&statuteAction!=="none"){
       if(statuteAction==="repeal"&&statuteTarget){
-        const st=statutes?.[statuteTarget];
+        const st=allStatutes.find(s=>s.id===statuteTarget);
         if(st){
-          const updated={...st,repealed:true,repealedAt:now,repealedRef:selCase.number};
-          extraUpdates["statute_"+statuteTarget]=updated;
+          if(st.src==="bundeskongress"){
+            // BK bills live on a different sheet — write a court_repeal marker into ij_statutes
+            const sid="repeal_"+uid();
+            extraUpdates["new_statute_"+sid]={id:sid,title:"[REPEALED] "+st.title,
+              cat:"other",body:"",enacted:now,src:"court_repeal",
+              caseRef:selCase.number,caseTitle:selCase.title,caseId:selCase.id,judgmentId:jId,
+              repealed:false,repealOf:st.id,repealOfTitle:st.title,
+              presidingIds:selCase.presiding||[],presidingNames:presidingNames};
+          } else {
+            // Update the existing custom statute record in-place
+            extraUpdates["statute_"+statuteTarget]={...st,
+              repealed:true,repealedAt:now,
+              repealedRef:selCase.number,repealedCaseTitle:selCase.title,
+              presidingIds:selCase.presiding||[],presidingNames:presidingNames};
+          }
           statuteEffect={action:"repeal",statuteId:statuteTarget,title:st.title};
+          statutesWereModified=true;
         }
       } else if(statuteAction==="create"&&newStatuteTitle.trim()){
         const sid="stat_"+uid();
         extraUpdates["new_statute_"+sid]={id:sid,title:newStatuteTitle.trim(),cat:newStatuteCat,
-          body:newStatuteBody.trim(),enacted:now,src:"custom",caseRef:selCase.number,
-          caseId:selCase.id,judgmentId:jId,repealed:false};
+          body:newStatuteBody.trim(),enacted:now,src:"custom",
+          caseRef:selCase.number,caseTitle:selCase.title,caseId:selCase.id,judgmentId:jId,
+          presidingIds:selCase.presiding||[],presidingNames:presidingNames,
+          repealed:false};
         statuteEffect={action:"create",title:newStatuteTitle.trim()};
+        statutesWereModified=true;
       } else if(statuteAction==="modify"&&statuteTarget){
-        const st=statutes?.[statuteTarget];
-        if(st) statuteEffect={action:"modify",statuteId:statuteTarget,title:st.title};
+        const st=allStatutes.find(s=>s.id===statuteTarget);
+        if(st){
+          const sid="stat_"+uid();
+          extraUpdates["new_statute_"+sid]={id:sid,
+            title:"Modification of: "+st.title,
+            cat:st.cat||"other",
+            body:newStatuteBody.trim()||"(No modification text provided.)",
+            enacted:now,src:"custom",
+            caseRef:selCase.number,caseTitle:selCase.title,caseId:selCase.id,judgmentId:jId,
+            presidingIds:selCase.presiding||[],presidingNames:presidingNames,
+            repealed:false,modifies:statuteTarget,modifiesTitle:st.title};
+          statuteEffect={action:"modify",statuteId:statuteTarget,title:st.title};
+          statutesWereModified=true;
+        }
       }
     }
     await onAction("renderJudgment",{
@@ -1011,14 +1894,14 @@ function JudgmentPanel({cases,judgments,statutes,appointments,onAction,notify,se
   </div>;
   return <div>
     <STitle>Render Judgment</STitle>
-    {deliberating.length===0&&<div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:3,padding:"1.25rem"}}>
-      <div style={{fontSize:14,color:C.textDD,fontStyle:"italic"}}>No cases are currently under deliberation.</div>
-      <Disclaimer type="info">Only cases in the "Under Deliberation" status can receive a formal judgment. Advance a case to deliberation from the Cases tab first.</Disclaimer>
+    {eligible.length===0&&<div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:3,padding:"1.25rem"}}>
+      <div style={{fontSize:14,color:C.textDD,fontStyle:"italic"}}>{jTypeDef0.disposes?"No cases are currently under deliberation.":"No cases are currently active, before the court, or under deliberation."}</div>
+      <Disclaimer type="info">{jTypeDef0.disposes?"Only cases in the \"Under Deliberation\" status can receive a Judgment or Order of Dismissal. Advance a case to deliberation from the Cases tab first.":"Rulings, Court Orders, and Advisory Opinions can be issued against cases that are Active, Before the Court, or Under Deliberation."}</Disclaimer>
     </div>}
-    {deliberating.length>0&&<div style={{display:"flex",flexDirection:"column",gap:"1rem"}}>
+    {eligible.length>0&&<div style={{display:"flex",flexDirection:"column",gap:"1rem"}}>
       <div>
         <FL>SELECT CASE *</FL>
-        <DD value={caseId} onChange={setCaseId} options={[{v:"",l:"-- Select a deliberating case --"},...deliberating.map(c=>({v:c.id,l:c.number+" \u2014 "+c.title}))]}/>
+        <DD value={caseId} onChange={setCaseId} options={[{v:"",l:"-- Select a case --"},...eligible.map(c=>({v:c.id,l:c.number+" \u2014 "+c.title}))]}/>
         {selCase&&<div style={{marginTop:4,background:C.s2,border:`1px solid ${C.border}`,borderRadius:2,padding:"6px 10px",display:"flex",gap:10,alignItems:"center"}}>
           <CourtBadge court={selCase.court}/>
           <span style={{fontSize:12,color:C.textD,fontStyle:"italic"}}>{selCase.parties}</span>
@@ -1026,26 +1909,29 @@ function JudgmentPanel({cases,judgments,statutes,appointments,onAction,notify,se
         </div>}
       </div>
       {selCase&&<>
-        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
-          <div style={{flex:2,minWidth:200}}><FL>JUDGMENT TITLE *</FL><Inp value={title} onChange={setTitle} placeholder="e.g. Judgment in Crown v. PlayerName"/></div>
-          <div style={{flex:1,minWidth:160}}><FL>INSTRUMENT TYPE</FL><DD value={jType} onChange={setJType} options={JUDGMENT_TYPE_OPTS}/></div>
-        </div>
-        <div>
-          <FL>OUTCOME *</FL>
-          <div style={{display:"flex",flexDirection:"column",gap:6}}>
-            {outcomes.map(o=><div key={o.v} onClick={()=>setOutcome(o.v)}
-              style={{display:"flex",gap:8,padding:"0.65rem",cursor:"pointer",
-                background:outcome===o.v?C.s2:C.s1,
-                border:`1px solid ${outcome===o.v?C.accent:C.border}`,borderRadius:2}}>
-              <div style={{width:14,height:14,borderRadius:"50%",border:`2px solid ${outcome===o.v?C.accent:C.textDD}`,
-                background:outcome===o.v?C.accent:"transparent",flexShrink:0,marginTop:2}}/>
-              <div>
-                <div style={{fontFamily:"'Cinzel',serif",fontSize:12,color:outcome===o.v?C.text:C.textD,marginBottom:2}}>{o.l}</div>
-                <div style={{fontSize:11,color:C.textDD,fontStyle:"italic",lineHeight:1.5}}>{o.desc}</div>
-              </div>
-            </div>)}
-          </div>
-        </div>
+        <JudgmentTitleBuilder onChange={setTitle} selCase={selCase} jType={jType} setJType={setJType}/>
+        {(()=>{
+          const jtd=JUDGMENT_TYPES.find(t=>t.v===jType)||JUDGMENT_TYPES[0];
+          if(!jtd.disposes) return <Disclaimer type="info">
+            A <strong>{jtd.l}</strong> does not dispose of the case — no outcome is required. The instrument is recorded and the case remains open for further proceedings.
+          </Disclaimer>;
+          return <div>
+            <FL>OUTCOME *</FL>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {outcomes.map(o=><div key={o.v} onClick={()=>setOutcome(o.v)}
+                style={{display:"flex",gap:8,padding:"0.65rem",cursor:"pointer",
+                  background:outcome===o.v?C.s2:C.s1,
+                  border:`1px solid ${outcome===o.v?C.accent:C.border}`,borderRadius:2}}>
+                <div style={{width:14,height:14,borderRadius:"50%",border:`2px solid ${outcome===o.v?C.accent:C.textDD}`,
+                  background:outcome===o.v?C.accent:"transparent",flexShrink:0,marginTop:2}}/>
+                <div>
+                  <div style={{fontFamily:"'Cinzel',serif",fontSize:12,color:outcome===o.v?C.text:C.textD,marginBottom:2}}>{o.l}</div>
+                  <div style={{fontSize:11,color:C.textDD,fontStyle:"italic",lineHeight:1.5}}>{o.desc}</div>
+                </div>
+              </div>)}
+            </div>
+          </div>;
+        })()}
         <div><FL>GROUNDS / SUMMARY *</FL><TA value={summary} onChange={setSummary} placeholder="Full reasoning of the court..." rows={5}/></div>
         {/* Statute action — only when outcome warrants */}
         {canTriggerStatute&&<div style={{background:C.s2,border:`1px solid ${C.gold}33`,borderTop:`2px solid ${C.gold}66`,borderRadius:"0 0 3px 3px",padding:"1rem"}}>
@@ -1071,10 +1957,11 @@ function JudgmentPanel({cases,judgments,statutes,appointments,onAction,notify,se
             <DD value={statuteTarget} onChange={setStatuteTarget} options={[{v:"",l:"-- Select statute --"},...allStatutes.map(s=>({v:s.id,l:s.title}))]}/>
             <Disclaimer type="danger">Repealing a statute permanently removes it from force. This cannot be undone except by a new enactment or a successful appeal that overturns this judgment.</Disclaimer>
           </div>}
-          {statuteAction==="modify"&&<div style={{marginTop:"0.75rem"}}>
+          {statuteAction==="modify"&&<div style={{marginTop:"0.75rem",display:"flex",flexDirection:"column",gap:"0.65rem"}}>
             <FL>SELECT STATUTE BEING MODIFIED *</FL>
             <DD value={statuteTarget} onChange={setStatuteTarget} options={[{v:"",l:"-- Select statute --"},...allStatutes.map(s=>({v:s.id,l:s.title}))]}/>
-            <Disclaimer type="info">A modification note will be recorded against the statute. The text itself will not change — only the interpretation per this judgment.</Disclaimer>
+            <Disclaimer type="info">A modification record will be created and linked to this statute and case. The original text is preserved — the modification records the change in interpretation or scope.</Disclaimer>
+            <div><FL>MODIFICATION TEXT</FL><TA value={newStatuteBody} onChange={setNewStatuteBody} placeholder="Describe precisely what aspect of the statute has been modified, restricted, or expanded by this judgment..." rows={3}/></div>
           </div>}
           {statuteAction==="create"&&<div style={{display:"flex",flexDirection:"column",gap:"0.75rem",marginTop:"0.75rem"}}>
             <Disclaimer type="info">A new statute will be created and linked to this case and judgment. It will immediately appear in the Legal Code as "In Force".</Disclaimer>
@@ -1085,7 +1972,7 @@ function JudgmentPanel({cases,judgments,statutes,appointments,onAction,notify,se
             <div><FL>STATUTE TEXT</FL><TA value={newStatuteBody} onChange={setNewStatuteBody} placeholder="Full text of the statute..." rows={4}/></div>
           </div>}
         </div>}
-        <Btn full disabled={!title.trim()||!outcome||!summary.trim()||saving
+        <Btn full disabled={!title.trim()||((JUDGMENT_TYPES.find(t=>t.v===jType)||JUDGMENT_TYPES[0]).disposes&&!outcome)||!summary.trim()||saving
           ||(canTriggerStatute&&statuteAction==="repeal"&&!statuteTarget)
           ||(canTriggerStatute&&statuteAction==="create"&&!newStatuteTitle.trim())
           ||(canTriggerStatute&&statuteAction==="modify"&&!statuteTarget)}
@@ -1218,6 +2105,8 @@ function App(){
   const judgments=useMemo(()=>raw["ij_judgments"]||{},[raw]);
   const statutes=useMemo(()=>raw["ij_statutes"]||{},[raw]);
   const appointments=useMemo(()=>raw["ij_appointments"]||{},[raw]);
+  const members=useMemo(()=>raw["bk_members"]||{},[raw]);
+  const bundesherren=useMemo(()=>raw["bk_bh"]||{},[raw]);
   const bills=useMemo(()=>{
     const all={};
     Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("bk_bill_")&&v)all[k]=v;});
@@ -1242,17 +2131,20 @@ function App(){
       const newJudgments={...judgments,[judgment.id]:judgment};
       const newCases={...cases,[caseUpdate.id]:{...cases[caseUpdate.id],...caseUpdate}};
       let newStatutes={...statutes};
+      let statutesChanged=false;
       Object.entries(extraUpdates||{}).forEach(([k,v])=>{
-        if(k.startsWith("statute_")){const sid=k.replace("statute_","");newStatutes[sid]=v;}
-        else if(k.startsWith("new_statute_")){const sid=k.replace("new_statute_","");newStatutes[sid]=v;}
-        else if(k in cases||true){newCases[v.id]=v;}
+        if(k.startsWith("statute_")){
+          const sid=k.replace("statute_","");newStatutes[sid]=v;statutesChanged=true;
+        } else if(k.startsWith("new_statute_")){
+          const sid=k.replace("new_statute_","");newStatutes[sid]=v;statutesChanged=true;
+        } else if(v&&v.id&&cases[v.id]){
+          newCases[v.id]=v;
+        }
       });
-      // Fix: extra updates for cases
-      Object.values(extraUpdates||{}).forEach(v=>{if(v.id&&cases[v.id])newCases[v.id]=v;});
       setRaw(r=>({...r,ij_judgments:newJudgments,ij_cases:newCases,ij_statutes:newStatutes}));
       await sset("ij_judgments",newJudgments);
       await sset("ij_cases",newCases);
-      if(Object.keys(newStatutes).length!==Object.keys(statutes).length) await sset("ij_statutes",newStatutes);
+      if(statutesChanged) await sset("ij_statutes",newStatutes);
     } else if(type==="createStatute"){
       const id="stat_"+uid();const next={...statutes,[id]:{...payload,id}};
       setRaw(r=>({...r,ij_statutes:next}));await sset("ij_statutes",next);
@@ -1302,11 +2194,11 @@ function App(){
       {loaded&&panelAuth&&!panelUser&&<PanelAuth
         onAuth={(u,r)=>{setPanelUser(u);setRaw(prev=>({...prev,...r}));setPanelAuth(false);setTab("panel");notify("Authenticated.",C.accent);}}
         onCancel={()=>setPanelAuth(false)}/>}
-      {loaded&&!panelAuth&&tab==="docket"&&<DocketTab cases={cases} judgments={judgments} statutes={statutes} onAction={onAction} notify={notify}/>}
-      {loaded&&!panelAuth&&tab==="code"&&<LegalCodeTab statutes={statutes} bills={bills} cases={cases}/>}
+      {loaded&&!panelAuth&&tab==="docket"&&<DocketTab cases={cases} judgments={judgments} statutes={statutes} appointments={appointments} onAction={onAction} notify={notify}/>}
+      {loaded&&!panelAuth&&tab==="code"&&<LegalCodeTab statutes={statutes} bills={bills} cases={cases} members={members} bundesherren={bundesherren}/>}
       {loaded&&!panelAuth&&tab==="bench"&&<AppointmentsTab appointments={appointments}/>}
       {loaded&&!panelAuth&&tab==="panel"&&panelUser&&<JudicialPanel user={panelUser} cases={cases}
-        judgments={judgments} statutes={statutes} appointments={appointments}
+        judgments={judgments} statutes={statutes} bills={bills} appointments={appointments}
         onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
       {loaded&&!panelAuth&&tab==="panel"&&!panelUser&&<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>
         Authentication required. Click Judicial Panel to log in.
