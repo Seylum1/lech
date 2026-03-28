@@ -358,7 +358,7 @@ function RegistrationForm({countries,businesses,onSubmit,onCancel}){
     <StepBar step={step} steps={["Identity","Ownership","Profile","Compliance"]}/>
 
     {step===1&&<div className="fadeIn">
-      <div className="mono" style={{fontSize:9,letterSpacing:"0.2em",color:C.textD,marginBottom:"0.85rem"}}>STEP 1 \u2014 ENTERPRISE IDENTITY</div>
+      <div className="mono" style={{fontSize:9,letterSpacing:"0.2em",color:C.textD,marginBottom:"0.85rem"}}>{"STEP 1 \u2014 ENTERPRISE IDENTITY"}</div>
       <div style={{display:"flex",flexDirection:"column",gap:"0.85rem"}}>
         <div><FL>LEGAL NAME OF ENTERPRISE *</FL><Inp value={legalName} onChange={setLegalName} placeholder="Full registered legal name"/></div>
         <div><FL>ALTERNATIVE TRADING NAMES <span style={{fontStyle:"italic",color:C.textDD,fontWeight:400,letterSpacing:0}}>(comma separated, optional)</span></FL><Inp value={tradingNamesRaw} onChange={setTradingNamesRaw} placeholder="e.g. Crown & Co, The Imperial Co."/></div>
@@ -372,12 +372,12 @@ function RegistrationForm({countries,businesses,onSubmit,onCancel}){
         </div>
       </div>
       <div style={{display:"flex",justifyContent:"flex-end",marginTop:"1.25rem"}}>
-        <Btn disabled={!step1Valid} onClick={()=>setStep(2)}>Next \u2192</Btn>
+        <Btn disabled={!step1Valid} onClick={()=>setStep(2)}>{"Next \u2192"}</Btn>
       </div>
     </div>}
 
     {step===2&&<div className="fadeIn">
-      <div className="mono" style={{fontSize:9,letterSpacing:"0.2em",color:C.textD,marginBottom:"0.85rem"}}>STEP 2 \u2014 OWNERSHIP & CONTROL</div>
+      <div className="mono" style={{fontSize:9,letterSpacing:"0.2em",color:C.textD,marginBottom:"0.85rem"}}>{"STEP 2 \u2014 OWNERSHIP & CONTROL"}</div>
       <div style={{display:"flex",flexDirection:"column",gap:"0.85rem"}}>
         <div>
           <FL>BENEFICIAL OWNERS * <span style={{fontStyle:"italic",color:C.textDD,fontWeight:400,letterSpacing:0}}>(percentages must total 100%)</span></FL>
@@ -385,7 +385,7 @@ function RegistrationForm({countries,businesses,onSubmit,onCancel}){
             <div style={{flex:2,minWidth:120}}><Inp value={o.username} onChange={v=>updateOwner(i,"username",v)} placeholder="Username"/></div>
             <div style={{flex:2,minWidth:120}}><Inp value={o.rpName} onChange={v=>updateOwner(i,"rpName",v)} placeholder="Roleplay name (optional)"/></div>
             <div style={{flex:1,minWidth:60}}><Inp value={o.pct} onChange={v=>updateOwner(i,"pct",v)} placeholder="%" style={{textAlign:"right"}}/></div>
-            {owners.length>1&&<Btn small variant="ghost" onClick={()=>removeOwner(i)}>\u2715</Btn>}
+            {owners.length>1&&<Btn small variant="ghost" onClick={()=>removeOwner(i)}>{"\u2715"}</Btn>}
           </div>)}
           {pctTotal!==100&&owners.some(o=>o.pct)&&<div className="mono" style={{fontSize:9,color:pctTotal===100?C.greenL:C.amber,marginTop:3}}>Total: {pctTotal.toFixed(1)}% {pctTotal===100?"\u2713":"(must equal 100%)"}</div>}
           {owners.length<6&&<Btn small variant="ghost" onClick={addOwner} style={{marginTop:4}}>+ Add Owner</Btn>}
@@ -402,13 +402,13 @@ function RegistrationForm({countries,businesses,onSubmit,onCancel}){
         </div>
       </div>
       <div style={{display:"flex",justifyContent:"space-between",marginTop:"1.25rem"}}>
-        <Btn variant="ghost" onClick={()=>setStep(1)}>\u2190 Back</Btn>
-        <Btn disabled={!step2Valid} onClick={()=>setStep(3)}>Next \u2192</Btn>
+        <Btn variant="ghost" onClick={()=>setStep(1)}>{"\u2190 Back"}</Btn>
+        <Btn disabled={!step2Valid} onClick={()=>setStep(3)}>{"Next \u2192"}</Btn>
       </div>
     </div>}
 
     {step===3&&<div className="fadeIn">
-      <div className="mono" style={{fontSize:9,letterSpacing:"0.2em",color:C.textD,marginBottom:"0.85rem"}}>STEP 3 \u2014 BUSINESS PROFILE</div>
+      <div className="mono" style={{fontSize:9,letterSpacing:"0.2em",color:C.textD,marginBottom:"0.85rem"}}>{"STEP 3 \u2014 BUSINESS PROFILE"}</div>
       <div style={{display:"flex",flexDirection:"column",gap:"0.85rem"}}>
         <div><FL>INDUSTRIES OF RELEVANCE * <span style={{fontStyle:"italic",color:C.textDD,fontWeight:400,letterSpacing:0}}>(select all that apply)</span></FL><MultiCheck options={INDUSTRIES} selected={industries} onChange={setIndustries} cols={3}/></div>
         <div><FL>BUSINESS DESCRIPTION * <span style={{fontStyle:"italic",color:C.textDD,fontWeight:400,letterSpacing:0}}>(plain language summary of intended activities)</span></FL><TA value={description} onChange={setDescription} rows={4} placeholder="Describe the nature of your enterprise and its intended activities within the Empire..."/></div>
@@ -426,13 +426,13 @@ function RegistrationForm({countries,businesses,onSubmit,onCancel}){
         <div><FL>EMPLOYEE COUNT <span style={{fontStyle:"italic",color:C.textDD,fontWeight:400,letterSpacing:0}}>(usernames and/or number, optional)</span></FL><Inp value={employeeCount} onChange={setEmployeeCount} placeholder="e.g. 3 full-time employees"/></div>
       </div>
       <div style={{display:"flex",justifyContent:"space-between",marginTop:"1.25rem"}}>
-        <Btn variant="ghost" onClick={()=>setStep(2)}>\u2190 Back</Btn>
-        <Btn disabled={!step3Valid} onClick={()=>setStep(4)}>Next \u2192</Btn>
+        <Btn variant="ghost" onClick={()=>setStep(2)}>{"\u2190 Back"}</Btn>
+        <Btn disabled={!step3Valid} onClick={()=>setStep(4)}>{"Next \u2192"}</Btn>
       </div>
     </div>}
 
     {step===4&&<div className="fadeIn">
-      <div className="mono" style={{fontSize:9,letterSpacing:"0.2em",color:C.textD,marginBottom:"0.85rem"}}>STEP 4 \u2014 LOCATION & COMPLIANCE</div>
+      <div className="mono" style={{fontSize:9,letterSpacing:"0.2em",color:C.textD,marginBottom:"0.85rem"}}>{"STEP 4 \u2014 LOCATION & COMPLIANCE"}</div>
       <div style={{display:"flex",flexDirection:"column",gap:"0.85rem"}}>
         <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
           <div style={{flex:1,minWidth:180}}>
@@ -459,8 +459,8 @@ function RegistrationForm({countries,businesses,onSubmit,onCancel}){
         </div>
       </div>
       <div style={{display:"flex",justifyContent:"space-between",marginTop:"1.25rem"}}>
-        <Btn variant="ghost" onClick={()=>setStep(3)}>\u2190 Back</Btn>
-        <Btn disabled={!step4Valid} onClick={()=>setStep(5)}>Review \u2192</Btn>
+        <Btn variant="ghost" onClick={()=>setStep(3)}>{"\u2190 Back"}</Btn>
+        <Btn disabled={!step4Valid} onClick={()=>setStep(5)}>{"Review \u2192"}</Btn>
       </div>
     </div>}
 
@@ -480,7 +480,7 @@ function RegistrationForm({countries,businesses,onSubmit,onCancel}){
       </div>
       <Disclaimer type="info">By submitting this application you declare the information provided is accurate to the best of your knowledge. Wilful false declarations may result in refusal or revocation of registration.</Disclaimer>
       <div style={{display:"flex",justifyContent:"space-between",marginTop:"1.25rem",alignItems:"center"}}>
-        <Btn variant="ghost" onClick={()=>setStep(4)}>\u2190 Edit</Btn>
+        <Btn variant="ghost" onClick={()=>setStep(4)}>{"\u2190 Edit"}</Btn>
         <Btn disabled={saving} onClick={submitForm}>{saving?"Submitting...":"Submit Application"}</Btn>
       </div>
     </div>}
@@ -756,6 +756,23 @@ function PanelPayroll({payroll,onAction,notify,setProcessing,canEdit}){
 }
 
 // ── PANEL: DEBT MANAGEMENT ────────────────────────────────────────────────────
+function DebtRow({debt:d,canEdit,onAction,setProcessing,notify}){
+  const [editStatus,setEditStatus]=useState(d.status);
+  return <div style={{background:C.s1,border:"1px solid "+C.border,borderLeft:"4px solid "+(d.direction==="borrow"?C.redD:C.greenD),borderRadius:"0 3px 3px 0",padding:"0.75rem 1rem",marginBottom:"0.4rem",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+    <StatusBadge status={d.status==="active"?"active_debt":d.status}/>
+    <span className="mono" style={{fontSize:9,padding:"2px 6px",border:"1px solid "+(d.direction==="borrow"?C.redD+"66":C.greenD+"66"),color:d.direction==="borrow"?C.redL:C.greenL,background:d.direction==="borrow"?"#1a0808":"#0a1a0e",borderRadius:1}}>{d.direction==="borrow"?"BORROWS":"LENDS"}</span>
+    <span style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text,flex:1}}>{d.counterparty}{d.counterpartyType==="state"?<span style={{fontSize:10,color:C.blueL}}> (State)</span>:""}</span>
+    <span className="mono" style={{fontSize:12,color:d.direction==="borrow"?C.redL:C.greenL}}>{fmtCur(d.principal)}</span>
+    {d.interestRate>0&&<span className="mono" style={{fontSize:9,color:C.textD}}>{d.interestRate}%</span>}
+    {d.dueAt&&<span className="mono" style={{fontSize:9,color:d.status==="active"&&d.dueAt<Date.now()?C.redL:C.textDD}}>{"Due "+fmtDateShort(d.dueAt)}</span>}
+    {canEdit&&<>
+      <DD value={editStatus} onChange={setEditStatus} options={DEBT_STATUSES.map(s=>({v:s,l:s.charAt(0).toUpperCase()+s.slice(1)}))} style={{width:120,fontSize:11,padding:"3px 6px"}}/>
+      <Btn small variant="ghost" onClick={async()=>{setProcessing("Updating...");await onAction("updateDebt",{id:d.id,status:editStatus});setProcessing(null);notify("Record updated.",C.gold);}}>Save</Btn>
+      <ArmBtn small label="Delete" confirmLabel="Delete?" onConfirm={async()=>{setProcessing("Removing...");await onAction("deleteDebt",{id:d.id});setProcessing(null);notify("Record deleted.",C.textD);}}/>
+    </>}
+  </div>;
+}
+
 function PanelDebt({debts,onAction,notify,setProcessing,canEdit}){
   const [counterparty,setCounterparty]=useState("");const [counterpartyType,setCounterpartyType]=useState("player");
   const [type,setType]=useState("loan");const [direction,setDirection]=useState("borrow");
@@ -786,20 +803,7 @@ function PanelDebt({debts,onAction,notify,setProcessing,canEdit}){
       }}>{saving?"Logging...":"Log Record"}</Btn>
     </div>}
     {list.length===0?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No records on file.</div>
-    :list.map(d=>{
-      const [editStatus,setEditStatus]=useState(d.status);
-      return <div key={d.id} style={{background:C.s1,border:"1px solid "+C.border,borderLeft:"4px solid "+(d.direction==="borrow"?C.redD:C.greenD),borderRadius:"0 3px 3px 0",padding:"0.75rem 1rem",marginBottom:"0.4rem",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-        <StatusBadge status={d.status==="active"?"active_debt":d.status}/>
-        <span className="mono" style={{fontSize:9,padding:"2px 6px",border:"1px solid "+(d.direction==="borrow"?C.redD+"66":C.greenD+"66"),color:d.direction==="borrow"?C.redL:C.greenL,background:d.direction==="borrow"?"#1a0808":"#0a1a0e",borderRadius:1}}>{d.direction==="borrow"?"BORROWS":"LENDS"}</span>
-        <span style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text,flex:1}}>{d.counterparty}{d.counterpartyType==="state"?<span style={{fontSize:10,color:C.blueL}}> (State)</span>:""}</span>
-        <span className="mono" style={{fontSize:12,color:d.direction==="borrow"?C.redL:C.greenL}}>{fmtCur(d.principal)}</span>
-        {d.interestRate>0&&<span className="mono" style={{fontSize:9,color:C.textD}}>{d.interestRate}%</span>}
-        {d.dueAt&&<span className="mono" style={{fontSize:9,color:d.status==="active"&&d.dueAt<Date.now()?C.redL:C.textDD}}>Due {fmtDateShort(d.dueAt)}</span>}
-        {canEdit&&<><DD value={editStatus} onChange={setEditStatus} options={DEBT_STATUSES.map(s=>({v:s,l:s.charAt(0).toUpperCase()+s.slice(1)}))} style={{width:120,fontSize:11,padding:"3px 6px"}}/>
-        <Btn small variant="ghost" onClick={async()=>{setProcessing("Updating...");await onAction("updateDebt",{id:d.id,status:editStatus});setProcessing(null);notify("Record updated.",C.gold);}}>Save</Btn>
-        <ArmBtn small label="Delete" confirmLabel="Delete?" onConfirm={async()=>{setProcessing("Removing...");await onAction("deleteDebt",{id:d.id});setProcessing(null);notify("Record deleted.",C.textD);}}/></>}
-      </div>;
-    })}
+    :list.map(d=><DebtRow key={d.id} debt={d} canEdit={canEdit} onAction={onAction} setProcessing={setProcessing} notify={notify}/>)}
   </div>;
 }
 
