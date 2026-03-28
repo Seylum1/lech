@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Ministry of Finance — Empire of Lech</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{background:#08090f;color:#d0d4e0;font-family:'Crimson Text',Georgia,serif;min-height:100vh;}
+::-webkit-scrollbar{width:5px;}::-webkit-scrollbar-track{background:#08090f;}
+::-webkit-scrollbar-thumb{background:#1e2840;border-radius:2px;}
+input,select,textarea{font-family:'Crimson Text',Georgia,serif;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+@keyframes pulse{0%,100%{opacity:.6;}50%{opacity:1;}}
+.fadeIn{animation:fadeIn .3s ease both;}
+.mono{font-family:'Share Tech Mono',monospace;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback,useMemo}=React;
+
+const SCRIPT_URL="https://script.google.com/macros/s/AKfycbxLu8jQehAZJEvMEeCLoHc9S2C4FM8o9fQh8Pp4gMzDNwwIG0S9qLJ5-1gyGM1c_InUfQ/exec";
+const BK_URL="https://script.google.com/macros/s/AKfycbz37c5Okp9c7PkXv38x2lq7Is3RifkJPee5ASb2KQfA7EJgsN0NwrigmiRr1a_G0E6d4Q/exec";
+
+const C={
+  bg:"#0c0a06",s1:"#131008",s2:"#18150a",s3:"#1e1a0e",
+  border:"#2e2410",borderL:"#3e3418",
+  text:"#e0d8c4",textD:"#8a7850",textDD:"#3a2e14",
+  gold:"#C9A84C",goldD:"#8a6820",goldL:"#e8c870",
+  green:"#2a9a5a",greenD:"#1a6a3a",greenL:"#5aaa7a",
+  red:"#9a2222",redL:"#cc5050",redD:"#5a0808",
+  amber:"#cc7a20",amberD:"#7a4010",
+  silver:"#b09858",silverD:"#6a5830",
+  accent:"#C9A84C",accentD:"#8a6820",
+  blueL:"#c9a030",
+};
+
+const ENTITY_TYPES=["Sole Proprietorship","Partnership","Chartered Company","Limited Liability Company","Imperial Corporation","State-Affiliated Enterprise","Chartered Monopoly","Guild / Cooperative"];
+const INDUSTRIES=["Agriculture","Manufacturing","Trade & Commerce","Finance & Banking","Energy & Resources","Personal Transportation","Commercial & Industrial Shipping","Defense & Security","Information & Communications","Healthcare","Infrastructure","Entertainment & Culture"];
+const STRATEGIC_CLASSES=["Civillian","Dual-Use","Strategic National Asset","Defense-Critical","Colonial Extraction"];
+const REVENUE_BANDS=[
+  {v:"micro",l:"Micro ($100k\u2013$300k / quarter)"},
+  {v:"small",l:"Small ($300k\u2013$600k / quarter)"},
+  {v:"medium",l:"Medium ($600k\u2013$1M / quarter)"},
+  {v:"major",l:"Major ($1M\u2013$2M / quarter)"},
+  {v:"strategic",l:"Strategic ($2M+ / quarter)"},
+];
+const SPECIAL_LICENSES=["Financial Banking License","Arms & Weapons Distribution License","Shipping License","Communications License","Colonial Special Operations License"];
+const BUDGET_PORTFOLIOS=["Minister of the Chancellery","Minister of Colonies","Minister of Interior","Minister of Finance","Minister of War","Minister of Infrastructure","Minister of Health","Minister of Foreign Affairs"];
+const PAYROLL_CATEGORIES=["Imperial Household","Ministry of the Chancellery","Ministry of Colonies","Ministry of Interior","Ministry of Finance","Ministry of War","Ministry of Infrastructure","Ministry of Health","Ministry of Foreign Affairs","Bundeskongress","Judiciary","Extra"];
+const DEBT_STATUSES=["active","settled","defaulted","restructured"];
+const LICENSE_STATUSES=["pending","active","suspended","revoked"];
+
+function budgetValidUntil(ratifiedAt){const d=new Date(ratifiedAt);const lastDay=new Date(d.getFullYear(),d.getMonth()+1,0,23,59,59,999);return lastDay.getTime()+15*24*60*60*1000;}
+function budgetCooldownUntil(ratifiedAt){const d=new Date(ratifiedAt);return new Date(d.getFullYear(),d.getMonth()+1,1,0,0,0,0).getTime();}
+
+async function sha256(t){const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");}
+function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
+async function sgetAll(){try{const r=await fetch(SCRIPT_URL+"?action=getall");const d=await r.json();if(!d.success)return{};const out={};Object.entries(d.data||{}).forEach(([k,v])=>{if(v){try{out[k]=JSON.parse(v);}catch{}}});return out;}catch{return{};}}
+async function sset(k,v){try{await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v)})});return true;}catch{return false;}}
+function fmtCur(n){if(n===null||n===undefined||n==="")return "\u2014";const abs=Math.abs(Number(n));const s=abs>=1000000?(abs/1000000).toFixed(2)+"M":abs>=1000?(abs/1000).toFixed(1)+"K":Number(abs).toLocaleString();return "$"+(Number(n)<0?"-":"")+s;}
+function fmtDate(ts){return new Date(ts).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"});}
+function fmtDateShort(ts){return new Date(ts).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});}
+function daysLeft(ts){return Math.max(0,Math.ceil((ts-Date.now())/(1000*60*60*24)));}
+function daysAgo(ts){return Math.max(0,Math.floor((Date.now()-ts)/(1000*60*60*24)));}
+function genRegNo(businesses){const yr=new Date().getFullYear();const existing=new Set(Object.values(businesses||{}).map(b=>b.registrationNo));let num,a=0;do{num="MoF-"+yr+"-"+String(Math.floor(Math.random()*900)+100).padStart(3,"0");a++;}while(existing.has(num)&&a<50);return num;}
+
+// ── UI ATOMS ──────────────────────────────────────────────────────────────────
+function Btn({children,onClick,variant="primary",disabled,small,full,style:ex={}}){
+  const base={fontFamily:"'Cinzel',serif",letterSpacing:"0.1em",fontWeight:700,textTransform:"uppercase",fontSize:small?10:11,padding:small?"4px 12px":"7px 18px",border:"1px solid",borderRadius:2,cursor:disabled?"not-allowed":"pointer",opacity:disabled?.4:1,transition:"all .15s",width:full?"100%":"auto"};
+  const vars={primary:{background:"linear-gradient(135deg,"+C.goldD+","+C.gold+")",borderColor:C.goldD,color:"#100a00"},danger:{background:"transparent",borderColor:C.redD,color:C.redL},armed:{background:"linear-gradient(135deg,#5a0000,#900000)",borderColor:"#aa0000",color:"#ffcccc"},ghost:{background:"transparent",borderColor:C.border,color:C.textD},green:{background:"linear-gradient(135deg,"+C.greenD+","+C.green+")",borderColor:C.greenD,color:"#e8f8ee"},blue:{background:"linear-gradient(135deg,#001a3a,#002a5a)",borderColor:"#0044aa",color:"#88bbff"}};
+  const vs=vars[variant]||vars.primary;
+  return <button onClick={disabled?undefined:onClick} style={{...base,...vs,...ex}}>{children}</button>;
+}
+function ArmBtn({label,confirmLabel,onConfirm,variant="danger",small}){
+  const [armed,setArmed]=useState(false);const t=useRef(null);
+  if(armed)return <Btn variant="armed" small={small} onClick={()=>{clearTimeout(t.current);setArmed(false);onConfirm();}}>{confirmLabel||"Confirm?"}</Btn>;
+  return <Btn variant={variant} small={small} onClick={()=>{setArmed(true);clearTimeout(t.current);t.current=setTimeout(()=>setArmed(false),4000);}}>{label}</Btn>;
+}
+function Inp({value,onChange,placeholder,type="text",style:ex={}}){
+  return <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+    style={{width:"100%",background:C.s3,border:"1px solid "+C.border,borderRadius:2,padding:"8px 12px",color:C.text,fontSize:14,outline:"none",...ex}}
+    onFocus={e=>e.target.style.borderColor=C.gold} onBlur={e=>e.target.style.borderColor=C.border}/>;
+}
+function TA({value,onChange,placeholder,rows=4}){
+  return <textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows}
+    style={{width:"100%",background:C.s3,border:"1px solid "+C.border,borderRadius:2,padding:"8px 12px",color:C.text,fontSize:14,outline:"none",resize:"vertical",lineHeight:1.7}}
+    onFocus={e=>e.target.style.borderColor=C.gold} onBlur={e=>e.target.style.borderColor=C.border}/>;
+}
+function DD({value,onChange,options,style:ex={}}){
+  return <select value={value} onChange={e=>onChange(e.target.value)} style={{width:"100%",background:C.s3,border:"1px solid "+C.border,borderRadius:2,padding:"8px 12px",color:C.text,fontSize:14,outline:"none",fontFamily:"'Crimson Text',serif",...ex}}>
+    {options.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+  </select>;
+}
+function FL({children}){return <div className="mono" style={{fontSize:9,color:C.textD,letterSpacing:"0.15em",marginBottom:4}}>{children}</div>;}
+function STitle({children,color,style:ex={}}){return <div style={{fontFamily:"'Cinzel',serif",fontSize:10,fontWeight:700,letterSpacing:"0.3em",textTransform:"uppercase",color:color||C.gold,paddingBottom:8,borderBottom:"1px solid "+C.border,marginBottom:"1.25rem",...ex}}>{children}</div>;}
+function Toast({msg,color}){if(!msg)return null;return <div style={{position:"fixed",top:14,right:14,zIndex:9999,background:C.s2,border:"1px solid "+color+"55",borderLeft:"3px solid "+color,padding:"8px 16px",borderRadius:2,fontFamily:"'Cinzel',serif",fontSize:10,color:color,animation:"fadeIn .2s ease",maxWidth:360}}>{msg}</div>;}
+function Overlay({label}){if(!label)return null;return <div style={{position:"fixed",inset:0,zIndex:99999,background:"rgba(4,6,10,.97)",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{textAlign:"center"}}><div className="mono" style={{color:C.gold,fontSize:10,letterSpacing:"0.3em",marginBottom:8,animation:"pulse 1s infinite"}}>PROCESSING</div><div style={{fontFamily:"'Cinzel',serif",fontSize:16,color:C.text}}>{label}</div></div></div>;}
+function Disclaimer({children,type="warning"}){
+  const cols={warning:{bg:"#181200",border:"#C9A84C33",left:"#C9A84C66",text:"#8a7040"},info:{bg:"#0a1220",border:"#4a7acc33",left:"#4a7acc66",text:"#6a8aaa"},danger:{bg:"#1a0808",border:"#8b1a1a33",left:"#8b1a1a66",text:"#8a4040"},success:{bg:"#0a1a0e",border:"#2a9a5a33",left:"#2a9a5a66",text:"#5a9a7a"}};
+  const col=cols[type]||cols.warning;
+  return <div style={{background:col.bg,border:"1px solid "+col.border,borderLeft:"3px solid "+col.left,borderRadius:"0 3px 3px 0",padding:"0.5rem 0.75rem",fontSize:12,color:col.text,fontStyle:"italic",lineHeight:1.6,marginTop:4}}>{children}</div>;
+}
+function StatusBadge({status}){
+  const M={active:{color:C.greenL,bg:"#0a1a0e",border:"#1a4a2a",l:"Active"},pending:{color:C.amber,bg:"#180e00",border:"#4a2a00",l:"Pending"},suspended:{color:C.amber,bg:"#180e00",border:"#4a2a00",l:"Suspended"},revoked:{color:C.redL,bg:"#1a0808",border:"#4a1010",l:"Revoked"},active_debt:{color:C.redL,bg:"#1a0808",border:"#4a1010",l:"Outstanding"},settled:{color:C.greenL,bg:"#0a1a0e",border:"#1a4a2a",l:"Settled"},defaulted:{color:C.redL,bg:"#1a0808",border:"#4a1010",l:"Defaulted"},restructured:{color:C.amber,bg:"#180e00",border:"#4a2a00",l:"Restructured"}};
+  const m=M[status]||{color:C.textD,bg:C.s1,border:C.border,l:status};
+  return <span className="mono" style={{fontSize:9,padding:"2px 8px",background:m.bg,border:"1px solid "+m.border,color:m.color,borderRadius:1}}>{m.l.toUpperCase()}</span>;
+}
+function MultiCheck({options,selected,onChange,cols=3}){
+  function toggle(v){onChange(selected.includes(v)?selected.filter(x=>x!==v):[...selected,v]);}
+  return <div style={{display:"grid",gridTemplateColumns:"repeat("+cols+",1fr)",gap:4}}>
+    {options.map(o=>{const sel=selected.includes(o);return <div key={o} onClick={()=>toggle(o)} style={{padding:"5px 8px",cursor:"pointer",borderRadius:2,border:"1px solid "+(sel?C.gold:C.border),background:sel?"#181000":C.s1,display:"flex",alignItems:"center",gap:5,transition:"all .12s"}}>
+      <div style={{width:12,height:12,borderRadius:2,border:"2px solid "+(sel?C.gold:C.textDD),background:sel?C.goldD:"transparent",flexShrink:0}}/>
+      <span style={{fontSize:11,color:sel?C.gold:C.textD,lineHeight:1.3}}>{o}</span>
+    </div>;})}
+  </div>;
+}
+function StepBar({step,steps}){
+  return <div style={{display:"flex",alignItems:"center",marginBottom:"1.75rem",paddingBottom:"1.25rem",borderBottom:"1px solid "+C.border}}>
+    {steps.map((label,i)=>{const n=i+1,done=step>n,active=step===n,col=done||active?C.gold:C.textDD;return <React.Fragment key={n}>
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,flexShrink:0}}>
+        <div style={{width:26,height:26,borderRadius:"50%",background:done?C.goldD:active?C.gold:"transparent",border:"2px solid "+col,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontFamily:"'Cinzel',serif",fontWeight:700,color:done||active?"#100a00":C.textDD}}>{done?"\u2713":n}</div>
+        <span className="mono" style={{fontSize:7,color:col,letterSpacing:"0.08em",textTransform:"uppercase",whiteSpace:"nowrap"}}>{label}</span>
+      </div>
+      {i<steps.length-1&&<div style={{flex:1,height:1,background:step>n?C.goldD:C.border,margin:"0 6px",marginBottom:18}}/>}
+    </React.Fragment>;})}
+  </div>;
+}
+
+// ── BUDGET TRACKER ────────────────────────────────────────────────────────────
+function BudgetTracker({activeBudget,budgetCooldown,bkBills}){
+  const [showHistory,setShowHistory]=useState(false);
+  const now=Date.now();
+  const isActive=activeBudget&&!activeBudget.voided_at&&now<activeBudget.valid_until;
+  const isExpired=activeBudget&&(activeBudget.voided_at||now>=activeBudget.valid_until);
+  const daysRem=isActive?daysLeft(activeBudget.valid_until):0;
+  const totalDur=isActive?(activeBudget.valid_until-activeBudget.ratified_at):1;
+  const pctElapsed=isActive?Math.min(100,((now-activeBudget.ratified_at)/totalDur)*100):100;
+  const urgency=daysRem>30?C.greenL:daysRem>14?C.amber:C.redL;
+  const coolActive=budgetCooldown&&!budgetCooldown.voided&&now<budgetCooldown.until;
+  const proposeDate=budgetCooldown?.until;
+  const portfolioData=activeBudget?.data||{};
+  const totalMin=BUDGET_PORTFOLIOS.reduce((a,p)=>a+(portfolioData[p]?.min||0),0);
+  const totalMax=BUDGET_PORTFOLIOS.reduce((a,p)=>a+(portfolioData[p]?.max||0),0);
+  const pastBudgets=useMemo(()=>Object.values(bkBills||{}).filter(b=>(b.type==="budget"||b.type==="budget_supplementary")&&b.status==="passed"&&b.id!==activeBudget?.id).sort((a,b)=>(b.ratified_at||0)-(a.ratified_at||0)),[bkBills,activeBudget]);
+
+  return <div className="fadeIn">
+    <div style={{background:isActive?"#0a1a10":isExpired?"#1a0808":"#0a0d18",border:"1px solid "+(isActive?C.green:isExpired?C.red:C.border),borderTop:"4px solid "+(isActive?C.greenL:isExpired?C.redL:C.silverD),borderRadius:"0 0 4px 4px",padding:"1.25rem 1.5rem",marginBottom:"1.5rem"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10}}>
+        <div>
+          <div className="mono" style={{fontSize:9,color:isActive?C.greenL:isExpired?C.redL:C.textD,letterSpacing:"0.25em",marginBottom:4}}>{isActive?"BUDGET IN FORCE":isExpired?"BUDGET EXPIRED \u2014 NO ACTIVE APPROPRIATION":"NO BUDGET ON RECORD"}</div>
+          {activeBudget&&<div style={{fontFamily:"'Cinzel',serif",fontSize:17,fontWeight:700,color:C.text,marginBottom:3}}>{activeBudget.title}</div>}
+          {activeBudget&&<div style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>{activeBudget.type==="budget_supplementary"?"Supplementary Budget":"Imperial Budget"}{" \u2014 "}{activeBudget.submitter}</div>}
+          {!activeBudget&&<div style={{fontSize:14,color:C.textD,fontStyle:"italic",marginTop:4}}>No budget has been ratified. The Empire is operating without an active appropriation.</div>}
+        </div>
+        {isActive&&<div style={{textAlign:"center",flexShrink:0}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:40,fontWeight:700,color:urgency,lineHeight:1}}>{daysRem}</div>
+          <div className="mono" style={{fontSize:8,color:C.textD,letterSpacing:"0.15em"}}>DAYS REMAINING</div>
+        </div>}
+        {isExpired&&<div style={{textAlign:"center",flexShrink:0}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:40,fontWeight:700,color:C.redL,lineHeight:1}}>{daysAgo(activeBudget.valid_until)}</div>
+          <div className="mono" style={{fontSize:8,color:C.textD,letterSpacing:"0.15em"}}>DAYS EXPIRED</div>
+        </div>}
+      </div>
+      {isActive&&<div style={{marginTop:"1rem"}}>
+        <div style={{height:6,background:C.s1,borderRadius:3,overflow:"hidden",border:"1px solid "+C.border}}>
+          <div style={{width:pctElapsed+"%",height:"100%",background:urgency,transition:"width .5s"}}/>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",marginTop:3,fontSize:11,color:C.textD}}>
+          <span>Ratified {fmtDateShort(activeBudget.ratified_at)}</span>
+          <span style={{color:urgency}}>Expires {fmtDate(activeBudget.valid_until)}</span>
+        </div>
+      </div>}
+    </div>
+
+    {activeBudget&&<div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap",marginBottom:"1.5rem"}}>
+      {[
+        ["Ratified",fmtDate(activeBudget.ratified_at),C.gold],
+        ["Expiry Date",fmtDate(activeBudget.valid_until),isExpired?C.redL:isActive&&daysRem<14?C.amber:C.text],
+        ["New Budget From",proposeDate?(coolActive?fmtDate(proposeDate):"Now (available)"):"—",coolActive?C.amber:C.greenL],
+        ["Imperial Reserve",activeBudget.reserve!==undefined?fmtCur(activeBudget.reserve):"\u2014",C.gold],
+      ].map(([label,val,color])=><div key={label} style={{background:C.s1,border:"1px solid "+C.border,borderRadius:3,padding:"0.7rem 1rem",flex:1,minWidth:140}}>
+        <div className="mono" style={{fontSize:8,color:C.textDD,letterSpacing:"0.15em",marginBottom:4}}>{label.toUpperCase()}</div>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:color}}>{val}</div>
+      </div>)}
+    </div>}
+
+    {isExpired&&<div style={{marginBottom:"1rem"}}><Disclaimer type="danger">The Empire is currently operating without an approved budget. A new budget bill must be passed by the Bundeskongress and ratified by the Emperor.</Disclaimer></div>}
+    {coolActive&&<div style={{marginBottom:"1rem"}}><Disclaimer type="warning">A new budget may not be proposed until {fmtDate(proposeDate)} (the first day of the month following ratification).</Disclaimer></div>}
+    {!coolActive&&activeBudget&&!isExpired&&daysRem<14&&<div style={{marginBottom:"1rem"}}><Disclaimer type="danger">Budget expires in {daysRem} day{daysRem!==1?"s":""}. A new budget bill should be prepared for submission.</Disclaimer></div>}
+
+    {activeBudget&&Object.values(portfolioData).some(p=>p?.min||p?.max)&&<div style={{marginTop:"0.5rem"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"0.85rem"}}>
+        <STitle style={{marginBottom:0}}>Ministry Allocations</STitle>
+        <span className="mono" style={{fontSize:9,color:C.textD}}>TOTAL: {fmtCur(totalMin)}{totalMax&&totalMax!==totalMin?" \u2014 "+fmtCur(totalMax):""}</span>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:3}}>
+        {BUDGET_PORTFOLIOS.map(p=>{
+          const pd=portfolioData[p]||{};const min=pd.min||0,max=pd.max||0;
+          if(!min&&!max)return null;
+          const barPct=totalMax>0?(max/totalMax)*100:0;
+          return <div key={p} style={{background:C.s1,border:"1px solid "+C.border,borderRadius:3,padding:"0.6rem 1rem"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4,flexWrap:"wrap"}}>
+              <span style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text,flex:1}}>{p}</span>
+              <span className="mono" style={{fontSize:10,color:C.gold}}>{fmtCur(min)}</span>
+              {max&&max!==min&&<><span style={{color:C.textDD}}>{" \u2014 "}</span><span className="mono" style={{fontSize:10,color:C.goldL}}>{fmtCur(max)}</span></>}
+            </div>
+            {totalMax>0&&<div style={{height:3,background:C.s3,borderRadius:2,overflow:"hidden"}}><div style={{width:barPct+"%",height:"100%",background:C.goldD}}/></div>}
+            {pd.notes&&<div style={{fontSize:11,color:C.textD,fontStyle:"italic",marginTop:3}}>{pd.notes}</div>}
+          </div>;
+        })}
+      </div>
+    </div>}
+
+    {pastBudgets.length>0&&<div style={{marginTop:"1.5rem"}}>
+      <button onClick={()=>setShowHistory(v=>!v)} style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.15em",textTransform:"uppercase",padding:"5px 12px",background:"transparent",border:"1px solid "+C.border,borderRadius:2,color:C.textD,cursor:"pointer",marginBottom:"0.85rem"}}>{showHistory?"Hide Budget History":"Show Budget History ("+(pastBudgets.length)+")"}</button>
+      {showHistory&&<div style={{display:"flex",flexDirection:"column",gap:3}}>
+        {pastBudgets.map(b=><div key={b.id} style={{background:C.s1,border:"1px solid "+C.border,borderRadius:3,padding:"0.6rem 1rem",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",opacity:.7}}>
+          <span style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.textD,flex:1}}>{b.title}</span>
+          {b.ratified_at&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{fmtDateShort(b.ratified_at)}</span>}
+          <span className="mono" style={{fontSize:8,color:C.textDD,background:C.s2,padding:"1px 6px",borderRadius:1}}>{b.type==="budget_supplementary"?"SUPPLEMENTARY":"BUDGET"}</span>
+        </div>)}
+      </div>}
+    </div>}
+  </div>;
+}
+
+// ── PUBLIC REGISTRY ───────────────────────────────────────────────────────────
+function RegistryPublic({businesses}){
+  const [search,setSearch]=useState("");const [indFilter,setIndFilter]=useState("all");const [typeFilter,setTypeFilter]=useState("all");
+  const list=useMemo(()=>Object.values(businesses||{}).filter(b=>{
+    if(b.licenseStatus!=="active")return false;
+    const q=search.toLowerCase();
+    const mQ=!q||b.legalName?.toLowerCase().includes(q)||(b.tradingNames||[]).join(" ").toLowerCase().includes(q)||(b.registrationNo||"").toLowerCase().includes(q);
+    const mI=indFilter==="all"||(b.industries||[]).includes(indFilter);
+    const mT=typeFilter==="all"||b.entityType===typeFilter;
+    return mQ&&mI&&mT;
+  }).sort((a,b)=>(a.legalName||"").localeCompare(b.legalName||"")),[businesses,search,indFilter,typeFilter]);
+  return <div className="fadeIn">
+    <div style={{display:"flex",gap:"0.65rem",marginBottom:"1rem",flexWrap:"wrap"}}>
+      <div style={{flex:2,minWidth:200}}><Inp value={search} onChange={setSearch} placeholder="Search by name or registration number..."/></div>
+      <div style={{flex:1,minWidth:160}}><DD value={indFilter} onChange={setIndFilter} options={[{v:"all",l:"All Industries"},...INDUSTRIES.map(i=>({v:i,l:i}))]}/></div>
+      <div style={{flex:1,minWidth:160}}><DD value={typeFilter} onChange={setTypeFilter} options={[{v:"all",l:"All Types"},...ENTITY_TYPES.map(t=>({v:t,l:t}))]}/></div>
+    </div>
+    <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:"0.75rem"}}>{list.length} REGISTERED ENTERPRISE{list.length!==1?"S":""}</div>
+    {list.length===0?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No registered enterprises match your search.</div>
+    :<div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>{list.map(b=><BusinessPublicCard key={b.id} business={b}/>)}</div>}
+  </div>;
+}
+function BusinessPublicCard({business:b}){
+  const [open,setOpen]=useState(false);
+  return <div style={{background:C.s1,border:"1px solid "+C.border,borderLeft:"4px solid "+C.goldD,borderRadius:"0 3px 3px 0",overflow:"hidden"}}>
+    <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"0.75rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
+      <StatusBadge status={b.licenseStatus||"active"}/>
+      <span className="mono" style={{fontSize:9,color:C.textD}}>{b.registrationNo}</span>
+      <span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{b.legalName}</span>
+      {b.entityType&&<span className="mono" style={{fontSize:8,color:C.textD,background:C.s2,padding:"1px 6px",borderRadius:1}}>{b.entityType.toUpperCase()}</span>}
+      <span style={{fontSize:11,color:C.textDD}}>{open?"\u25B2":"\u25BC"}</span>
+    </div>
+    {open&&<div style={{borderTop:"1px solid "+C.border,padding:"1rem",background:C.s2}}>
+      {b.tradingNames?.length>0&&<div style={{marginBottom:"0.65rem"}}><span className="mono" style={{fontSize:8,color:C.textDD,marginRight:6}}>TRADING AS</span><span style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>{b.tradingNames.join(", ")}</span></div>}
+      <div style={{display:"flex",gap:"2rem",flexWrap:"wrap",marginBottom:"0.85rem"}}>
+        {b.hqCountry&&<div><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:2}}>ORIGIN / HQ</div><span style={{fontSize:13,color:C.text}}>{b.hqCountry}{b.hqLocation?" \u2014 "+b.hqLocation:""}</span></div>}
+        {b.strategicClass&&<div><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:2}}>CLASSIFICATION</div><span style={{fontSize:13,color:b.strategicClass==="Civillian"?C.textD:b.strategicClass==="Defense-Critical"?C.redL:C.amber}}>{b.strategicClass}</span></div>}
+        {b.revenueBand&&<div><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:2}}>REVENUE BAND</div><span style={{fontSize:13,color:C.text}}>{REVENUE_BANDS.find(r=>r.v===b.revenueBand)?.l||b.revenueBand}</span></div>}
+        {b.registered&&<div><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:2}}>REGISTERED</div><span style={{fontSize:13,color:C.text}}>{fmtDateShort(b.registered)}</span></div>}
+      </div>
+      {b.industries?.length>0&&<div style={{marginBottom:"0.65rem"}}><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>INDUSTRIES</div><div style={{display:"flex",flexWrap:"wrap",gap:4}}>{b.industries.map(i=><span key={i} style={{fontSize:11,padding:"1px 7px",border:"1px solid "+C.border,borderRadius:2,color:C.textD,background:C.s1}}>{i}</span>)}</div></div>}
+      {b.owners?.length>0&&<div style={{marginBottom:"0.65rem"}}><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>BENEFICIAL OWNERS</div>{b.owners.map((o,i)=><div key={i} style={{fontSize:13,color:C.text}}>{o.rpName||o.username}{o.pct&&o.pct!=="100"?" ("+o.pct+"%)":" (100%)"}</div>)}</div>}
+      {b.description&&<div style={{fontSize:13,color:C.textD,lineHeight:1.7,fontStyle:"italic",marginTop:"0.5rem"}}>{b.description}</div>}
+      {b.licensesHeld?.length>0&&<div style={{marginTop:"0.65rem"}}><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>SPECIAL LICENSES HELD</div><div style={{display:"flex",flexWrap:"wrap",gap:4}}>{b.licensesHeld.map(l=><span key={l} style={{fontSize:11,padding:"1px 7px",border:"1px solid "+C.goldD+"55",borderRadius:2,color:C.gold,background:"#180e00"}}>{l}</span>)}</div></div>}
+      {b.noblePatronage&&<div style={{marginTop:"0.5rem"}}><span style={{fontSize:12,color:C.gold,fontStyle:"italic"}}>⚜ Noble patronage or charter held</span></div>}
+    </div>}
+  </div>;
+}
+
+// ── BUSINESS REGISTRATION WIZARD (public) ─────────────────────────────────────
+function RegistrationForm({countries,businesses,onSubmit,onCancel}){
+  const [step,setStep]=useState(1);
+  const [legalName,setLegalName]=useState("");
+  const [tradingNamesRaw,setTradingNamesRaw]=useState("");
+  const [entityType,setEntityType]=useState("");
+  const [owners,setOwners]=useState([{username:"",rpName:"",pct:"100"}]);
+  const [crownOfficer,setCrownOfficer]=useState(false);
+  const [noblePatronage,setNoblePatronage]=useState(false);
+  const [ownerCitizenships,setOwnerCitizenships]=useState([]);
+  const [foreignOwnership,setForeignOwnership]=useState(false);
+  const [foreignContracts,setForeignContracts]=useState(false);
+  const [industries,setIndustries]=useState([]);
+  const [description,setDescription]=useState("");
+  const [strategicClass,setStrategicClass]=useState("Civillian");
+  const [revenueBand,setRevenueBand]=useState("");
+  const [employeeCount,setEmployeeCount]=useState("");
+  const [hqCountry,setHqCountry]=useState("");
+  const [hqLocation,setHqLocation]=useState("");
+  const [additionalLocations,setAdditionalLocations]=useState("");
+  const [colonialLicense,setColonialLicense]=useState(false);
+  const [licensesHeld,setLicensesHeld]=useState([]);
+  const [licensesSeeking,setLicensesSeeking]=useState([]);
+  const [saving,setSaving]=useState(false);
+  const [done,setDone]=useState(null);
+
+  const countryOpts=useMemo(()=>{
+    const fromMfa=Object.values(countries||{}).map(c=>c.name).filter(Boolean).sort();
+    const all=["Empire of Lech",...fromMfa.filter(n=>n!=="Empire of Lech")];
+    return [...new Set(all)];
+  },[countries]);
+
+  const pctTotal=owners.reduce((a,o)=>a+(parseFloat(o.pct)||0),0);
+  const step1Valid=legalName.trim()&&entityType;
+  const step2Valid=owners.every(o=>o.username.trim()&&o.pct)&&Math.abs(pctTotal-100)<0.1;
+  const step3Valid=industries.length>0&&description.trim()&&strategicClass&&revenueBand;
+  const step4Valid=hqCountry;
+
+  function addOwner(){if(owners.length<6)setOwners([...owners,{username:"",rpName:"",pct:""}]);}
+  function removeOwner(i){if(owners.length>1)setOwners(owners.filter((_,idx)=>idx!==i));}
+  function updateOwner(i,field,val){const next=[...owners];next[i]={...next[i],[field]:val};setOwners(next);}
+
+  async function submitForm(){
+    setSaving(true);
+    const regNo=genRegNo(businesses);
+    const biz={
+      id:"biz_"+uid(),registrationNo:regNo,legalName:legalName.trim(),
+      tradingNames:tradingNamesRaw.split(",").map(s=>s.trim()).filter(Boolean),
+      entityType:entityType,owners:owners.map(o=>({username:o.username.trim(),rpName:o.rpName.trim(),pct:o.pct})),
+      crownOfficer:crownOfficer,noblePatronage:noblePatronage,
+      ownerCitizenships:ownerCitizenships,foreignOwnership:foreignOwnership,foreignContracts:foreignContracts,
+      industries:industries,description:description.trim(),strategicClass:strategicClass,
+      revenueBand:revenueBand,employeeCount:employeeCount.trim(),
+      hqCountry:hqCountry,hqLocation:hqLocation.trim(),additionalLocations:additionalLocations.trim(),
+      colonialLicense:colonialLicense,licensesHeld:licensesHeld,licensesSeeking:licensesSeeking,
+      licenseStatus:"pending",registered:Date.now(),registrationNotes:"",
+    };
+    await onSubmit(biz);
+    setSaving(false);setDone(regNo);
+  }
+
+  if(done)return <div style={{maxWidth:540}}>
+    <div style={{background:"#0a1a10",border:"1px solid "+C.green,borderLeft:"4px solid "+C.greenL,borderRadius:"0 3px 3px 0",padding:"1.5rem",marginBottom:"1rem"}}>
+      <div className="mono" style={{fontSize:9,letterSpacing:"0.25em",color:C.greenL,marginBottom:8}}>APPLICATION SUBMITTED</div>
+      <div className="mono" style={{fontSize:20,color:C.gold,marginBottom:8}}>{done}</div>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text,marginBottom:4}}>{legalName}</div>
+      <div style={{fontSize:13,color:C.textD,lineHeight:1.7,borderTop:"1px solid "+C.border,paddingTop:"0.75rem",marginTop:"0.75rem"}}>
+        Your registration application has been received by the Ministry of Finance and is pending review. You will be notified once your application has been processed. Please retain your reference number.
+      </div>
+    </div>
+    <Btn variant="ghost" onClick={onCancel}>Back to Registry</Btn>
+  </div>;
+
+  return <div style={{maxWidth:660}}>
+    <StepBar step={step} steps={["Identity","Ownership","Profile","Compliance"]}/>
+
+    {step===1&&<div className="fadeIn">
+      <div className="mono" style={{fontSize:9,letterSpacing:"0.2em",color:C.textD,marginBottom:"0.85rem"}}>STEP 1 \u2014 ENTERPRISE IDENTITY</div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.85rem"}}>
+        <div><FL>LEGAL NAME OF ENTERPRISE *</FL><Inp value={legalName} onChange={setLegalName} placeholder="Full registered legal name"/></div>
+        <div><FL>ALTERNATIVE TRADING NAMES <span style={{fontStyle:"italic",color:C.textDD,fontWeight:400,letterSpacing:0}}>(comma separated, optional)</span></FL><Inp value={tradingNamesRaw} onChange={setTradingNamesRaw} placeholder="e.g. Crown & Co, The Imperial Co."/></div>
+        <div><FL>ENTITY TYPE *</FL>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:4}}>
+            {ENTITY_TYPES.map(t=><div key={t} onClick={()=>setEntityType(t)} style={{padding:"8px 10px",cursor:"pointer",borderRadius:2,border:"1px solid "+(entityType===t?C.gold:C.border),background:entityType===t?"#181000":C.s1,transition:"all .12s",display:"flex",alignItems:"center",gap:6}}>
+              <div style={{width:12,height:12,borderRadius:"50%",border:"2px solid "+(entityType===t?C.gold:C.textDD),background:entityType===t?C.goldD:"transparent",flexShrink:0}}/>
+              <span style={{fontSize:12,color:entityType===t?C.gold:C.textD}}>{t}</span>
+            </div>)}
+          </div>
+        </div>
+      </div>
+      <div style={{display:"flex",justifyContent:"flex-end",marginTop:"1.25rem"}}>
+        <Btn disabled={!step1Valid} onClick={()=>setStep(2)}>Next \u2192</Btn>
+      </div>
+    </div>}
+
+    {step===2&&<div className="fadeIn">
+      <div className="mono" style={{fontSize:9,letterSpacing:"0.2em",color:C.textD,marginBottom:"0.85rem"}}>STEP 2 \u2014 OWNERSHIP & CONTROL</div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.85rem"}}>
+        <div>
+          <FL>BENEFICIAL OWNERS * <span style={{fontStyle:"italic",color:C.textDD,fontWeight:400,letterSpacing:0}}>(percentages must total 100%)</span></FL>
+          {owners.map((o,i)=><div key={i} style={{display:"flex",gap:"0.5rem",marginBottom:4,alignItems:"flex-end",flexWrap:"wrap"}}>
+            <div style={{flex:2,minWidth:120}}><Inp value={o.username} onChange={v=>updateOwner(i,"username",v)} placeholder="Username"/></div>
+            <div style={{flex:2,minWidth:120}}><Inp value={o.rpName} onChange={v=>updateOwner(i,"rpName",v)} placeholder="Roleplay name (optional)"/></div>
+            <div style={{flex:1,minWidth:60}}><Inp value={o.pct} onChange={v=>updateOwner(i,"pct",v)} placeholder="%" style={{textAlign:"right"}}/></div>
+            {owners.length>1&&<Btn small variant="ghost" onClick={()=>removeOwner(i)}>\u2715</Btn>}
+          </div>)}
+          {pctTotal!==100&&owners.some(o=>o.pct)&&<div className="mono" style={{fontSize:9,color:pctTotal===100?C.greenL:C.amber,marginTop:3}}>Total: {pctTotal.toFixed(1)}% {pctTotal===100?"\u2713":"(must equal 100%)"}</div>}
+          {owners.length<6&&<Btn small variant="ghost" onClick={addOwner} style={{marginTop:4}}>+ Add Owner</Btn>}
+        </div>
+        <div style={{display:"flex",gap:"2rem",flexWrap:"wrap"}}>
+          {[["Crown officer involved in ownership?",crownOfficer,setCrownOfficer,"warning"],["Noble patronage or charter held?",noblePatronage,setNoblePatronage,"info"],["Foreign ownership?",foreignOwnership,setForeignOwnership,"warning"],["Foreign government contracts?",foreignContracts,setForeignContracts,"warning"]].map(([label,val,set,type])=><div key={label} onClick={()=>set(v=>!v)} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",flex:"0 0 auto"}}>
+            <div style={{width:16,height:16,border:"2px solid "+(val?C.gold:C.border),borderRadius:2,background:val?C.goldD:"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:val?C.gold:C.textDD}}>{val?"\u2713":""}</div>
+            <span style={{fontSize:13,color:val?C.text:C.textD}}>{label}</span>
+          </div>)}
+        </div>
+        {(crownOfficer||foreignOwnership)&&<Disclaimer type="warning">Enterprises with Crown officer involvement or foreign ownership may be subject to additional review by the Ministry.</Disclaimer>}
+        <div><FL>OWNER CITIZENSHIPS <span style={{fontStyle:"italic",color:C.textDD,fontWeight:400,letterSpacing:0}}>(all owners, optional)</span></FL>
+          <MultiCheck options={countryOpts.slice(0,12)} selected={ownerCitizenships} onChange={setOwnerCitizenships} cols={3}/>
+        </div>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",marginTop:"1.25rem"}}>
+        <Btn variant="ghost" onClick={()=>setStep(1)}>\u2190 Back</Btn>
+        <Btn disabled={!step2Valid} onClick={()=>setStep(3)}>Next \u2192</Btn>
+      </div>
+    </div>}
+
+    {step===3&&<div className="fadeIn">
+      <div className="mono" style={{fontSize:9,letterSpacing:"0.2em",color:C.textD,marginBottom:"0.85rem"}}>STEP 3 \u2014 BUSINESS PROFILE</div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.85rem"}}>
+        <div><FL>INDUSTRIES OF RELEVANCE * <span style={{fontStyle:"italic",color:C.textDD,fontWeight:400,letterSpacing:0}}>(select all that apply)</span></FL><MultiCheck options={INDUSTRIES} selected={industries} onChange={setIndustries} cols={3}/></div>
+        <div><FL>BUSINESS DESCRIPTION * <span style={{fontStyle:"italic",color:C.textDD,fontWeight:400,letterSpacing:0}}>(plain language summary of intended activities)</span></FL><TA value={description} onChange={setDescription} rows={4} placeholder="Describe the nature of your enterprise and its intended activities within the Empire..."/></div>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:180}}>
+            <FL>STRATEGIC CLASSIFICATION *</FL>
+            <DD value={strategicClass} onChange={setStrategicClass} options={STRATEGIC_CLASSES.map(s=>({v:s,l:s}))}/>
+            {strategicClass!=="Civillian"&&<Disclaimer type="warning">Non-civilian classification must be confirmed by a Ministry officer prior to registration taking effect.</Disclaimer>}
+          </div>
+          <div style={{flex:1,minWidth:180}}>
+            <FL>REVENUE BAND *</FL>
+            <DD value={revenueBand} onChange={setRevenueBand} options={[{v:"",l:"\u2014 Select revenue band \u2014"},...REVENUE_BANDS]}/>
+          </div>
+        </div>
+        <div><FL>EMPLOYEE COUNT <span style={{fontStyle:"italic",color:C.textDD,fontWeight:400,letterSpacing:0}}>(usernames and/or number, optional)</span></FL><Inp value={employeeCount} onChange={setEmployeeCount} placeholder="e.g. 3 full-time employees"/></div>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",marginTop:"1.25rem"}}>
+        <Btn variant="ghost" onClick={()=>setStep(2)}>\u2190 Back</Btn>
+        <Btn disabled={!step3Valid} onClick={()=>setStep(4)}>Next \u2192</Btn>
+      </div>
+    </div>}
+
+    {step===4&&<div className="fadeIn">
+      <div className="mono" style={{fontSize:9,letterSpacing:"0.2em",color:C.textD,marginBottom:"0.85rem"}}>STEP 4 \u2014 LOCATION & COMPLIANCE</div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.85rem"}}>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:180}}>
+            <FL>COUNTRY OF REGISTRATION / HQ *</FL>
+            <DD value={hqCountry} onChange={setHqCountry} options={[{v:"",l:"\u2014 Select country \u2014"},...countryOpts.map(c=>({v:c,l:c}))]}/>
+          </div>
+          <div style={{flex:1,minWidth:180}}>
+            <FL>PRINCIPAL OFFICE LOCATION <span style={{fontStyle:"italic",color:C.textDD,fontWeight:400,letterSpacing:0}}>(areashop region)</span></FL>
+            <Inp value={hqLocation} onChange={setHqLocation} placeholder="Region or city name"/>
+          </div>
+        </div>
+        <div><FL>ADDITIONAL LOCATIONS / PARTIAL OWNERSHIP <span style={{fontStyle:"italic",color:C.textDD,fontWeight:400,letterSpacing:0}}>(optional)</span></FL><Inp value={additionalLocations} onChange={setAdditionalLocations} placeholder="List other regions; include ownership % if partial"/></div>
+        <div>
+          <FL>SPECIAL LICENSES CURRENTLY HELD <span style={{fontStyle:"italic",color:C.textDD,fontWeight:400,letterSpacing:0}}>(select all that apply)</span></FL>
+          <MultiCheck options={SPECIAL_LICENSES} selected={licensesHeld} onChange={setLicensesHeld} cols={2}/>
+        </div>
+        <div>
+          <FL>SPECIAL LICENSES BEING SOUGHT <span style={{fontStyle:"italic",color:C.textDD,fontWeight:400,letterSpacing:0}}>(select all that apply)</span></FL>
+          <MultiCheck options={SPECIAL_LICENSES} selected={licensesSeeking} onChange={setLicensesSeeking} cols={2}/>
+        </div>
+        <div onClick={()=>setColonialLicense(v=>!v)} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
+          <div style={{width:16,height:16,border:"2px solid "+(colonialLicense?C.gold:C.border),borderRadius:2,background:colonialLicense?C.goldD:"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:colonialLicense?C.gold:C.textDD}}>{colonialLicense?"\u2713":""}</div>
+          <span style={{fontSize:13,color:colonialLicense?C.text:C.textD}}>Colonial Special Operations license held (Ministry of Colonies)</span>
+        </div>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",marginTop:"1.25rem"}}>
+        <Btn variant="ghost" onClick={()=>setStep(3)}>\u2190 Back</Btn>
+        <Btn disabled={!step4Valid} onClick={()=>setStep(5)}>Review \u2192</Btn>
+      </div>
+    </div>}
+
+    {step===5&&<div className="fadeIn">
+      <div className="mono" style={{fontSize:9,letterSpacing:"0.2em",color:C.textD,marginBottom:"0.85rem"}}>REVIEW YOUR APPLICATION</div>
+      <div style={{background:C.s1,border:"1px solid "+C.border,borderTop:"3px solid "+C.gold,borderRadius:"0 0 4px 4px",padding:"1.25rem",marginBottom:"1rem"}}>
+        <div style={{marginBottom:"0.75rem"}}><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:3}}>LEGAL NAME</div><div style={{fontFamily:"'Cinzel',serif",fontSize:15,color:C.text}}>{legalName}</div>{tradingNamesRaw&&<div style={{fontSize:12,color:C.textD,fontStyle:"italic"}}>Trading as: {tradingNamesRaw}</div>}</div>
+        <div style={{display:"flex",gap:"1.5rem",flexWrap:"wrap",marginBottom:"0.75rem"}}>
+          <div><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:2}}>TYPE</div><div style={{fontSize:13,color:C.text}}>{entityType}</div></div>
+          <div><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:2}}>HQ</div><div style={{fontSize:13,color:C.text}}>{hqCountry}{hqLocation?" \u2014 "+hqLocation:""}</div></div>
+          <div><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:2}}>CLASSIFICATION</div><div style={{fontSize:13,color:C.text}}>{strategicClass}</div></div>
+          <div><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:2}}>REVENUE</div><div style={{fontSize:13,color:C.text}}>{REVENUE_BANDS.find(r=>r.v===revenueBand)?.l||revenueBand}</div></div>
+        </div>
+        <div style={{marginBottom:"0.75rem"}}><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:3}}>OWNERS</div>{owners.map((o,i)=><div key={i} style={{fontSize:13,color:C.text}}>{o.rpName||o.username} ({o.pct}%)</div>)}</div>
+        {industries.length>0&&<div style={{marginBottom:"0.75rem"}}><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:3}}>INDUSTRIES</div><div style={{fontSize:12,color:C.textD}}>{industries.join(", ")}</div></div>}
+        <div style={{borderTop:"1px solid "+C.border,paddingTop:"0.75rem"}}><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:3}}>DESCRIPTION</div><div style={{fontSize:13,color:C.text,lineHeight:1.7}}>{description}</div></div>
+      </div>
+      <Disclaimer type="info">By submitting this application you declare the information provided is accurate to the best of your knowledge. Wilful false declarations may result in refusal or revocation of registration.</Disclaimer>
+      <div style={{display:"flex",justifyContent:"space-between",marginTop:"1.25rem",alignItems:"center"}}>
+        <Btn variant="ghost" onClick={()=>setStep(4)}>\u2190 Edit</Btn>
+        <Btn disabled={saving} onClick={submitForm}>{saving?"Submitting...":"Submit Application"}</Btn>
+      </div>
+    </div>}
+  </div>;
+}
+
+// ── PAYROLL PUBLIC VIEW ───────────────────────────────────────────────────────
+function PayrollPublic({payroll}){
+  const grouped=useMemo(()=>{
+    const g={};PAYROLL_CATEGORIES.forEach(c=>{g[c]=[];});
+    Object.values(payroll||{}).forEach(p=>{if(g[p.category])g[p.category].push(p);else if(g.Extra)g.Extra.push(p);});
+    return g;
+  },[payroll]);
+  const hasAny=Object.values(grouped).some(arr=>arr.length>0);
+  if(!hasAny)return <div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No payroll rates on record.</div>;
+  return <div className="fadeIn">
+    <div style={{fontSize:13,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.5rem"}}>Imperial paycheck rates by permission group. Payments are executed automatically in-game by the server economy plugin.</div>
+    {PAYROLL_CATEGORIES.map(cat=>{
+      const entries=grouped[cat]||[];if(entries.length===0)return null;
+      entries.sort((a,b)=>(a.pexGroup||"").localeCompare(b.pexGroup||""));
+      const total=entries.reduce((a,e)=>a+(Number(e.amount)||0),0);
+      return <div key={cat} style={{marginBottom:"1rem",border:"1px solid "+C.border,borderRadius:6,overflow:"hidden"}}>
+        <div style={{background:C.s1,padding:"6px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"1px solid "+C.border}}>
+          <span className="mono" style={{fontSize:9,color:C.gold,letterSpacing:"0.2em"}}>{cat.toUpperCase()}</span>
+          <span className="mono" style={{fontSize:9,color:C.textDD}}>{entries.length} GROUP{entries.length!==1?"S":""}</span>
+        </div>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+          <thead><tr style={{borderBottom:"1px solid "+C.border}}>
+            <th style={{padding:"6px 14px",textAlign:"left",fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.12em",color:C.textD,fontWeight:500}}>PEX GROUP</th>
+            <th style={{padding:"6px 14px",textAlign:"left",fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.12em",color:C.textD,fontWeight:500}}>ROLE / TITLE</th>
+            <th style={{padding:"6px 14px",textAlign:"right",fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.12em",color:C.textD,fontWeight:500}}>PAYCHECK</th>
+          </tr></thead>
+          <tbody>{entries.map(e=><tr key={e.id} style={{borderBottom:"1px solid "+C.border+"55"}}>
+            <td style={{padding:"7px 14px",color:C.text,fontFamily:"'Share Tech Mono',monospace",fontSize:11}}>{e.pexGroup}</td>
+            <td style={{padding:"7px 14px",color:C.textD,fontStyle:"italic",fontSize:13}}>{e.roleName||"\u2014"}</td>
+            <td style={{padding:"7px 14px",textAlign:"right",fontFamily:"'Cinzel',serif",fontSize:13,color:C.gold,fontWeight:600}}>{fmtCur(e.amount)}</td>
+          </tr>)}
+          </tbody>
+        </table>
+      </div>;
+    })}
+  </div>;
+}
+
+// ── DEBT LEDGER PUBLIC VIEW ───────────────────────────────────────────────────
+function DebtPublic({debts}){
+  const [filter,setFilter]=useState("all");
+  const list=useMemo(()=>Object.values(debts||{}).filter(d=>filter==="all"||d.status===filter||d.direction===filter).sort((a,b)=>(b.issuedAt||0)-(a.issuedAt||0)),[debts,filter]);
+  const outstanding=useMemo(()=>Object.values(debts||{}).filter(d=>d.status==="active"),[ debts]);
+  const totalBorrowed=outstanding.filter(d=>d.direction==="borrow").reduce((a,d)=>a+(Number(d.principal)||0),0);
+  const totalLent=outstanding.filter(d=>d.direction==="lend").reduce((a,d)=>a+(Number(d.principal)||0),0);
+  if(!Object.values(debts||{}).length)return <div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No debt or bond records on file.</div>;
+  return <div className="fadeIn">
+    <div style={{display:"flex",gap:"0.75rem",marginBottom:"1.5rem",flexWrap:"wrap"}}>
+      <div style={{flex:1,minWidth:180,background:C.s1,border:"1px solid "+C.red,borderTop:"3px solid "+C.redL,borderRadius:"0 0 4px 4px",padding:"0.85rem 1rem"}}>
+        <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>TOTAL OUTSTANDING (BORROWED)</div>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:C.redL}}>{fmtCur(totalBorrowed)}</div>
+      </div>
+      <div style={{flex:1,minWidth:180,background:C.s1,border:"1px solid "+C.green,borderTop:"3px solid "+C.greenL,borderRadius:"0 0 4px 4px",padding:"0.85rem 1rem"}}>
+        <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>TOTAL OUTSTANDING (LENT)</div>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:C.greenL}}>{fmtCur(totalLent)}</div>
+      </div>
+    </div>
+    <div style={{display:"flex",gap:4,marginBottom:"1rem",flexWrap:"wrap"}}>
+      {[["all","All"],["borrow","Crown Borrows"],["lend","Crown Lends"],["active","Active"],["settled","Settled"],["defaulted","Defaulted"]].map(([v,l])=><button key={v} onClick={()=>setFilter(v)} style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.08em",textTransform:"uppercase",padding:"3px 10px",background:filter===v?C.s2:"transparent",border:"1px solid "+(filter===v?C.gold:C.border),color:filter===v?C.gold:C.textD,borderRadius:1,cursor:"pointer"}}>{l}</button>)}
+    </div>
+    {list.length===0?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No records match this filter.</div>
+    :<div style={{display:"flex",flexDirection:"column",gap:"0.4rem"}}>
+      {list.map(d=><div key={d.id} style={{background:C.s1,border:"1px solid "+C.border,borderLeft:"4px solid "+(d.direction==="borrow"?C.redD:C.greenD),borderRadius:"0 3px 3px 0",padding:"0.75rem 1rem"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:4}}>
+          <StatusBadge status={d.status==="active"?"active_debt":d.status}/>
+          <span className="mono" style={{fontSize:9,padding:"2px 6px",border:"1px solid "+(d.direction==="borrow"?C.redD+"66":C.greenD+"66"),color:d.direction==="borrow"?C.redL:C.greenL,background:d.direction==="borrow"?"#1a0808":"#0a1a0e",borderRadius:1}}>{d.direction==="borrow"?"CROWN BORROWS":"CROWN LENDS"}</span>
+          <span className="mono" style={{fontSize:9,color:C.textD}}>{d.type==="bond"?"BOND":"LOAN"}</span>
+          <span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{d.counterparty}</span>
+          <span className="mono" style={{fontSize:11,color:d.direction==="borrow"?C.redL:C.greenL,fontWeight:700}}>{fmtCur(d.principal)}</span>
+        </div>
+        <div style={{display:"flex",gap:"1.5rem",flexWrap:"wrap",fontSize:12,color:C.textD}}>
+          {d.interestRate&&<span>{d.interestRate}% interest</span>}
+          {d.issuedAt&&<span>Issued {fmtDateShort(d.issuedAt)}</span>}
+          {d.dueAt&&<span style={{color:d.status==="active"&&d.dueAt<Date.now()?C.redL:C.textD}}>Due {fmtDateShort(d.dueAt)}</span>}
+          {d.counterpartyType==="state"&&<span style={{color:C.blueL}}>Foreign State</span>}
+        </div>
+        {d.notes&&<div style={{fontSize:12,color:C.textDD,fontStyle:"italic",marginTop:4}}>{d.notes}</div>}
+      </div>)}
+    </div>}
+  </div>;
+}
+
+// ── PANEL AUTH ────────────────────────────────────────────────────────────────
+function PanelAuth({onAuth,onCancel}){
+  const [username,setUsername]=useState("");const [password,setPassword]=useState("");
+  const [err,setErr]=useState("");const [loading,setLoading]=useState(false);
+  async function doAuth(){
+    if(!username.trim()||!password.trim()){setErr("Credentials required.");return;}
+    setLoading(true);setErr("");
+    try{
+      const raw=await sgetAll();const accounts={};
+      Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v)accounts[v.username]=v;});
+      Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(!accounts[k])accounts[k]=v;});
+      const user=Object.values(accounts).find(a=>a.username.toLowerCase()===username.trim().toLowerCase());
+      if(!user){setErr("ACCESS DENIED.");setLoading(false);return;}
+      const hash=await sha256(password);
+      if(hash!==user.passwordHash){setErr("ACCESS DENIED.");setLoading(false);return;}
+      const hasAccess=user.role==="emperor"||user.mofAccess||user.mofRole;
+      if(!hasAccess){setErr("AUTHORISATION DENIED \u2014 Finance panel access not granted.");setLoading(false);return;}
+      onAuth(user,raw);
+    }catch(e){setErr("Connection error: "+e.message);}
+    setLoading(false);
+  }
+  return <div style={{maxWidth:420,margin:"0 auto"}}>
+    <STitle>Finance Panel Authentication</STitle>
+    <div style={{background:C.s1,border:"1px solid "+C.border,borderTop:"3px solid "+C.gold,padding:"1.75rem"}}>
+      <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.8,marginBottom:"1.25rem",textAlign:"center"}}>Restricted to officers of the Ministry of Finance. Authenticate using your Imperial Intranet credentials.</div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+        <div><FL>USERNAME</FL><Inp value={username} onChange={setUsername} placeholder="Username"/></div>
+        <div><FL>PASSWORD</FL><Inp value={password} onChange={setPassword} type="password" placeholder="Password"/></div>
+        {err&&<div className="mono" style={{fontSize:10,color:C.redL,background:"#1a0808",border:"1px solid "+C.redD+"44",padding:"7px 12px"}}>{err}</div>}
+        <Btn onClick={doAuth} disabled={loading||!username.trim()||!password.trim()}>{loading?"Authenticating...":"Authenticate"}</Btn>
+        <Btn variant="ghost" onClick={onCancel}>Cancel</Btn>
+      </div>
+    </div>
+  </div>;
+}
+
+// ── PANEL: REGISTRY MANAGEMENT ────────────────────────────────────────────────
+function PanelRegistry({businesses,countries,onAction,notify,setProcessing,isMinister}){
+  const [sub,setSub]=useState("review");
+  const [search,setSearch]=useState("");
+  const pending=Object.values(businesses||{}).filter(b=>b.licenseStatus==="pending");
+  const allList=useMemo(()=>Object.values(businesses||{}).filter(b=>{const q=search.toLowerCase();return!q||b.legalName?.toLowerCase().includes(q)||(b.registrationNo||"").toLowerCase().includes(q);}).sort((a,b)=>(b.registered||0)-(a.registered||0)),[businesses,search]);
+
+  return <div>
+    <div style={{display:"flex",gap:0,borderBottom:"1px solid "+C.border,marginBottom:"1.5rem"}}>
+      {[["review","Applications"+(pending.length>0?" ("+pending.length+")":"")],["all","All Enterprises"],["add","Register Enterprise"]].map(([v,l])=><button key={v} onClick={()=>setSub(v)} style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.15em",textTransform:"uppercase",padding:"0.6rem 1rem",background:"transparent",border:"none",cursor:"pointer",borderBottom:"2px solid "+(sub===v?C.gold:"transparent"),color:sub===v?C.gold:C.textD}}>{l}</button>)}
+    </div>
+
+    {sub==="review"&&<div>
+      {pending.length===0?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No pending applications.</div>
+      :pending.map(b=><PanelBusinessCard key={b.id} business={b} onAction={onAction} notify={notify} setProcessing={setProcessing} isMinister={isMinister}/>)}
+    </div>}
+
+    {sub==="all"&&<div>
+      <div style={{marginBottom:"1rem"}}><Inp value={search} onChange={setSearch} placeholder="Search by name or registration number..."/></div>
+      <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:"0.75rem"}}>{allList.length} ENTERPRISE{allList.length!==1?"S":""}</div>
+      {allList.map(b=><PanelBusinessCard key={b.id} business={b} onAction={onAction} notify={notify} setProcessing={setProcessing} isMinister={isMinister}/>)}
+    </div>}
+
+    {sub==="add"&&<RegistrationForm countries={countries} businesses={businesses}
+      onSubmit={async(biz)=>{setProcessing("Registering...");await onAction("createBusiness",biz);setProcessing(null);notify(biz.registrationNo+" registered (pending).",C.gold);setSub("review");}}
+      onCancel={()=>setSub("all")}/>}
+  </div>;
+}
+
+function PanelBusinessCard({business:b,onAction,notify,setProcessing,isMinister}){
+  const [open,setOpen]=useState(b.licenseStatus==="pending");
+  const [notes,setNotes]=useState(b.registrationNotes||"");
+  const [status,setStatus]=useState(b.licenseStatus||"pending");
+  const [saving,setSaving]=useState(false);
+  async function saveStatus(){setSaving(true);setProcessing("Updating...");await onAction("updateBusiness",{id:b.id,licenseStatus:status,registrationNotes:notes});setProcessing(null);setSaving(false);notify(b.registrationNo+" updated.",C.gold);}
+  return <div style={{background:C.s1,border:"1px solid "+(b.licenseStatus==="pending"?"#4a3000":C.border),borderLeft:"4px solid "+(b.licenseStatus==="active"?C.greenD:b.licenseStatus==="pending"?C.amberD:C.redD),borderRadius:"0 3px 3px 0",marginBottom:"0.5rem",overflow:"hidden"}}>
+    <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"0.75rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
+      <StatusBadge status={b.licenseStatus||"pending"}/>
+      <span className="mono" style={{fontSize:9,color:C.textD}}>{b.registrationNo}</span>
+      <span style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text,flex:1}}>{b.legalName}</span>
+      <span style={{fontSize:11,color:C.textD,fontStyle:"italic"}}>{b.entityType}</span>
+      <span style={{fontSize:11,color:C.textDD}}>{open?"\u25B2":"\u25BC"}</span>
+    </div>
+    {open&&<div style={{borderTop:"1px solid "+C.border,padding:"1rem",background:C.s2}}>
+      <div style={{display:"flex",gap:"1.5rem",flexWrap:"wrap",marginBottom:"0.85rem",fontSize:13,color:C.textD}}>
+        {b.owners?.map((o,i)=><span key={i}>{o.rpName||o.username} ({o.pct}%)</span>)}
+        {b.hqCountry&&<span>HQ: {b.hqCountry}{b.hqLocation?" \u2014 "+b.hqLocation:""}</span>}
+        {b.industries?.length>0&&<span>{b.industries.join(", ")}</span>}
+        {b.strategicClass&&b.strategicClass!=="Civillian"&&<span style={{color:C.amber}}>{b.strategicClass}</span>}
+      </div>
+      {b.description&&<div style={{fontSize:13,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"0.85rem"}}>{b.description}</div>}
+      {isMinister&&<div style={{background:C.s1,border:"1px solid "+C.border,borderRadius:3,padding:"0.85rem",marginTop:"0.5rem"}}>
+        <div className="mono" style={{fontSize:9,color:C.textD,letterSpacing:"0.15em",marginBottom:"0.75rem"}}>MINISTRY ACTIONS</div>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap",alignItems:"flex-end",marginBottom:"0.65rem"}}>
+          <div style={{flex:1,minWidth:160}}><FL>LICENSE STATUS</FL>
+            <DD value={status} onChange={setStatus} options={LICENSE_STATUSES.map(s=>({v:s,l:s.charAt(0).toUpperCase()+s.slice(1)}))}/>
+          </div>
+          <Btn small variant={status==="active"?"green":status==="revoked"?"danger":"primary"} disabled={saving} onClick={saveStatus}>{saving?"Saving...":"Update Status"}</Btn>
+          <ArmBtn small label="Delete Record" confirmLabel="Delete permanently?" onConfirm={async()=>{setProcessing("Removing...");await onAction("deleteBusiness",{id:b.id});setProcessing(null);notify(b.registrationNo+" deleted.",C.textD);}}/>
+        </div>
+        <div><FL>MINISTRY NOTES / REJECTION REASON</FL><TA value={notes} onChange={setNotes} rows={2} placeholder="Internal notes or reason for rejection/suspension..."/></div>
+        {notes!==b.registrationNotes&&<div style={{marginTop:6}}><Btn small variant="ghost" onClick={async()=>{setSaving(true);await onAction("updateBusiness",{id:b.id,registrationNotes:notes});setSaving(false);notify("Notes saved.",C.textD);}}>Save Notes</Btn></div>}
+      </div>}
+    </div>}
+  </div>;
+}
+
+// ── PANEL: PAYROLL MANAGEMENT ─────────────────────────────────────────────────
+function PanelPayroll({payroll,onAction,notify,setProcessing,canEdit}){
+  const [pexGroup,setPexGroup]=useState("");const [roleName,setRoleName]=useState("");
+  const [category,setCategory]=useState("Imperial Household");const [amount,setAmount]=useState("");
+  const [saving,setSaving]=useState(false);
+  const grouped=useMemo(()=>{const g={};PAYROLL_CATEGORIES.forEach(c=>{g[c]=[];});Object.values(payroll||{}).forEach(p=>{if(g[p.category])g[p.category].push(p);else g.Extra.push(p);});return g;},[payroll]);
+  return <div>
+    {canEdit&&<div style={{background:C.s2,border:"1px solid "+C.border,borderTop:"3px solid "+C.gold,borderRadius:"0 0 4px 4px",padding:"1.25rem",marginBottom:"1.5rem"}}>
+      <div className="mono" style={{fontSize:9,color:C.textD,letterSpacing:"0.15em",marginBottom:"0.75rem"}}>ADD / UPDATE PEX GROUP RATE</div>
+      <div style={{display:"flex",gap:"0.65rem",flexWrap:"wrap",marginBottom:"0.65rem"}}>
+        <div style={{flex:2,minWidth:160}}><FL>PEX GROUP *</FL><Inp value={pexGroup} onChange={setPexGroup} placeholder="e.g. imperial.household.emperor"/></div>
+        <div style={{flex:2,minWidth:140}}><FL>ROLE NAME <span style={{fontStyle:"italic",color:C.textDD,fontWeight:400,letterSpacing:0}}>(optional)</span></FL><Inp value={roleName} onChange={setRoleName} placeholder="e.g. Emperor"/></div>
+        <div style={{flex:1,minWidth:120}}><FL>CATEGORY</FL><DD value={category} onChange={setCategory} options={PAYROLL_CATEGORIES.map(c=>({v:c,l:c}))}/></div>
+        <div style={{flex:1,minWidth:100}}><FL>PAYCHECK ($) *</FL><Inp value={amount} onChange={setAmount} placeholder="0" type="number"/></div>
+      </div>
+      <Btn small disabled={!pexGroup.trim()||!amount||saving} onClick={async()=>{
+        setSaving(true);setProcessing("Saving...");
+        await onAction("setPayroll",{id:"pay_"+uid(),pexGroup:pexGroup.trim(),roleName:roleName.trim(),category,amount:Number(amount),updatedAt:Date.now()});
+        setProcessing(null);setSaving(false);notify(pexGroup+" rate set.",C.gold);
+        setPexGroup("");setRoleName("");setAmount("");
+      }}>{saving?"Saving...":"Set Rate"}</Btn>
+    </div>}
+    {PAYROLL_CATEGORIES.map(cat=>{
+      const entries=(grouped[cat]||[]).sort((a,b)=>(a.pexGroup||"").localeCompare(b.pexGroup||""));
+      if(entries.length===0)return null;
+      return <div key={cat} style={{marginBottom:"1rem",border:"1px solid "+C.border,borderRadius:6,overflow:"hidden"}}>
+        <div style={{background:C.s1,padding:"6px 14px",borderBottom:"1px solid "+C.border}}><span className="mono" style={{fontSize:9,color:C.gold,letterSpacing:"0.2em"}}>{cat.toUpperCase()}</span></div>
+        {entries.map(e=><div key={e.id} style={{padding:"8px 14px",display:"flex",alignItems:"center",gap:12,borderBottom:"1px solid "+C.border+"44",flexWrap:"wrap"}}>
+          <span className="mono" style={{fontSize:11,color:C.text,flex:1}}>{e.pexGroup}</span>
+          <span style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>{e.roleName||""}</span>
+          <span className="mono" style={{fontSize:13,color:C.gold,fontWeight:700}}>{fmtCur(e.amount)}</span>
+          {canEdit&&<ArmBtn small label="Remove" confirmLabel="Remove rate?" onConfirm={async()=>{setProcessing("Removing...");await onAction("deletePayroll",{id:e.id});setProcessing(null);notify(e.pexGroup+" removed.",C.textD);}}/>}
+        </div>)}
+      </div>;
+    })}
+  </div>;
+}
+
+// ── PANEL: DEBT MANAGEMENT ────────────────────────────────────────────────────
+function PanelDebt({debts,onAction,notify,setProcessing,canEdit}){
+  const [counterparty,setCounterparty]=useState("");const [counterpartyType,setCounterpartyType]=useState("player");
+  const [type,setType]=useState("loan");const [direction,setDirection]=useState("borrow");
+  const [principal,setPrincipal]=useState("");const [interestRate,setInterestRate]=useState("");
+  const [dueAt,setDueAt]=useState("");const [notes,setNotes]=useState("");
+  const [saving,setSaving]=useState(false);
+  const list=Object.values(debts||{}).sort((a,b)=>(b.issuedAt||0)-(a.issuedAt||0));
+  return <div>
+    {canEdit&&<div style={{background:C.s2,border:"1px solid "+C.border,borderTop:"3px solid "+C.gold,borderRadius:"0 0 4px 4px",padding:"1.25rem",marginBottom:"1.5rem"}}>
+      <div className="mono" style={{fontSize:9,color:C.textD,letterSpacing:"0.15em",marginBottom:"0.75rem"}}>LOG DEBT OR BOND</div>
+      <div style={{display:"flex",gap:"0.65rem",flexWrap:"wrap",marginBottom:"0.65rem"}}>
+        <div style={{flex:2,minWidth:160}}><FL>COUNTERPARTY *</FL><Inp value={counterparty} onChange={setCounterparty} placeholder="Username or state name"/></div>
+        <div style={{flex:1,minWidth:120}}><FL>COUNTERPARTY TYPE</FL><DD value={counterpartyType} onChange={setCounterpartyType} options={[{v:"player",l:"Player"},{v:"state",l:"Foreign State"}]}/></div>
+        <div style={{flex:1,minWidth:100}}><FL>INSTRUMENT</FL><DD value={type} onChange={setType} options={[{v:"loan",l:"Loan"},{v:"bond",l:"Bond"}]}/></div>
+        <div style={{flex:1,minWidth:130}}><FL>DIRECTION</FL><DD value={direction} onChange={setDirection} options={[{v:"borrow",l:"Crown Borrows"},{v:"lend",l:"Crown Lends"}]}/></div>
+      </div>
+      <div style={{display:"flex",gap:"0.65rem",flexWrap:"wrap",marginBottom:"0.65rem"}}>
+        <div style={{flex:1,minWidth:120}}><FL>PRINCIPAL ($) *</FL><Inp value={principal} onChange={setPrincipal} placeholder="0" type="number"/></div>
+        <div style={{flex:1,minWidth:100}}><FL>INTEREST RATE (%)</FL><Inp value={interestRate} onChange={setInterestRate} placeholder="0" type="number"/></div>
+        <div style={{flex:1,minWidth:140}}><FL>DUE DATE (optional)</FL><Inp value={dueAt} onChange={setDueAt} type="date"/></div>
+      </div>
+      <div style={{marginBottom:"0.65rem"}}><FL>NOTES</FL><Inp value={notes} onChange={setNotes} placeholder="Terms, context, or other notes..."/></div>
+      <Btn small disabled={!counterparty.trim()||!principal||saving} onClick={async()=>{
+        setSaving(true);setProcessing("Logging...");
+        await onAction("createDebt",{id:"debt_"+uid(),counterparty:counterparty.trim(),counterpartyType,type,direction,principal:Number(principal),interestRate:Number(interestRate)||0,issuedAt:Date.now(),dueAt:dueAt?new Date(dueAt).getTime():null,status:"active",notes:notes.trim()});
+        setProcessing(null);setSaving(false);notify("Debt record logged.",C.gold);
+        setCounterparty("");setPrincipal("");setInterestRate("");setDueAt("");setNotes("");
+      }}>{saving?"Logging...":"Log Record"}</Btn>
+    </div>}
+    {list.length===0?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No records on file.</div>
+    :list.map(d=>{
+      const [editStatus,setEditStatus]=useState(d.status);
+      return <div key={d.id} style={{background:C.s1,border:"1px solid "+C.border,borderLeft:"4px solid "+(d.direction==="borrow"?C.redD:C.greenD),borderRadius:"0 3px 3px 0",padding:"0.75rem 1rem",marginBottom:"0.4rem",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+        <StatusBadge status={d.status==="active"?"active_debt":d.status}/>
+        <span className="mono" style={{fontSize:9,padding:"2px 6px",border:"1px solid "+(d.direction==="borrow"?C.redD+"66":C.greenD+"66"),color:d.direction==="borrow"?C.redL:C.greenL,background:d.direction==="borrow"?"#1a0808":"#0a1a0e",borderRadius:1}}>{d.direction==="borrow"?"BORROWS":"LENDS"}</span>
+        <span style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text,flex:1}}>{d.counterparty}{d.counterpartyType==="state"?<span style={{fontSize:10,color:C.blueL}}> (State)</span>:""}</span>
+        <span className="mono" style={{fontSize:12,color:d.direction==="borrow"?C.redL:C.greenL}}>{fmtCur(d.principal)}</span>
+        {d.interestRate>0&&<span className="mono" style={{fontSize:9,color:C.textD}}>{d.interestRate}%</span>}
+        {d.dueAt&&<span className="mono" style={{fontSize:9,color:d.status==="active"&&d.dueAt<Date.now()?C.redL:C.textDD}}>Due {fmtDateShort(d.dueAt)}</span>}
+        {canEdit&&<><DD value={editStatus} onChange={setEditStatus} options={DEBT_STATUSES.map(s=>({v:s,l:s.charAt(0).toUpperCase()+s.slice(1)}))} style={{width:120,fontSize:11,padding:"3px 6px"}}/>
+        <Btn small variant="ghost" onClick={async()=>{setProcessing("Updating...");await onAction("updateDebt",{id:d.id,status:editStatus});setProcessing(null);notify("Record updated.",C.gold);}}>Save</Btn>
+        <ArmBtn small label="Delete" confirmLabel="Delete?" onConfirm={async()=>{setProcessing("Removing...");await onAction("deleteDebt",{id:d.id});setProcessing(null);notify("Record deleted.",C.textD);}}/></>}
+      </div>;
+    })}
+  </div>;
+}
+
+// ── FINANCE PANEL ─────────────────────────────────────────────────────────────
+function FinancePanel({user,businesses,payroll,debts,countries,onAction,notify,setProcessing}){
+  const isEmperor=user.role==="emperor";
+  const isMinister=isEmperor||user.mofRole==="minister";
+  const isTreasurer=isMinister||user.mofRole==="treasurer";
+  const [sec,setSec]=useState("registry");
+  return <div className="fadeIn">
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:"1.25rem",flexWrap:"wrap"}}>
+      <STitle style={{marginBottom:0}}>Finance Panel</STitle>
+      <span className="mono" style={{fontSize:9,color:C.textD,marginLeft:"auto"}}>{user.displayName||user.username}{" \u2014 "}{isMinister?"Minister of Finance":isTreasurer?"Treasurer":"Auditor"}</span>
+    </div>
+    <div style={{display:"flex",gap:0,borderBottom:"1px solid "+C.border,marginBottom:"1.5rem",flexWrap:"wrap"}}>
+      {[["registry","Registry"],["payroll","Payroll"],["debt","Debt & Bonds"]].map(([v,l])=><button key={v} onClick={()=>setSec(v)} style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.15em",textTransform:"uppercase",padding:"0.6rem 1rem",background:"transparent",border:"none",cursor:"pointer",borderBottom:"2px solid "+(sec===v?C.gold:"transparent"),color:sec===v?C.gold:C.textD}}>{l}</button>)}
+    </div>
+    {sec==="registry"&&<PanelRegistry businesses={businesses} countries={countries} onAction={onAction} notify={notify} setProcessing={setProcessing} isMinister={isMinister}/>}
+    {sec==="payroll"&&<PanelPayroll payroll={payroll} onAction={onAction} notify={notify} setProcessing={setProcessing} canEdit={isTreasurer}/>}
+    {sec==="debt"&&<PanelDebt debts={debts} onAction={onAction} notify={notify} setProcessing={setProcessing} canEdit={isTreasurer}/>}
+  </div>;
+}
+
+// ── APP ───────────────────────────────────────────────────────────────────────
+function App(){
+  const [tab,setTab]=useState("budget");
+  const [raw,setRaw]=useState({});const [loaded,setLoaded]=useState(false);
+  const [panelUser,setPanelUser]=useState(null);const [panelAuth,setPanelAuth]=useState(false);
+  const [toast,setToast]=useState({msg:"",color:""});const [processing,setProcessing]=useState(null);
+
+  const notify=useCallback((msg,color=C.gold)=>{setToast({msg:msg,color:color});setTimeout(()=>setToast(t=>t.msg===msg?{msg:"",color:color}:t),4000);},[]);
+
+  useEffect(()=>{
+    Promise.all([
+      sgetAll(),
+      fetch(BK_URL+"?action=getall").then(r=>r.json()).then(d=>{if(!d.success)return{};const out={};Object.entries(d.data||{}).forEach(([k,v])=>{if(v){try{out[k]=JSON.parse(v);}catch{}}});return out;}).catch(()=>({}))
+    ]).then(([sharedRaw,bkRaw])=>{setRaw({...sharedRaw,...bkRaw});setLoaded(true);});
+  },[]);
+
+  const activeBudget=useMemo(()=>raw["bk_active_budget"]||null,[raw]);
+  const budgetCooldown=useMemo(()=>raw["bk_budget_cooldown"]||null,[raw]);
+  const bkBills=useMemo(()=>{const b={};Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("bk_bill_")&&v)b[k]=v;});return b;},[raw]);
+  const countries=useMemo(()=>raw["mfa_countries"]||{},[raw]);
+  const businesses=useMemo(()=>raw["mof_businesses"]||{},[raw]);
+  const payroll=useMemo(()=>raw["mof_payroll"]||{},[raw]);
+  const debts=useMemo(()=>raw["mof_debts"]||{},[raw]);
+
+  const onAction=useCallback(async(type,payload)=>{
+    if(type==="createBusiness"){const next={...businesses,[payload.id]:payload};setRaw(r=>({...r,mof_businesses:next}));await sset("mof_businesses",next);}
+    else if(type==="updateBusiness"){const {id,...rest}=payload;const next={...businesses,[id]:{...businesses[id],...rest,updatedAt:Date.now()}};setRaw(r=>({...r,mof_businesses:next}));await sset("mof_businesses",next);}
+    else if(type==="deleteBusiness"){const next={...businesses};delete next[payload.id];setRaw(r=>({...r,mof_businesses:next}));await sset("mof_businesses",next);}
+    else if(type==="setPayroll"){const next={...payroll,[payload.id]:payload};setRaw(r=>({...r,mof_payroll:next}));await sset("mof_payroll",next);}
+    else if(type==="deletePayroll"){const next={...payroll};delete next[payload.id];setRaw(r=>({...r,mof_payroll:next}));await sset("mof_payroll",next);}
+    else if(type==="createDebt"){const next={...debts,[payload.id]:payload};setRaw(r=>({...r,mof_debts:next}));await sset("mof_debts",next);}
+    else if(type==="updateDebt"){const {id,...rest}=payload;const next={...debts,[id]:{...debts[id],...rest}};setRaw(r=>({...r,mof_debts:next}));await sset("mof_debts",next);}
+    else if(type==="deleteDebt"){const next={...debts};delete next[payload.id];setRaw(r=>({...r,mof_debts:next}));await sset("mof_debts",next);}
+  },[raw,businesses,payroll,debts]);
+
+  const TABS=[{v:"budget",l:"Treasury",icon:"\u2696"},{v:"registry",l:"Registry",icon:"\uD83C\uDFDB"},{v:"register",l:"Register",icon:"\u270D"},{v:"payroll",l:"Payroll",icon:"\uD83D\uDCB0"},{v:"ledger",l:"Debt Ledger",icon:"\uD83D\uDCCA"},{v:"panel",l:"Panel",icon:"\u2699"}];
+  function handleTab(v){if(v==="panel"&&!panelUser){setPanelAuth(true);return;}setTab(v);setPanelAuth(false);}
+
+  return <div style={{background:C.bg,minHeight:"100vh",color:C.text}}>
+    <Toast msg={toast.msg} color={toast.color}/>
+    <Overlay label={processing}/>
+    <div style={{background:C.s1,borderBottom:"1px solid "+C.border,padding:"0 1.25rem"}}>
+      <div style={{maxWidth:1100,margin:"0 auto"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,padding:"0.85rem 0",borderBottom:"1px solid "+C.border}}>
+          <a href="index.html" style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",color:C.textD,textDecoration:"none",border:"1px solid "+C.border,borderRadius:2,padding:"3px 10px",flexShrink:0}}>{"\u2190 Network"}</a>
+          <div style={{flex:1,textAlign:"center"}}>
+            <div className="mono" style={{fontSize:8,letterSpacing:"0.5em",color:C.textDD,marginBottom:3}}>EMPIRE OF LECH</div>
+            <div style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:18,letterSpacing:"0.12em",color:C.text}}>Ministry of Finance</div>
+          </div>
+          <div style={{width:80}}/>
+        </div>
+        <div style={{display:"flex",overflowX:"auto"}}>
+          {TABS.map(t=><button key={t.v} onClick={()=>handleTab(t.v)} style={{fontFamily:"'Cinzel',serif",fontSize:10,fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",padding:"0.65rem 1rem",background:"transparent",border:"none",whiteSpace:"nowrap",cursor:"pointer",flexShrink:0,borderBottom:"2px solid "+(tab===t.v&&!panelAuth?C.gold:"transparent"),color:tab===t.v&&!panelAuth?C.gold:C.textD}}>{t.icon}{" "}{t.l}</button>)}
+        </div>
+      </div>
+    </div>
+    <div style={{maxWidth:1100,margin:"0 auto",padding:"1.75rem 1.25rem"}}>
+      {!loaded&&<div style={{textAlign:"center",padding:"4rem",color:C.textDD}}><div className="mono" style={{fontSize:10,letterSpacing:"0.3em",animation:"pulse 1.5s infinite"}}>Loading...</div></div>}
+      {loaded&&panelAuth&&!panelUser&&<PanelAuth onAuth={(u,r)=>{setPanelUser(u);setRaw(prev=>({...prev,...r}));setPanelAuth(false);setTab("panel");notify("Authenticated.",C.gold);}} onCancel={()=>setPanelAuth(false)}/>}
+      {loaded&&!panelAuth&&tab==="budget"&&<BudgetTracker activeBudget={activeBudget} budgetCooldown={budgetCooldown} bkBills={bkBills}/>}
+      {loaded&&!panelAuth&&tab==="registry"&&<RegistryPublic businesses={businesses}/>}
+      {loaded&&!panelAuth&&tab==="register"&&<RegistrationForm countries={countries} businesses={businesses} onSubmit={async(biz)=>{await onAction("createBusiness",biz);notify(biz.registrationNo+" application submitted.",C.gold);setTab("registry");}} onCancel={()=>setTab("registry")}/>}
+      {loaded&&!panelAuth&&tab==="payroll"&&<PayrollPublic payroll={payroll}/>}
+      {loaded&&!panelAuth&&tab==="ledger"&&<DebtPublic debts={debts}/>}
+      {loaded&&!panelAuth&&tab==="panel"&&panelUser&&<FinancePanel user={panelUser} businesses={businesses} payroll={payroll} debts={debts} countries={countries} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+      {loaded&&!panelAuth&&tab==="panel"&&!panelUser&&<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>Authentication required. Click Panel to log in.</div>}
+    </div>
+    <div style={{borderTop:"1px solid "+C.border,padding:"0.75rem 1.25rem",marginTop:"3rem"}}>
+      <div className="mono" style={{maxWidth:1100,margin:"0 auto",fontSize:9,color:C.textDD,letterSpacing:"0.15em",textAlign:"center"}}>{"Ministry of Finance \u00B7 Empire of Lech \u00B7 Fiat Pecunia"}</div>
+    </div>
+  </div>;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

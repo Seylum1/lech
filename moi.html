@@ -1161,11 +1161,137 @@ function LFPDirectorPanel({currentUser,accounts,arrests,lfpOps,onAction,notify,s
 }
 
 // ── MINISTER PANEL ────────────────────────────────────────────────────────────
-function MinisterPanel({currentUser,accounts,onUpdate,notify,setProcessing}){
+// ── PERMISSIONS REFERENCE ────────────────────────────────────────────────────
+function PermissionsReference(){
+  const T={width:"100%",borderCollapse:"collapse",fontSize:12};
+  const TH={padding:"6px 10px",textAlign:"center",fontWeight:500,fontSize:11,
+    color:C.textD,borderBottom:`1px solid ${C.border}`,background:C.s1,whiteSpace:"nowrap"};
+  const THL={...TH,textAlign:"left",paddingLeft:14};
+  const TD={padding:"8px 10px",textAlign:"center",borderBottom:`1px solid ${C.border}33`,
+    color:C.textDD,verticalAlign:"middle"};
+  const TDL={...TD,textAlign:"left",paddingLeft:14,fontWeight:500,color:C.text};
+  const Y=<span style={{color:"#5aaa5a",fontSize:13,fontWeight:500}}>✓</span>;
+  const N=<span style={{color:C.textDD}}>—</span>;
+  const Lv=({c})=><span style={{fontSize:10,padding:"1px 6px",borderRadius:2,border:`1px solid ${C.border}`,color:C.textD,whiteSpace:"nowrap"}}>{c}</span>;
+  const Sec=({title,children})=><div style={{border:`1px solid ${C.border}`,borderRadius:6,overflow:"hidden",marginBottom:12}}>
+    <div className="mono" style={{padding:"6px 14px",fontSize:9,letterSpacing:"0.15em",color:C.textD,
+      background:C.s1,borderBottom:`1px solid ${C.border}`}}>{title}</div>
+    {children}
+  </div>;
+  const Note=({children})=><div style={{padding:"6px 14px",fontSize:11,color:C.textDD,
+    borderTop:`1px solid ${C.border}33`,background:C.s1}}>{children}</div>;
+  return <div style={{marginTop:"1.5rem",animation:"fadeIn .2s ease"}}>
+    <Sec title="SYSTEM ROLE">
+      <table style={T}><thead><tr>
+        <th style={THL}>Role</th>
+        <th style={TH}>Clearances</th>
+        <th style={TH}>LSS panel</th>
+        <th style={TH}>LFP panel</th>
+        <th style={TH}>Prosecutions</th>
+        <th style={TH}>Minister tab</th>
+        <th style={TH}>Emperor tab</th>
+      </tr></thead><tbody>
+        <tr><td style={{...TDL,color:C.textD}}>Civilian</td><td style={TD}>{Y}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={{...TDL,color:"#378ADD"}}>LSS Agent</td><td style={TD}>{Y}</td><td style={TD}><Lv c="agent"/></td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={{...TDL,color:"#378ADD"}}>LFP Officer</td><td style={TD}>{Y}</td><td style={TD}>{N}</td><td style={TD}><Lv c="officer"/></td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={{...TDL,color:"#1D9E75"}}>LSS Director</td><td style={TD}>{Y}</td><td style={TD}><Lv c="director"/></td><td style={TD}>{N}</td><td style={TD}>{Y}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={{...TDL,color:"#1D9E75"}}>LFP Director</td><td style={TD}>{Y}</td><td style={TD}>{N}</td><td style={TD}><Lv c="director"/></td><td style={TD}>{Y}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={{...TDL,color:"#8a6acc"}}>Minister of Interior</td><td style={TD}>{Y}</td><td style={TD}><Lv c="director"/></td><td style={TD}><Lv c="director"/></td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={{...TDL,color:C.accent,fontStyle:"italic"}}>Emperor</td><td style={TD}>{Y}</td><td style={TD}><Lv c="director"/></td><td style={TD}><Lv c="director"/></td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td></tr>
+      </tbody></table>
+      <Note>{"LSS \"agent\" = view ops, create/view docs, agent panel · \"director\" adds create ops + director panel. LFP mirrors the same structure."}</Note>
+    </Sec>
+    <Sec title="CLEARANCE LEVEL · controls visibility of classified LSS/LFP data">
+      <table style={T}><thead><tr>
+        <th style={THL}>Level</th>
+        <th style={{...TH,color:"#2a9a4a"}}>Unclassified</th>
+        <th style={{...TH,color:"#2a6acc"}}>Confidential</th>
+        <th style={{...TH,color:"#cc7a10"}}>Secret</th>
+        <th style={{...TH,color:"#cc2222"}}>Top Secret</th>
+        <th style={{...TH,color:"#9a22cc"}}>TS/SCI</th>
+      </tr></thead><tbody>
+        <tr><td style={{...TDL,color:"#2a9a4a"}}>0 — Unclassified</td><td style={TD}>{Y}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={{...TDL,color:"#2a6acc"}}>1 — Confidential</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={{...TDL,color:"#cc7a10"}}>2 — Secret</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={{...TDL,color:"#cc2222"}}>3 — Top Secret</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={{...TDL,color:"#9a22cc"}}>4 — TS/SCI</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td></tr>
+      </tbody></table>
+    </Sec>
+    <Sec title="ACCESS FLAGS · checkboxes that extend access independently of role">
+      {[
+        ["LSS Agent Assigned","Grants LSS agent-level access regardless of system role."],
+        ["LFP Officer Assigned","Grants LFP officer-level access regardless of system role."],
+        ["Foreign Affairs Panel","Enables login to the MFA portal. No effect on MOI panels."],
+        ["External Contractor","Label only — marks the account as external. Does not grant or restrict panel access."],
+      ].map(([name,desc])=><div key={name} style={{display:"flex",gap:10,padding:"8px 14px",
+        borderBottom:`1px solid ${C.border}33`,alignItems:"flex-start"}}>
+        <div style={{fontSize:12,fontWeight:500,color:C.text,minWidth:180,flexShrink:0,paddingTop:1}}>{name}</div>
+        <div style={{fontSize:12,color:C.textD,lineHeight:1.5}}>{desc}</div>
+      </div>)}
+    </Sec>
+    <Sec title="WAR OFFICE ACCESS · set from MOI, controls MOW portal login">
+      <table style={T}><thead><tr>
+        <th style={THL}>Level</th>
+        <th style={TH}>MOW login</th>
+        <th style={TH}>View all data</th>
+        <th style={TH}>Create/edit records</th>
+        <th style={TH}>Admin panel</th>
+        <th style={TH}>Set alert level</th>
+      </tr></thead><tbody>
+        <tr><td style={{...TDL,color:C.textD}}>No Access</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={TDL}>Officer</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={TDL}>Commander</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={{...TDL,color:"#cc7a10"}}>Minister of War</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td></tr>
+        <tr><td style={{...TDL,color:C.textD,fontStyle:"italic"}}>+ Can Set Alert</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{Y}</td></tr>
+      </tbody></table>
+      <Note>{"Can Set Alert Level is an override — grants alert control to Officer or Commander without full Minister rank."}</Note>
+    </Sec>
+    <Sec title="JUDICIAL PANEL ACCESS · set from MOI, controls IJ portal login">
+      <table style={T}><thead><tr>
+        <th style={THL}>Level</th>
+        <th style={TH}>IJ login</th>
+        <th style={TH}>Case pipeline</th>
+        <th style={TH}>Render judgments</th>
+        <th style={TH}>Manage statutes</th>
+        <th style={TH}>Judicial appointments</th>
+      </tr></thead><tbody>
+        <tr><td style={{...TDL,color:C.textD}}>No Access</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={TDL}>Judge</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={{...TDL,color:"#7F77DD"}}>President of Courts</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td></tr>
+      </tbody></table>
+    </Sec>
+    <Sec title="FINANCE PANEL ACCESS · set from MOI, controls MOF portal login">
+      <table style={T}><thead><tr>
+        <th style={THL}>Level</th>
+        <th style={TH}>MOF login</th>
+        <th style={TH}>View registry / payroll / ledger</th>
+        <th style={TH}>Create / edit records</th>
+        <th style={TH}>Approve / revoke licenses</th>
+      </tr></thead><tbody>
+        <tr><td style={{...TDL,color:C.textD}}>No Access</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={TDL}>Auditor</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={TDL}>Treasurer</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={{...TDL,color:"#2a9a5a"}}>Minister of Finance</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td></tr>
+      </tbody></table>
+      <Note>{"Auditor = read-only panel access. Treasurer adds payroll and debt management. Minister of Finance adds license approval, suspension, and revocation."}</Note>
+    </Sec>
+  </div>;
+}function MinisterPanel({currentUser,accounts,onUpdate,notify,setProcessing}){
   const [sub,setSub]=useState("accounts");
+  const [showPerms,setShowPerms]=useState(false);
   return(
     <div className="fadeIn">
-      <STitle color="#8a6acc">Minister Panel</STitle>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"1.25rem",flexWrap:"wrap",gap:8}}>
+        <STitle style={{marginBottom:0}} color="#8a6acc">Minister Panel</STitle>
+        <button onClick={()=>setShowPerms(v=>!v)}
+          style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.15em",textTransform:"uppercase",
+                   padding:"5px 14px",background:showPerms?C.s2:"transparent",cursor:"pointer",
+                   border:`1px solid ${showPerms?"#8a6acc":C.border}`,borderRadius:2,
+                   color:showPerms?"#aa88ee":C.textD}}>
+          {showPerms?"Hide Permissions":"Permissions Reference"}
+        </button>
+      </div>
+      {showPerms&&<PermissionsReference/>}
       <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1.5rem"}}>
         {[["accounts","Accounts"],["clearances","Clearance Mgmt"]].map(([v,l])=>(
           <button key={v} onClick={()=>setSub(v)}
@@ -1187,9 +1313,20 @@ function MinisterPanel({currentUser,accounts,onUpdate,notify,setProcessing}){
 // ── EMPEROR PANEL ─────────────────────────────────────────────────────────────
 function EmperorPanel({currentUser,accounts,onUpdate,notify,setProcessing}){
   const [sub,setSub]=useState("accounts");
+  const [showPerms,setShowPerms]=useState(false);
   return(
     <div className="fadeIn">
-      <STitle color={C.gold}>Emperor Panel</STitle>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"1.25rem",flexWrap:"wrap",gap:8}}>
+        <STitle style={{marginBottom:0}} color={C.gold}>Emperor Panel</STitle>
+        <button onClick={()=>setShowPerms(v=>!v)}
+          style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.15em",textTransform:"uppercase",
+                   padding:"5px 14px",background:showPerms?C.s2:"transparent",cursor:"pointer",
+                   border:`1px solid ${showPerms?C.accent:C.border}`,borderRadius:2,
+                   color:showPerms?C.accent:C.textD}}>
+          {showPerms?"Hide Permissions":"Permissions Reference"}
+        </button>
+      </div>
+      {showPerms&&<PermissionsReference/>}
       <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1.5rem",flexWrap:"wrap"}}>
         {[["accounts","Accounts"],["clearances","Clearances"]].map(([v,l])=>(
           <button key={v} onClick={()=>setSub(v)}
@@ -1242,6 +1379,7 @@ function AccountRow({acc,currentUser,onUpdate,notify,setProcessing,canSetMiniste
   const [canSetAlert,setCanSetAlert]=useState(acc.canSetAlert||false);
   const [mfaAccess,setMfaAccess]=useState(acc.mfaAccess||false);
   const [ijAccess,setIjAccess]=useState(acc.ijAccess||"");
+  const [mofRole,setMofRole]=useState(acc.mofRole||"");
   const [clearance,setClearance]=useState(String(acc.clearance||0));
   const [newPw,setNewPw]=useState("");
   const [saving,setSaving]=useState(false);
@@ -1320,6 +1458,17 @@ function AccountRow({acc,currentUser,onUpdate,notify,setProcessing,canSetMiniste
                 <option value="president">President of the Courts</option>
               </select>
             </div>
+            <div style={{flex:1,minWidth:200}}>
+              <FL>FINANCE PANEL ACCESS</FL>
+              <select value={mofRole} onChange={e=>setMofRole(e.target.value)}
+                style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
+                         padding:"8px 12px",color:C.text,fontSize:14,outline:"none",fontFamily:"'Crimson Text',serif"}}>
+                <option value="">No Access</option>
+                <option value="auditor">Auditor (read-only)</option>
+                <option value="treasurer">Treasurer</option>
+                <option value="minister">Minister of Finance</option>
+              </select>
+            </div>
           </div>
           <div style={{display:"flex",gap:8,alignItems:"flex-end",flexWrap:"wrap"}}>
             <div style={{flex:1,minWidth:180}}>
@@ -1328,7 +1477,7 @@ function AccountRow({acc,currentUser,onUpdate,notify,setProcessing,canSetMiniste
             </div>
             <Btn small variant="gold" disabled={saving} onClick={async()=>{
               setSaving(true); setProcessing("Saving account…");
-              const patch={role,ministry,isContractor,agentAssigned,officerAssigned,mowAccess:!!mowRole,mowRole,canSetAlert:canSetAlert&&!!mowRole,mfaAccess,ijAccess,clearance:parseInt(clearance)};
+              const patch={role,ministry,isContractor,agentAssigned,officerAssigned,mowAccess:!!mowRole,mowRole,canSetAlert:canSetAlert&&!!mowRole,mfaAccess,ijAccess,mofRole,mofAccess:!!mofRole,clearance:parseInt(clearance)};
               if(newPw.trim()) patch.passwordHash=await sha256(newPw.trim());
               await onUpdate(acc.username,patch);
               setProcessing(null); setSaving(false); setNewPw("");
