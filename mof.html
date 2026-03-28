@@ -673,11 +673,48 @@ function PanelBusinessCard({business:b,onAction,notify,setProcessing,isMinister}
 }
 
 // ── PANEL: PAYROLL MANAGEMENT ─────────────────────────────────────────────────
+function PayrollEditRow({entry,onSave,onRemove,setProcessing,notify}){
+  const [editing,setEditing]=useState(false);
+  const [pexGroup,setPexGroup]=useState(entry.pexGroup||"");
+  const [roleName,setRoleName]=useState(entry.roleName||"");
+  const [category,setCategory]=useState(entry.category||"Extra");
+  const [amount,setAmount]=useState(String(entry.amount||""));
+  const [saving,setSaving]=useState(false);
+  if(!editing)return(
+    <div style={{padding:"8px 14px",display:"flex",alignItems:"center",gap:12,borderBottom:"1px solid "+C.border+"44",flexWrap:"wrap"}}>
+      <span className="mono" style={{fontSize:11,color:C.text,flex:1}}>{entry.pexGroup}</span>
+      <span style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>{entry.roleName||""}</span>
+      <span className="mono" style={{fontSize:13,color:C.gold,fontWeight:700}}>{fmtCur(entry.amount)}</span>
+      <Btn small variant="ghost" onClick={()=>setEditing(true)}>Edit</Btn>
+      <ArmBtn small label="Remove" confirmLabel="Remove rate?" onConfirm={()=>onRemove(entry.id)}/>
+    </div>
+  );
+  return(
+    <div style={{padding:"10px 14px",borderBottom:"1px solid "+C.border+"44",background:C.s1}}>
+      <div style={{display:"flex",gap:"0.5rem",flexWrap:"wrap",marginBottom:"0.5rem"}}>
+        <div style={{flex:2,minWidth:140}}><FL>PEX GROUP</FL><Inp value={pexGroup} onChange={setPexGroup}/></div>
+        <div style={{flex:2,minWidth:120}}><FL>ROLE NAME</FL><Inp value={roleName} onChange={setRoleName}/></div>
+        <div style={{flex:1,minWidth:130}}><FL>CATEGORY</FL><DD value={category} onChange={setCategory} options={PAYROLL_CATEGORIES.map(c=>({v:c,l:c}))}/></div>
+        <div style={{flex:1,minWidth:90}}><FL>PAYCHECK ($)</FL><Inp value={amount} onChange={setAmount} type="number"/></div>
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        <Btn small disabled={!pexGroup.trim()||!amount||saving} onClick={async()=>{
+          setSaving(true);setProcessing("Saving...");
+          await onSave({...entry,pexGroup:pexGroup.trim(),roleName:roleName.trim(),category,amount:Number(amount),updatedAt:Date.now()});
+          setProcessing(null);setSaving(false);setEditing(false);notify(pexGroup+" updated.",C.gold);
+        }}>{saving?"Saving...":"Save"}</Btn>
+        <Btn small variant="ghost" onClick={()=>{setPexGroup(entry.pexGroup||"");setRoleName(entry.roleName||"");setCategory(entry.category||"Extra");setAmount(String(entry.amount||""));setEditing(false);}}>Cancel</Btn>
+      </div>
+    </div>
+  );
+}
+
 function PanelPayroll({payroll,onAction,notify,setProcessing,canEdit}){
   const [pexGroup,setPexGroup]=useState("");const [roleName,setRoleName]=useState("");
   const [category,setCategory]=useState("Imperial Household");const [amount,setAmount]=useState("");
   const [saving,setSaving]=useState(false);
   const grouped=useMemo(()=>{const g={};PAYROLL_CATEGORIES.forEach(c=>{g[c]=[];});Object.values(payroll||{}).forEach(p=>{if(g[p.category])g[p.category].push(p);else g.Extra.push(p);});return g;},[payroll]);
+  const totalEntries=Object.values(payroll||{}).length;
   return <div>
     {canEdit&&<div style={{background:C.s2,border:"1px solid "+C.border,borderTop:"3px solid "+C.gold,borderRadius:"0 0 4px 4px",padding:"1.25rem",marginBottom:"1.5rem"}}>
       <div className="mono" style={{fontSize:9,color:C.textD,letterSpacing:"0.15em",marginBottom:"0.75rem"}}>ADD / UPDATE PEX GROUP RATE</div>
@@ -687,24 +724,32 @@ function PanelPayroll({payroll,onAction,notify,setProcessing,canEdit}){
         <div style={{flex:1,minWidth:120}}><FL>CATEGORY</FL><DD value={category} onChange={setCategory} options={PAYROLL_CATEGORIES.map(c=>({v:c,l:c}))}/></div>
         <div style={{flex:1,minWidth:100}}><FL>PAYCHECK ($) *</FL><Inp value={amount} onChange={setAmount} placeholder="0" type="number"/></div>
       </div>
-      <Btn small disabled={!pexGroup.trim()||!amount||saving} onClick={async()=>{
-        setSaving(true);setProcessing("Saving...");
-        await onAction("setPayroll",{id:"pay_"+uid(),pexGroup:pexGroup.trim(),roleName:roleName.trim(),category,amount:Number(amount),updatedAt:Date.now()});
-        setProcessing(null);setSaving(false);notify(pexGroup+" rate set.",C.gold);
-        setPexGroup("");setRoleName("");setAmount("");
-      }}>{saving?"Saving...":"Set Rate"}</Btn>
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <Btn small disabled={!pexGroup.trim()||!amount||saving} onClick={async()=>{
+          setSaving(true);setProcessing("Saving...");
+          await onAction("setPayroll",{id:"pay_"+uid(),pexGroup:pexGroup.trim(),roleName:roleName.trim(),category,amount:Number(amount),updatedAt:Date.now()});
+          setProcessing(null);setSaving(false);notify(pexGroup+" rate set.",C.gold);
+          setPexGroup("");setRoleName("");setAmount("");
+        }}>{saving?"Saving...":"Set Rate"}</Btn>
+        {totalEntries>0&&<ArmBtn small label="Wipe All Pays" confirmLabel={"Wipe all "+totalEntries+" entries?"} variant="danger" onConfirm={async()=>{setProcessing("Wiping payroll...");await onAction("wipePayroll",{});setProcessing(null);notify("All payroll entries wiped.",C.textD);}}/>}
+      </div>
     </div>}
     {PAYROLL_CATEGORIES.map(cat=>{
       const entries=(grouped[cat]||[]).sort((a,b)=>(a.pexGroup||"").localeCompare(b.pexGroup||""));
       if(entries.length===0)return null;
       return <div key={cat} style={{marginBottom:"1rem",border:"1px solid "+C.border,borderRadius:6,overflow:"hidden"}}>
         <div style={{background:C.s1,padding:"6px 14px",borderBottom:"1px solid "+C.border}}><span className="mono" style={{fontSize:9,color:C.gold,letterSpacing:"0.2em"}}>{cat.toUpperCase()}</span></div>
-        {entries.map(e=><div key={e.id} style={{padding:"8px 14px",display:"flex",alignItems:"center",gap:12,borderBottom:"1px solid "+C.border+"44",flexWrap:"wrap"}}>
-          <span className="mono" style={{fontSize:11,color:C.text,flex:1}}>{e.pexGroup}</span>
-          <span style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>{e.roleName||""}</span>
-          <span className="mono" style={{fontSize:13,color:C.gold,fontWeight:700}}>{fmtCur(e.amount)}</span>
-          {canEdit&&<ArmBtn small label="Remove" confirmLabel="Remove rate?" onConfirm={async()=>{setProcessing("Removing...");await onAction("deletePayroll",{id:e.id});setProcessing(null);notify(e.pexGroup+" removed.",C.textD);}}/>}
-        </div>)}
+        {entries.map(e=>canEdit
+          ?<PayrollEditRow key={e.id} entry={e}
+              onSave={async(updated)=>await onAction("setPayroll",updated)}
+              onRemove={async(id)=>{setProcessing("Removing...");await onAction("deletePayroll",{id:id});setProcessing(null);notify(e.pexGroup+" removed.",C.textD);}}
+              setProcessing={setProcessing} notify={notify}/>
+          :<div key={e.id} style={{padding:"8px 14px",display:"flex",alignItems:"center",gap:12,borderBottom:"1px solid "+C.border+"44",flexWrap:"wrap"}}>
+            <span className="mono" style={{fontSize:11,color:C.text,flex:1}}>{e.pexGroup}</span>
+            <span style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>{e.roleName||""}</span>
+            <span className="mono" style={{fontSize:13,color:C.gold,fontWeight:700}}>{fmtCur(e.amount)}</span>
+          </div>
+        )}
       </div>;
     })}
   </div>;
@@ -758,8 +803,115 @@ function PanelDebt({debts,onAction,notify,setProcessing,canEdit}){
   </div>;
 }
 
+// ── ANNOUNCEMENT & SHUTDOWN COMPONENTS ───────────────────────────────────────
+function AnnouncementBanner({announcement}){
+  const [dismissed,setDismissed]=useState(false);
+  if(!announcement?.text||dismissed)return null;
+  const tones={
+    info:{color:C.gold,bg:"#1a1200",left:C.goldD},
+    warning:{color:"#cc7a20",bg:"#180e00",left:"#7a3800"},
+    alert:{color:"#cc3030",bg:"#1a0808",left:"#700000"},
+    order:{color:"#5a9a70",bg:"#0a1a10",left:"#1a4a2a"},
+  };
+  const t=tones[announcement.tone]||tones.info;
+  return <div style={{background:t.bg,border:"1px solid "+t.color+"44",borderLeft:"3px solid "+t.left,
+    borderRadius:"0 3px 3px 0",padding:"0.75rem 1rem",marginBottom:"1.5rem",
+    display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+    <div style={{flex:1}}>
+      {announcement.title&&<div style={{fontFamily:"'Cinzel',serif",fontSize:11,letterSpacing:"0.1em",color:t.color,marginBottom:3}}>{announcement.title}</div>}
+      <div style={{fontSize:14,color:C.text,lineHeight:1.7}}>{announcement.text}</div>
+      <div className="mono" style={{fontSize:9,color:C.textDD,marginTop:4}}>
+        {announcement.postedBy&&"\u2014 "+announcement.postedBy+" \u00B7 "}
+        {announcement.posted_at&&new Date(announcement.posted_at).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}
+      </div>
+    </div>
+    <button onClick={()=>setDismissed(true)} style={{background:"transparent",border:"none",color:C.textDD,cursor:"pointer",fontSize:14,flexShrink:0}}>\u2715</button>
+  </div>;
+}
+
+function ShutdownBanner({shutdown}){
+  if(!shutdown?.active)return null;
+  return <div style={{background:"#0e0600",border:"2px solid #8b1a00",borderLeft:"6px solid #cc2200",
+    borderRadius:"0 4px 4px 0",padding:"1rem 1.25rem",marginBottom:"1.5rem",animation:"fadeIn .3s ease"}}>
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+      <span style={{fontSize:18}}>&#9888;</span>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:700,letterSpacing:"0.15em",color:"#cc2200",textTransform:"uppercase"}}>Government Shutdown in Effect</div>
+    </div>
+    <div style={{fontSize:14,color:"#d0a090",lineHeight:1.8}}>
+      The Imperial Government has failed to pass an approved budget within the required window. All government payroll disbursements are <strong style={{color:"#ff5050"}}>suspended</strong> until a budget is ratified by the Bundeskongress and the Emperor.
+    </div>
+    {shutdown.reason&&<div style={{fontSize:13,color:"#9a6050",fontStyle:"italic",marginTop:6,borderTop:"1px solid #4a1a0a",paddingTop:6}}>{shutdown.reason}</div>}
+    <div className="mono" style={{fontSize:9,color:"#5a2a1a",marginTop:6}}>
+      {shutdown.declaredBy&&"DECLARED BY "+shutdown.declaredBy.toUpperCase()+" \u00B7 "}
+      {shutdown.declared_at&&new Date(shutdown.declared_at).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})}
+    </div>
+  </div>;
+}
+
+function ShutdownPayrollNotice(){
+  return <div style={{background:"#100400",border:"2px solid #8b1a00",borderRadius:4,padding:"1.5rem",textAlign:"center",marginBottom:"1.5rem"}}>
+    <div style={{fontSize:28,marginBottom:8}}>&#9888;</div>
+    <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,letterSpacing:"0.1em",color:"#cc2200",marginBottom:8}}>Payroll Suspended</div>
+    <div style={{fontSize:14,color:"#c08070",lineHeight:1.8,maxWidth:460,margin:"0 auto"}}>
+      A government shutdown is currently in effect. No payroll disbursements will be made until the Bundeskongress passes a budget and it is ratified by the Emperor. Rates below are listed for reference only.
+    </div>
+  </div>;
+}
+
+function AnnouncementEditor({announcement,shutdown,currentUser,onAction,notify,setProcessing}){
+  const [title,setTitle]=useState(announcement?.title||"");
+  const [text,setText]=useState(announcement?.text||"");
+  const [tone,setTone]=useState(announcement?.tone||"info");
+  const [shutReason,setShutReason]=useState(shutdown?.reason||"");
+  const [saving,setSaving]=useState(false);
+  const [shutSaving,setShutSaving]=useState(false);
+  const isShutdown=shutdown?.active;
+  return <div style={{maxWidth:560}}>
+    <STitle>Site Announcement</STitle>
+    <div style={{display:"flex",flexDirection:"column",gap:"0.75rem",marginBottom:"2rem"}}>
+      <div><FL>TITLE (optional)</FL><Inp value={title} onChange={setTitle} placeholder="Announcement title"/></div>
+      <div><FL>TONE</FL><DD value={tone} onChange={setTone} options={[{v:"info",l:"Information"},{v:"order",l:"Standing Order"},{v:"warning",l:"Warning"},{v:"alert",l:"Alert"}]}/></div>
+      <div><FL>MESSAGE *</FL><TA value={text} onChange={setText} placeholder="Announcement text\u2026" rows={4}/></div>
+      {text.trim()&&<div><FL>PREVIEW</FL><AnnouncementBanner announcement={{title:title.trim(),text:text.trim(),tone,postedBy:currentUser.displayName||currentUser.username,posted_at:Date.now()}}/></div>}
+      <div style={{display:"flex",gap:8}}>
+        <Btn disabled={!text.trim()||saving} onClick={async()=>{
+          setSaving(true);setProcessing("Posting...");
+          await onAction("setAnnouncement",{title:title.trim(),text:text.trim(),tone,postedBy:currentUser.displayName||currentUser.username,posted_at:Date.now()});
+          setProcessing(null);setSaving(false);notify("Announcement posted.",C.gold);
+        }}>{saving?"Posting...":"Post Announcement"}</Btn>
+        {announcement?.text&&<ArmBtn label="Clear" confirmLabel="Clear announcement?" onConfirm={async()=>{
+          setProcessing("Clearing...");await onAction("setAnnouncement",{});setProcessing(null);setText("");setTitle("");notify("Announcement cleared.",C.textD);
+        }}/>}
+      </div>
+    </div>
+
+    <div style={{borderTop:"1px solid "+C.border,paddingTop:"1.5rem"}}>
+      <STitle style={{color:"#cc3020"}}>Government Shutdown</STitle>
+      <div style={{background:"#120600",border:"1px solid #5a1a00",borderRadius:4,padding:"1rem",marginBottom:"1rem"}}>
+        <div style={{fontSize:13,color:"#9a6050",lineHeight:1.7,fontStyle:"italic"}}>
+          Declare a government shutdown when the Empire has failed to pass a budget within the required period. This will suspend all payroll disbursements and display a prominent warning across the Ministry of Finance portal.
+        </div>
+      </div>
+      {isShutdown&&<div style={{marginBottom:"0.75rem"}}><ShutdownBanner shutdown={shutdown}/></div>}
+      {!isShutdown&&<div style={{marginBottom:"0.75rem"}}><FL>REASON / STATEMENT (optional)</FL><TA value={shutReason} onChange={setShutReason} rows={2} placeholder="Reason for shutdown declaration\u2026"/></div>}
+      <div style={{display:"flex",gap:8}}>
+        {!isShutdown&&<ArmBtn label="Declare Shutdown" confirmLabel="Declare government shutdown?" variant="danger" onConfirm={async()=>{
+          setShutSaving(true);setProcessing("Declaring shutdown...");
+          await onAction("setShutdown",{active:true,reason:shutReason.trim(),declaredBy:currentUser.displayName||currentUser.username,declared_at:Date.now()});
+          setProcessing(null);setShutSaving(false);notify("Government shutdown declared.",C.redL);
+        }}/>}
+        {isShutdown&&<ArmBtn label="Lift Shutdown" confirmLabel="Lift the government shutdown?" variant="green" onConfirm={async()=>{
+          setShutSaving(true);setProcessing("Lifting shutdown...");
+          await onAction("setShutdown",{active:false,lifted_at:Date.now(),liftedBy:currentUser.displayName||currentUser.username});
+          setProcessing(null);setShutSaving(false);notify("Government shutdown lifted.",C.greenL);
+        }}/>}
+      </div>
+    </div>
+  </div>;
+}
+
 // ── FINANCE PANEL ─────────────────────────────────────────────────────────────
-function FinancePanel({user,businesses,payroll,debts,countries,onAction,notify,setProcessing}){
+function FinancePanel({user,businesses,payroll,debts,countries,announcement,shutdown,onAction,notify,setProcessing}){
   const isEmperor=user.role==="emperor";
   const isMinister=isEmperor||user.mofRole==="minister";
   const isTreasurer=isMinister||user.mofRole==="treasurer";
@@ -770,11 +922,12 @@ function FinancePanel({user,businesses,payroll,debts,countries,onAction,notify,s
       <span className="mono" style={{fontSize:9,color:C.textD,marginLeft:"auto"}}>{user.displayName||user.username}{" \u2014 "}{isMinister?"Minister of Finance":isTreasurer?"Treasurer":"Auditor"}</span>
     </div>
     <div style={{display:"flex",gap:0,borderBottom:"1px solid "+C.border,marginBottom:"1.5rem",flexWrap:"wrap"}}>
-      {[["registry","Registry"],["payroll","Payroll"],["debt","Debt & Bonds"]].map(([v,l])=><button key={v} onClick={()=>setSec(v)} style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.15em",textTransform:"uppercase",padding:"0.6rem 1rem",background:"transparent",border:"none",cursor:"pointer",borderBottom:"2px solid "+(sec===v?C.gold:"transparent"),color:sec===v?C.gold:C.textD}}>{l}</button>)}
+      {([["registry","Registry"],["payroll","Payroll"],["debt","Debt & Bonds"]].concat(isMinister?[["comms","Communications"]]:[])).map(([v,l])=><button key={v} onClick={()=>setSec(v)} style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.15em",textTransform:"uppercase",padding:"0.6rem 1rem",background:"transparent",border:"none",cursor:"pointer",borderBottom:"2px solid "+(sec===v?C.gold:"transparent"),color:sec===v?C.gold:C.textD}}>{l}</button>)}
     </div>
     {sec==="registry"&&<PanelRegistry businesses={businesses} countries={countries} onAction={onAction} notify={notify} setProcessing={setProcessing} isMinister={isMinister}/>}
     {sec==="payroll"&&<PanelPayroll payroll={payroll} onAction={onAction} notify={notify} setProcessing={setProcessing} canEdit={isTreasurer}/>}
     {sec==="debt"&&<PanelDebt debts={debts} onAction={onAction} notify={notify} setProcessing={setProcessing} canEdit={isTreasurer}/>}
+    {sec==="comms"&&isMinister&&<AnnouncementEditor announcement={announcement} shutdown={shutdown} currentUser={user} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
   </div>;
 }
 
@@ -801,6 +954,8 @@ function App(){
   const businesses=useMemo(()=>raw["mof_businesses"]||{},[raw]);
   const payroll=useMemo(()=>raw["mof_payroll"]||{},[raw]);
   const debts=useMemo(()=>raw["mof_debts"]||{},[raw]);
+  const announcement=useMemo(()=>raw["mof_announcement"]||null,[raw]);
+  const shutdown=useMemo(()=>raw["mof_shutdown"]||null,[raw]);
 
   const onAction=useCallback(async(type,payload)=>{
     if(type==="createBusiness"){const next={...businesses,[payload.id]:payload};setRaw(r=>({...r,mof_businesses:next}));await sset("mof_businesses",next);}
@@ -808,9 +963,12 @@ function App(){
     else if(type==="deleteBusiness"){const next={...businesses};delete next[payload.id];setRaw(r=>({...r,mof_businesses:next}));await sset("mof_businesses",next);}
     else if(type==="setPayroll"){const next={...payroll,[payload.id]:payload};setRaw(r=>({...r,mof_payroll:next}));await sset("mof_payroll",next);}
     else if(type==="deletePayroll"){const next={...payroll};delete next[payload.id];setRaw(r=>({...r,mof_payroll:next}));await sset("mof_payroll",next);}
+    else if(type==="wipePayroll"){setRaw(r=>({...r,mof_payroll:{}}));await sset("mof_payroll",{});}
     else if(type==="createDebt"){const next={...debts,[payload.id]:payload};setRaw(r=>({...r,mof_debts:next}));await sset("mof_debts",next);}
     else if(type==="updateDebt"){const {id,...rest}=payload;const next={...debts,[id]:{...debts[id],...rest}};setRaw(r=>({...r,mof_debts:next}));await sset("mof_debts",next);}
     else if(type==="deleteDebt"){const next={...debts};delete next[payload.id];setRaw(r=>({...r,mof_debts:next}));await sset("mof_debts",next);}
+    else if(type==="setAnnouncement"){setRaw(r=>({...r,mof_announcement:payload}));await sset("mof_announcement",payload);}
+    else if(type==="setShutdown"){setRaw(r=>({...r,mof_shutdown:payload}));await sset("mof_shutdown",payload);}
   },[raw,businesses,payroll,debts]);
 
   const TABS=[{v:"budget",l:"Treasury",icon:"\u2696"},{v:"registry",l:"Registry",icon:"\uD83C\uDFDB"},{v:"register",l:"Register",icon:"\u270D"},{v:"payroll",l:"Payroll",icon:"\uD83D\uDCB0"},{v:"ledger",l:"Debt Ledger",icon:"\uD83D\uDCCA"},{v:"panel",l:"Panel",icon:"\u2699"}];
@@ -836,13 +994,16 @@ function App(){
     </div>
     <div style={{maxWidth:1100,margin:"0 auto",padding:"1.75rem 1.25rem"}}>
       {!loaded&&<div style={{textAlign:"center",padding:"4rem",color:C.textDD}}><div className="mono" style={{fontSize:10,letterSpacing:"0.3em",animation:"pulse 1.5s infinite"}}>Loading...</div></div>}
+      {loaded&&shutdown?.active&&<ShutdownBanner shutdown={shutdown}/>}
+      {loaded&&announcement?.text&&!panelAuth&&<AnnouncementBanner announcement={announcement}/>}
       {loaded&&panelAuth&&!panelUser&&<PanelAuth onAuth={(u,r)=>{setPanelUser(u);setRaw(prev=>({...prev,...r}));setPanelAuth(false);setTab("panel");notify("Authenticated.",C.gold);}} onCancel={()=>setPanelAuth(false)}/>}
       {loaded&&!panelAuth&&tab==="budget"&&<BudgetTracker activeBudget={activeBudget} budgetCooldown={budgetCooldown} bkBills={bkBills}/>}
       {loaded&&!panelAuth&&tab==="registry"&&<RegistryPublic businesses={businesses}/>}
       {loaded&&!panelAuth&&tab==="register"&&<RegistrationForm countries={countries} businesses={businesses} onSubmit={async(biz)=>{await onAction("createBusiness",biz);notify(biz.registrationNo+" application submitted.",C.gold);setTab("registry");}} onCancel={()=>setTab("registry")}/>}
+      {loaded&&!panelAuth&&tab==="payroll"&&shutdown?.active&&<ShutdownPayrollNotice/>}
       {loaded&&!panelAuth&&tab==="payroll"&&<PayrollPublic payroll={payroll}/>}
       {loaded&&!panelAuth&&tab==="ledger"&&<DebtPublic debts={debts}/>}
-      {loaded&&!panelAuth&&tab==="panel"&&panelUser&&<FinancePanel user={panelUser} businesses={businesses} payroll={payroll} debts={debts} countries={countries} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+      {loaded&&!panelAuth&&tab==="panel"&&panelUser&&<FinancePanel user={panelUser} businesses={businesses} payroll={payroll} debts={debts} countries={countries} announcement={announcement} shutdown={shutdown} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
       {loaded&&!panelAuth&&tab==="panel"&&!panelUser&&<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>Authentication required. Click Panel to log in.</div>}
     </div>
     <div style={{borderTop:"1px solid "+C.border,padding:"0.75rem 1.25rem",marginTop:"3rem"}}>
