@@ -543,7 +543,7 @@ function BillPipeline({bill}) {
   );
 }
 
-function BillCard({bill,members,bundesherren,ijStatutes,ijCases}) {
+function BillCard({bill,members,bundesherren,ijStatutes,ijCases,bills}) {
   const [open,setOpen]=useState(false);
   const sm=STATUS_META[bill.status]||{label:bill.status,color:C.textD,icon:"•"};
   const bt=BILL_TYPES[bill.type]||BILL_TYPES.regular;
@@ -680,8 +680,19 @@ function BillCard({bill,members,bundesherren,ijStatutes,ijCases}) {
             </div>
           )}
           {bill.ratified_at&&<div style={{fontSize:13,color:C.gold,fontStyle:"italic"}}>⚜ Ratified by the Emperor — {new Date(bill.ratified_at).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})}</div>}
-          {bill.repeal_on_pass&&bill.repeal_on_pass.length>0&&bill.status!=="passed"&&<div style={{fontSize:12,color:"#cc7a20",fontStyle:"italic",marginTop:2}}>⚠ Repeals {bill.repeal_on_pass.length} law{bill.repeal_on_pass.length!==1?"s":""} if ratified</div>}
-          {bill.repealed_at&&<div style={{fontSize:13,color:"#c05050",fontStyle:"italic"}}>🚫 Repealed — {new Date(bill.repealed_at).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})}{bill.repealed_by_title&&<span style={{color:"#8a4040"}}> by {bill.repealed_by_title}</span>}</div>}
+          {bill.repeal_on_pass&&bill.repeal_on_pass.length>0&&bill.status!=="passed"&&(
+            <div style={{marginTop:4}}>
+              <div style={{fontSize:11,color:"#cc7a20",fontStyle:"italic",marginBottom:3}}>⚠ Repeals if ratified:</div>
+              {bill.repeal_on_pass.map(rid=>{const t=(bills||{})[rid];return(<div key={rid} style={{fontSize:12,color:"#b06820",paddingLeft:10,lineHeight:1.6}}>• {t?t.title:<span style={{color:C.textDD,fontStyle:"italic"}}>Unknown law ({rid})</span>}</div>);})}
+            </div>
+          )}
+          {bill.status==="passed"&&bill.repeal_on_pass&&bill.repeal_on_pass.length>0&&(
+            <div style={{marginTop:4}}>
+              <div style={{fontSize:11,color:"#cc5050",fontStyle:"italic",marginBottom:3}}>🚫 Repealed upon ratification:</div>
+              {bill.repeal_on_pass.map(rid=>{const t=(bills||{})[rid];return(<div key={rid} style={{fontSize:12,color:"#8a4040",paddingLeft:10,lineHeight:1.6}}>• {t?t.title:<span style={{color:C.textDD,fontStyle:"italic"}}>Unknown law ({rid})</span>}</div>);})}
+            </div>
+          )}
+          {bill.repealed_at&&<div style={{fontSize:13,color:"#c05050",fontStyle:"italic",marginTop:2}}>🚫 Repealed — {new Date(bill.repealed_at).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})}{bill.repealed_by_title&&<span style={{color:"#8a4040"}}>{" "}by {bill.repealed_by_title}</span>}</div>}
           {(()=>{
             // Check if any IJ statute references this BK bill (via id match bk_<bill.id>)
             const bkStatuteId="bk_"+bill.id;
@@ -1473,7 +1484,7 @@ function BundestagTab({members,officials,bills,bundesherren,session,nextElection
         </div>
         {active.length===0
           ?<div style={{fontSize:15,color:C.textD,fontStyle:"italic",padding:"0.5rem 0 1rem"}}>No bills are currently being voted on. Check back during the session.</div>
-          :active.map(b=><BillCard key={b.id} bill={b} members={members} bundesherren={bundesherren}/>)
+          :active.map(b=><BillCard key={b.id} bill={b} members={members} bundesherren={bundesherren} bills={bills}/>)
         }
         {docket.length>0&&<>
           <Divider/>
@@ -1481,7 +1492,7 @@ function BundestagTab({members,officials,bills,bundesherren,session,nextElection
           <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"0.85rem"}}>
             The following bills have been placed on the docket and are scheduled for debate and vote at the next session of the Bundestag.
           </div>
-          {docket.map(b=><BillCard key={b.id} bill={b} members={members} bundesherren={bundesherren}/>)}
+          {docket.map(b=><BillCard key={b.id} bill={b} members={members} bundesherren={bundesherren} bills={bills}/>)}
         </>}
       </>}
 
@@ -1559,8 +1570,8 @@ function BundesherrenTab({bundesherren,officials,bills,members}) {
       <Divider/>
       <STitle>Bills Open for Vote</STitle>
       {active.length===0?<div style={{fontSize:15,color:C.textD,fontStyle:"italic",padding:"1rem 0"}}>No bills currently open for Bundesherren vote.</div>
-        :active.map(b=><BillCard key={b.id} bill={b} members={members} bundesherren={bundesherren}/>)}
-      {awaitRat.filter(b=>b.type!=="budget").length>0&&<><Divider/><STitle>Awaiting Imperial Ratification</STitle>{awaitRat.filter(b=>b.type!=="budget").map(b=><BillCard key={b.id} bill={b} members={members} bundesherren={bundesherren}/>)}</>}
+        :active.map(b=><BillCard key={b.id} bill={b} members={members} bundesherren={bundesherren} bills={bills}/>)}
+      {awaitRat.filter(b=>b.type!=="budget").length>0&&<><Divider/><STitle>Awaiting Imperial Ratification</STitle>{awaitRat.filter(b=>b.type!=="budget").map(b=><BillCard key={b.id} bill={b} members={members} bundesherren={bundesherren} bills={bills}/>)}</>}
     </div>
   );
 }
@@ -1655,7 +1666,7 @@ function ArchiveTab({bills,members,bundesherren,ijStatutes,ijCases}) {
       </div>
       {shown.length===0
         ?<div style={{fontSize:15,color:C.textD,fontStyle:"italic"}}>No bills matching these filters.</div>
-        :shown.map(b=><BillCard key={b.id} bill={b} members={members} bundesherren={bundesherren} ijStatutes={ijStatutes} ijCases={ijCases}/>)
+        :shown.map(b=><BillCard key={b.id} bill={b} members={members} bundesherren={bundesherren} ijStatutes={ijStatutes} ijCases={ijCases} bills={bills}/>)
       }
     </div>
   );
@@ -4148,7 +4159,7 @@ function LegislativeRecord({bills,members,bundesherren,ijStatutes,ijCases}) {
           ?<div style={{textAlign:"center",padding:"2rem",color:C.textD,fontStyle:"italic",fontSize:14}}>
             No bills are currently on the floor.
           </div>
-          :floorBills.map(b=><BillCard key={b.id} bill={b} members={members} bundesherren={bundesherren}/>)
+          :floorBills.map(b=><BillCard key={b.id} bill={b} members={members} bundesherren={bundesherren} bills={bills}/>)
       )}
 
       {view==="archive"&&(
@@ -4845,7 +4856,7 @@ function BudgetTab({activeBudget,budgetCooldown,bills,members,bundesherren,orgCh
           {inProgress.length>0&&(
             <div style={{marginBottom:"1.5rem"}}>
               <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.2em",color:"#4a88ff",marginBottom:"0.75rem"}}>BUDGET IN PROGRESS</div>
-              {inProgress.map(b=><BillCard key={b.id} bill={b} members={members} bundesherren={bundesherren}/>)}
+              {inProgress.map(b=><BillCard key={b.id} bill={b} members={members} bundesherren={bundesherren} bills={bills}/>)}
             </div>
           )}
 
@@ -4862,7 +4873,7 @@ function BudgetTab({activeBudget,budgetCooldown,bills,members,bundesherren,orgCh
                 style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.2em",color:C.textDD,marginBottom:"0.75rem",cursor:"pointer",display:"flex",alignItems:"center",gap:8}}>
                 BUDGET HISTORY ({archived.length}) {showHistory?"▲":"▼"}
               </div>
-              {showHistory&&archived.map(b=><BillCard key={b.id} bill={b} members={members} bundesherren={bundesherren}/>)}
+              {showHistory&&archived.map(b=><BillCard key={b.id} bill={b} members={members} bundesherren={bundesherren} bills={bills}/>)}
             </div>
           )}
         </>
@@ -5056,6 +5067,7 @@ function App() {
       const bill={id,title:payload.title,type:payload.type,gdoc_url:payload.gdoc_url||"",origin,
         submitter:payload.submitter,nominee:payload.nominee||"",portfolio:payload.portfolio||"",category:payload.category||"",
         motion_text:payload.motion_text||"",motion_scope:payload.motion_scope||"",
+        repeal_on_pass:payload.repeal_on_pass&&payload.repeal_on_pass.length>0?payload.repeal_on_pass:undefined,
         status,created:Date.now(),bt_votes:{},bh_votes:{},bt_result:null,bh_result:null,ratified_at:null,failed_at:null};
       setBills(p=>({...p,[id]:bill}));
       return await sset("bk_bill_"+id,bill);
