@@ -1086,7 +1086,7 @@ function SubmitTab({onSubmit,onSubmitBudget,activeBudget,budgetCooldown,orgChart
           </div>
         )}
         {(isRegular||isBHRegular)&&(()=>{
-          const repealable=Object.values(bills||{}).filter(b=>(b.status==="passed"||b.status==="grandfathered")&&b.type!=="constitutional_amendment").sort((a,b)=>(a.title||"").localeCompare(b.title||""));
+          const repealable=Object.values(bills||{}).filter(b=>(b.status==="passed"||b.status==="grandfathered")&&b.type!=="constitutional_amendment"&&!["appoint_bt_pres","appoint_chancellor","appoint_bh_pres","nominate_minister","dissolve_government"].includes(b.type)).sort((a,b)=>(a.title||"").localeCompare(b.title||""));
           // constitutional amendments excluded — only repealable by supermajority amendment
           return(
             <div>
