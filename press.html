@@ -50,8 +50,10 @@ var SECTIONS=[
   {v:"editorial",   l:"Editorial",               badge:"EDITORIAL"},
 ];
 
-var IMG_WARN_BYTES=300*1024;  // warn at 300KB
-var IMG_BLOCK_BYTES=6*1024*1024; // hard block at 6MB base64
+var IMG_MAX_PX=900;
+var IMG_QUALITY=0.72;
+var IMG_WARN_KB=80;
+var IMG_BLOCK_BYTES=6*1024*1024;
 
 function sha256(t){
   return crypto.subtle.digest("SHA-256",new TextEncoder().encode(t)).then(function(buf){
@@ -59,12 +61,30 @@ function sha256(t){
   });
 }
 function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
-function fileToBase64(file){
+function compressImage(file){
   return new Promise(function(res,rej){
-    var r=new FileReader();
-    r.onload=function(){res(r.result);};
-    r.onerror=rej;
-    r.readAsDataURL(file);
+    var reader=new FileReader();
+    reader.onload=function(e){
+      var img=new Image();
+      img.onload=function(){
+        var w=img.width; var h=img.height;
+        if(w>IMG_MAX_PX||h>IMG_MAX_PX){
+          if(w>h){h=Math.round(h*(IMG_MAX_PX/w));w=IMG_MAX_PX;}
+          else{w=Math.round(w*(IMG_MAX_PX/h));h=IMG_MAX_PX;}
+        }
+        var canvas=document.createElement("canvas");
+        canvas.width=w; canvas.height=h;
+        var ctx=canvas.getContext("2d");
+        ctx.drawImage(img,0,0,w,h);
+        var b64=canvas.toDataURL("image/jpeg",IMG_QUALITY);
+        var sizeKB=Math.round((b64.length*(3/4))/1024);
+        res({b64:b64,sizeKB:sizeKB,w:w,h:h});
+      };
+      img.onerror=rej;
+      img.src=e.target.result;
+    };
+    reader.onerror=rej;
+    reader.readAsDataURL(file);
   });
 }
 function sgetAll(){
@@ -623,6 +643,7 @@ function ArticleForm(props){
   var s9=useState((article&&article.imgCaption)||""); var imgCaption=s9[0]; var setImgCaption=s9[1];
   var s10=useState(""); var imgWarn=s10[0]; var setImgWarn=s10[1];
   var s11=useState(false); var saving=s11[0]; var setSaving=s11[1];
+  var s12=useState(false); var imgLoading=s12[0]; var setImgLoading=s12[1];
   var imgRef=useRef(null);
   var wc=wordCount(body); var rt=readTime(body);
 
@@ -630,11 +651,24 @@ function ArticleForm(props){
     var file=e.target.files[0];
     if(!file)return;
     if(!file.type.startsWith("image/")){setImgWarn("Please select an image file.");return;}
-    setImgWarn("");
-    if(file.size>IMG_BLOCK_BYTES){setImgWarn("Image is too large ("+Math.round(file.size/1024/1024)+"MB). Maximum is 6MB. Please resize first.");return;}
-    if(file.size>IMG_WARN_BYTES)setImgWarn("Image is "+Math.round(file.size/1024)+"KB - consider resizing smaller for best results.");
-    else setImgWarn("");
-    fileToBase64(file).then(function(b64){setCoverImage(b64);});
+    if(file.size>IMG_BLOCK_BYTES){setImgWarn("Image is too large ("+Math.round(file.size/1024/1024)+"MB). Please resize to under 6MB first.");return;}
+    setImgWarn("Compressing...");
+    setImgLoading(true);
+    compressImage(file).then(function(result){
+      setImgLoading(false);
+      setCoverImage(result.b64);
+      var msg="Compressed to "+result.sizeKB+"KB ("+result.w+"x"+result.h+"px)";
+      if(result.sizeKB>IMG_WARN_KB){
+        msg+="   still large, consider using a smaller photo";
+        setImgWarn(msg);
+      } else {
+        setImgWarn(msg);
+        setTimeout(function(){setImgWarn("");},4000);
+      }
+    }).catch(function(){
+      setImgLoading(false);
+      setImgWarn("Could not process image. Try a different file.");
+    });
   }
 
   function save(){
@@ -642,7 +676,7 @@ function ArticleForm(props){
     onSave({headline:headline.trim(),subheadline:subheadline.trim(),byline:byline.trim(),dateline:dateline.trim().toUpperCase(),section:section,body:body.trim(),notes:notes.trim(),coverImage:coverImage||null,imgCaption:imgCaption.trim()}).then(function(){setSaving(false);}).catch(function(){setSaving(false);});
   }
 
-  var canSave=headline.trim()&&body.trim()&&byline.trim()&&!saving;
+  var canSave=headline.trim()&&body.trim()&&byline.trim()&&!saving&&!imgLoading;
 
   return <div style={{background:"var(--paper2)",border:"1px solid var(--rule)",padding:"1.5rem",marginBottom:"1.5rem"}}>
     <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:10,letterSpacing:"0.2em",color:"var(--ink3)",marginBottom:"1rem",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -677,7 +711,11 @@ function ArticleForm(props){
         <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",color:"var(--ink3)",marginBottom:6}}>
           COVER IMAGE {"-"} rendered in black &amp; white (optional)
         </div>
-        {coverImage
+        {imgLoading
+          ?<div style={{border:"1px solid var(--rule)",padding:"1.5rem",textAlign:"center",background:"var(--paper3)",marginBottom:6}}>
+            <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",color:"var(--ink3)"}}>Compressing image...</div>
+          </div>
+          :coverImage
           ?<div style={{position:"relative",marginBottom:6}}>
             <img src={coverImage} alt="Cover preview" style={{width:"100%",maxHeight:200,objectFit:"cover",filter:"grayscale(100%) contrast(1.1) sepia(12%)",display:"block",border:"1px solid var(--rule)"}}/>
             <div style={{position:"absolute",top:6,right:6,display:"flex",gap:4}}>
@@ -688,7 +726,7 @@ function ArticleForm(props){
           :<div onClick={function(){imgRef.current&&imgRef.current.click();}} style={{border:"2px dashed var(--ruleL)",padding:"1.5rem",textAlign:"center",cursor:"pointer",background:"var(--paper3)",marginBottom:6}}>
             <div style={{fontSize:24,marginBottom:4,opacity:.4}}>Image</div>
             <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",color:"var(--ink3)"}}>Click to Upload Cover Image</div>
-            <div style={{fontFamily:"'IM Fell English',serif",fontStyle:"italic",fontSize:11,color:"var(--rule)",marginTop:2}}>JPG, PNG, WEBP - recommend under 900KB</div>
+            <div style={{fontFamily:"'IM Fell English',serif",fontStyle:"italic",fontSize:11,color:"var(--rule)",marginTop:2}}>Auto-compressed to JPEG on upload</div>
           </div>}
         <input ref={imgRef} type="file" accept="image/*" onChange={handleImg} style={{display:"none"}}/>
         {imgWarn&&<div style={{fontFamily:"'IM Fell English',serif",fontStyle:"italic",fontSize:11,color:"var(--gold)",marginBottom:4}}>{"! "+imgWarn}</div>}
