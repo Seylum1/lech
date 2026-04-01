@@ -92,13 +92,17 @@ function sgetAll(){
     if(!d.success)return{};
     var out={};
     var articleMap={};
+    var imageMap={};
     Object.entries(d.data||{}).forEach(function(entry){
       var k=entry[0]; var v=entry[1];
       if(v){
         try{
           var parsed=JSON.parse(v);
-          if(k.startsWith("press_article_")){
-            // per-article key - add to articleMap
+          if(k.startsWith("press_article_img_")){
+            // image stored separately - keyed by article id
+            var artId=k.slice("press_article_img_".length);
+            imageMap[artId]=parsed;
+          } else if(k.startsWith("press_article_")){
             if(parsed&&parsed.id) articleMap[parsed.id]=parsed;
           } else {
             out[k]=parsed;
@@ -106,7 +110,10 @@ function sgetAll(){
         }catch(e){}
       }
     });
-    // Merge legacy press_articles blob with per-key articles
+    // Merge images back onto articles
+    Object.keys(imageMap).forEach(function(artId){
+      if(articleMap[artId]) articleMap[artId].coverImage=imageMap[artId];
+    });
     var legacy=out["press_articles"]||{};
     out["press_articles"]=Object.assign({},legacy,articleMap);
     return out;
@@ -967,35 +974,46 @@ function App(){
     }
     if(type==="createArticle"){
       var id="art_"+uid();
-      var article=Object.assign({},payload,{id:id,created:Date.now()});
+      var img=payload.coverImage||null;
+      var articleNoImg=Object.assign({},payload,{id:id,created:Date.now(),coverImage:null,hasImage:!!img});
+      var articleWithImg=Object.assign({},articleNoImg,{coverImage:img});
       var next=Object.assign({},articles);
-      next[id]=article;
+      next[id]=articleWithImg;
       setRaw(function(r){return Object.assign({},r,{press_articles:next});});
-      return sset("press_article_"+id,article);
+      var saves=[sset("press_article_"+id,articleNoImg)];
+      if(img) saves.push(sset("press_article_img_"+id,img));
+      return Promise.all(saves);
     }
     if(type==="updateArticle"){
       var id2=payload.id;
+      var img2=payload.hasOwnProperty("coverImage")?payload.coverImage:(articles[id2]&&articles[id2].coverImage)||null;
       var rest=Object.assign({},payload);
       delete rest.id;
-      var updated=Object.assign({},articles[id2],rest,{updatedAt:Date.now()});
+      var updatedWithImg=Object.assign({},articles[id2],rest,{updatedAt:Date.now(),coverImage:img2});
+      var updatedNoImg=Object.assign({},updatedWithImg,{coverImage:null,hasImage:!!img2});
       var next2=Object.assign({},articles);
-      next2[id2]=updated;
+      next2[id2]=updatedWithImg;
       setRaw(function(r){return Object.assign({},r,{press_articles:next2});});
-      return sset("press_article_"+id2,updated);
+      var saves2=[sset("press_article_"+id2,updatedNoImg)];
+      if(img2) saves2.push(sset("press_article_img_"+id2,img2));
+      else saves2.push(sdel("press_article_img_"+id2));
+      return Promise.all(saves2);
     }
     if(type==="publishArticle"){
       var id3=payload.id;
-      var published2=Object.assign({},articles[id3],{status:"published",publishedAt:Date.now()});
+      var existingImg=( articles[id3]&&articles[id3].coverImage)||null;
+      var pub=Object.assign({},articles[id3],{status:"published",publishedAt:Date.now(),coverImage:null,hasImage:!!existingImg});
+      var pubWithImg=Object.assign({},pub,{coverImage:existingImg});
       var next3=Object.assign({},articles);
-      next3[id3]=published2;
+      next3[id3]=pubWithImg;
       setRaw(function(r){return Object.assign({},r,{press_articles:next3});});
-      return sset("press_article_"+id3,published2);
+      return sset("press_article_"+id3,pub);
     }
     if(type==="deleteArticle"){
       var next4=Object.assign({},articles);
       delete next4[payload.id];
       setRaw(function(r){return Object.assign({},r,{press_articles:next4});});
-      return sdel("press_article_"+payload.id);
+      return Promise.all([sdel("press_article_"+payload.id),sdel("press_article_img_"+payload.id)]);
     }
     return Promise.resolve();
   }
