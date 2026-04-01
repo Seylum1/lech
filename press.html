@@ -50,7 +50,8 @@ var SECTIONS=[
   {v:"editorial",   l:"Editorial",               badge:"EDITORIAL"},
 ];
 
-var IMG_WARN_BYTES=900*1024;
+var IMG_WARN_BYTES=300*1024;  // warn at 300KB
+var IMG_BLOCK_BYTES=6*1024*1024; // hard block at 6MB base64
 
 function sha256(t){
   return crypto.subtle.digest("SHA-256",new TextEncoder().encode(t)).then(function(buf){
@@ -70,16 +71,35 @@ function sgetAll(){
   return fetch(SCRIPT_URL+"?action=getall").then(function(r){return r.json();}).then(function(d){
     if(!d.success)return{};
     var out={};
+    var articleMap={};
     Object.entries(d.data||{}).forEach(function(entry){
       var k=entry[0]; var v=entry[1];
-      if(v){try{out[k]=JSON.parse(v);}catch(e){}}
+      if(v){
+        try{
+          var parsed=JSON.parse(v);
+          if(k.startsWith("press_article_")){
+            // per-article key - add to articleMap
+            if(parsed&&parsed.id) articleMap[parsed.id]=parsed;
+          } else {
+            out[k]=parsed;
+          }
+        }catch(e){}
+      }
     });
+    // Merge legacy press_articles blob with per-key articles
+    var legacy=out["press_articles"]||{};
+    out["press_articles"]=Object.assign({},legacy,articleMap);
     return out;
   }).catch(function(){return{};});
 }
 function sset(k,v){
   return fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
     body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v)})
+  }).then(function(){return true;}).catch(function(){return false;});
+}
+function sdel(k){
+  return fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
+    body:JSON.stringify({action:"delete",key:k})
   }).then(function(){return true;}).catch(function(){return false;});
 }
 function fmtDateLong(ts){
@@ -611,7 +631,9 @@ function ArticleForm(props){
     if(!file)return;
     if(!file.type.startsWith("image/")){setImgWarn("Please select an image file.");return;}
     setImgWarn("");
-    if(file.size>IMG_WARN_BYTES)setImgWarn("Image is large ("+Math.round(file.size/1024)+"KB) - consider resizing to under 900KB.");
+    if(file.size>IMG_BLOCK_BYTES){setImgWarn("Image is too large ("+Math.round(file.size/1024/1024)+"MB). Maximum is 6MB. Please resize first.");return;}
+    if(file.size>IMG_WARN_BYTES)setImgWarn("Image is "+Math.round(file.size/1024)+"KB - consider resizing smaller for best results.");
+    else setImgWarn("");
     fileToBase64(file).then(function(b64){setCoverImage(b64);});
   }
 
@@ -911,29 +933,31 @@ function App(){
       var next=Object.assign({},articles);
       next[id]=article;
       setRaw(function(r){return Object.assign({},r,{press_articles:next});});
-      return sset("press_articles",next);
+      return sset("press_article_"+id,article);
     }
     if(type==="updateArticle"){
       var id2=payload.id;
       var rest=Object.assign({},payload);
       delete rest.id;
+      var updated=Object.assign({},articles[id2],rest,{updatedAt:Date.now()});
       var next2=Object.assign({},articles);
-      next2[id2]=Object.assign({},articles[id2],rest,{updatedAt:Date.now()});
+      next2[id2]=updated;
       setRaw(function(r){return Object.assign({},r,{press_articles:next2});});
-      return sset("press_articles",next2);
+      return sset("press_article_"+id2,updated);
     }
     if(type==="publishArticle"){
       var id3=payload.id;
+      var published2=Object.assign({},articles[id3],{status:"published",publishedAt:Date.now()});
       var next3=Object.assign({},articles);
-      next3[id3]=Object.assign({},articles[id3],{status:"published",publishedAt:Date.now()});
+      next3[id3]=published2;
       setRaw(function(r){return Object.assign({},r,{press_articles:next3});});
-      return sset("press_articles",next3);
+      return sset("press_article_"+id3,published2);
     }
     if(type==="deleteArticle"){
       var next4=Object.assign({},articles);
       delete next4[payload.id];
       setRaw(function(r){return Object.assign({},r,{press_articles:next4});});
-      return sset("press_articles",next4);
+      return sdel("press_article_"+payload.id);
     }
     return Promise.resolve();
   }
