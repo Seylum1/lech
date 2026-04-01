@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>The Imperial Gazette</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=UnifrakturMaguntia&family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,900;1,400;1,600;1,700&family=Playfair+Display+SC:wght@400;700&family=IM+Fell+English:ital@0;1&family=Source+Serif+4:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --ink:#1a1208;--ink2:#2e2010;--ink3:#5a4030;
+  --paper:#f5f0e8;--paper2:#ede8dc;--paper3:#e4ddd0;--paper4:#d8d0c0;
+  --rule:#8a7050;--ruleL:#b09878;--ruleF:#c8b090;
+  --red:#8b1a1a;--gold:#8a6800;--goldL:#c8a020;
+  --shadow:rgba(30,20,10,.18);
+}
+body{background:#c8baa0;font-family:'Source Serif 4',Georgia,serif;color:var(--ink);min-height:100vh;}
+body::before{content:"";position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 28px,rgba(30,20,10,.025) 28px,rgba(30,20,10,.025) 29px);pointer-events:none;z-index:0;}
+#root{position:relative;z-index:1;}
+::-webkit-scrollbar{width:6px;}::-webkit-scrollbar-track{background:var(--paper3);}::-webkit-scrollbar-thumb{background:var(--rule);border-radius:2px;}
+p{line-height:1.75;}
+input,select,textarea{font-family:'Source Serif 4',Georgia,serif;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
+.fadeIn{animation:fadeIn .25s ease both;}
+.drop-cap::first-letter{float:left;font-family:'Playfair Display',Georgia,serif;font-size:4.2em;font-weight:900;line-height:.82;padding-right:.07em;margin-top:.05em;color:var(--ink);}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+var useState=React.useState;
+var useEffect=React.useEffect;
+var useRef=React.useRef;
+var useCallback=React.useCallback;
+var useMemo=React.useMemo;
+
+var SCRIPT_URL="https://script.google.com/macros/s/AKfycbxLu8jQehAZJEvMEeCLoHc9S2C4FM8o9fQh8Pp4gMzDNwwIG0S9qLJ5-1gyGM1c_InUfQ/exec";
+var BK_URL="https://script.google.com/macros/s/AKfycbz37c5Okp9c7PkXv38x2lq7Is3RifkJPee5ASb2KQfA7EJgsN0NwrigmiRr1a_G0E6d4Q/exec";
+
+var SECTIONS=[
+  {v:"politics",    l:"Politics & Government",  badge:"POLITICS"},
+  {v:"economy",     l:"Commerce & Economy",     badge:"ECONOMY"},
+  {v:"foreign",     l:"Foreign Affairs",         badge:"FOREIGN AFFAIRS"},
+  {v:"military",    l:"Military & Defence",      badge:"MILITARY"},
+  {v:"culture",     l:"Society & Culture",       badge:"CULTURE"},
+  {v:"editorial",   l:"Editorial",               badge:"EDITORIAL"},
+];
+
+var IMG_WARN_BYTES=900*1024;
+
+function sha256(t){
+  return crypto.subtle.digest("SHA-256",new TextEncoder().encode(t)).then(function(buf){
+    return Array.from(new Uint8Array(buf)).map(function(b){return b.toString(16).padStart(2,"0");}).join("");
+  });
+}
+function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
+function fileToBase64(file){
+  return new Promise(function(res,rej){
+    var r=new FileReader();
+    r.onload=function(){res(r.result);};
+    r.onerror=rej;
+    r.readAsDataURL(file);
+  });
+}
+function sgetAll(){
+  return fetch(SCRIPT_URL+"?action=getall").then(function(r){return r.json();}).then(function(d){
+    if(!d.success)return{};
+    var out={};
+    Object.entries(d.data||{}).forEach(function(entry){
+      var k=entry[0]; var v=entry[1];
+      if(v){try{out[k]=JSON.parse(v);}catch(e){}}
+    });
+    return out;
+  }).catch(function(){return{};});
+}
+function sset(k,v){
+  return fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
+    body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v)})
+  }).then(function(){return true;}).catch(function(){return false;});
+}
+function fmtDateLong(ts){
+  return new Date(ts).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+}
+function fmtDateShort(ts){
+  return new Date(ts).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"});
+}
+function fmtDateUpper(ts){
+  return new Date(ts).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"}).toUpperCase();
+}
+function wordCount(text){
+  return ((text||"").trim().split(/\s+/).filter(Boolean)).length;
+}
+function readTime(text){
+  return Math.max(1,Math.ceil(wordCount(text)/180));
+}
+function sectionBadge(section){
+  var s=SECTIONS.filter(function(x){return x.v===section;})[0];
+  return (s && s.badge) || (section ? section.toUpperCase() : "NEWS");
+}
+
+// -- UI ATOMS --
+
+function Divider(props){
+  var thick=props.thick; var double=props.double; var ex=props.style||{};
+  if(double)return <div style={Object.assign({borderTop:"3px solid var(--ink)",outline:"1px solid var(--ink)",outlineOffset:2},ex)}/>;
+  if(thick)return <hr style={Object.assign({height:3,background:"var(--ink)",border:"none"},ex)}/>;
+  return <hr style={Object.assign({height:1,background:"var(--rule)",border:"none"},ex)}/>;
+}
+
+function SectionBadge(props){
+  return <span style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.2em",color:"var(--red)",textTransform:"uppercase"}}>{sectionBadge(props.section)}</span>;
+}
+
+function Toast(props){
+  if(!props.msg)return null;
+  return <div style={{position:"fixed",bottom:20,right:20,zIndex:9999,background:props.err?"var(--red)":"var(--ink)",color:"var(--paper)",padding:"8px 16px",fontFamily:"'Playfair Display',serif",fontSize:13,boxShadow:"0 2px 12px var(--shadow)",animation:"fadeIn .2s ease"}}>{props.msg}</div>;
+}
+
+function Overlay(props){
+  if(!props.label)return null;
+  return <div style={{position:"fixed",inset:0,zIndex:99999,background:"rgba(245,240,232,.95)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+    <div style={{textAlign:"center"}}>
+      <div style={{fontFamily:"'Playfair Display',serif",fontSize:14,color:"var(--ink2)",letterSpacing:"0.15em"}}>{"- "+props.label+" -"}</div>
+    </div>
+  </div>;
+}
+
+function Inp(props){
+  var ex=props.style||{};
+  return <input type={props.type||"text"} value={props.value} onChange={function(e){props.onChange(e.target.value);}} placeholder={props.placeholder}
+    style={Object.assign({width:"100%",background:"var(--paper)",border:"1px solid var(--rule)",padding:"7px 10px",fontSize:14,color:"var(--ink)",fontFamily:"'Source Serif 4',serif",outline:"none"},ex)}
+    onFocus={function(e){e.target.style.borderColor="var(--ink)";}} onBlur={function(e){e.target.style.borderColor="var(--rule)";}}
+  />;
+}
+
+function TA(props){
+  return <textarea value={props.value} onChange={function(e){props.onChange(e.target.value);}} placeholder={props.placeholder} rows={props.rows||6}
+    style={{width:"100%",background:"var(--paper)",border:"1px solid var(--rule)",padding:"10px 12px",fontSize:14,color:"var(--ink)",fontFamily:"'Source Serif 4',serif",lineHeight:1.75,resize:"vertical",outline:"none"}}
+    onFocus={function(e){e.target.style.borderColor="var(--ink)";}} onBlur={function(e){e.target.style.borderColor="var(--rule)";}}
+  />;
+}
+
+function DD(props){
+  var ex=props.style||{};
+  return <select value={props.value} onChange={function(e){props.onChange(e.target.value);}} style={Object.assign({background:"var(--paper)",border:"1px solid var(--rule)",padding:"7px 10px",fontSize:13,color:"var(--ink)",fontFamily:"'Source Serif 4',serif",outline:"none"},ex)}>
+    {props.options.map(function(o){return <option key={o.v} value={o.v}>{o.l}</option>;})}
+  </select>;
+}
+
+function PressBtn(props){
+  var variant=props.variant||"primary";
+  var small=props.small; var disabled=props.disabled; var ex=props.style||{};
+  var base={fontFamily:"'Playfair Display SC',serif",letterSpacing:"0.12em",fontSize:small?9:10,padding:small?"4px 12px":"7px 20px",cursor:disabled?"not-allowed":"pointer",opacity:disabled?0.45:1,border:"none",transition:"all .12s"};
+  var themes={
+    primary:{background:"var(--ink)",color:"var(--paper)"},
+    ghost:{background:"transparent",color:"var(--ink)",border:"1px solid var(--rule)"},
+    red:{background:"var(--red)",color:"var(--paper)"},
+    gold:{background:"var(--gold)",color:"var(--paper)"},
+  };
+  var theme=themes[variant]||themes.primary;
+  return <button onClick={disabled?undefined:props.onClick} style={Object.assign({},base,theme,ex)}>{props.children}</button>;
+}
+
+function ArmBtn(props){
+  var ref=useRef(null);
+  var armed=useState(false);
+  var setArmed=armed[1]; armed=armed[0];
+  if(armed)return <PressBtn variant="red" small={props.small} onClick={function(){clearTimeout(ref.current);setArmed(false);props.onConfirm();}}>{props.confirmLabel||"Confirm?"}</PressBtn>;
+  return <PressBtn variant={props.variant||"red"} small={props.small} onClick={function(){setArmed(true);clearTimeout(ref.current);ref.current=setTimeout(function(){setArmed(false);},4000);}}>{props.label}</PressBtn>;
+}
+
+// -- BREAKING NEWS BANNER --
+
+function BreakingBanner(props){
+  var banner=props.banner;
+  var s1=useState(false); var dismissed=s1[0]; var setDismissed=s1[1];
+  if(!banner||!banner.active||!banner.text||dismissed)return null;
+  var repeated=banner.text+"          ***          "+banner.text+"          ***          "+banner.text+"          ***          "+banner.text;
+  return <div style={{background:"var(--red)",color:"var(--paper)",overflow:"hidden",position:"relative",borderBottom:"2px solid #5a0000"}}>
+    <div style={{display:"flex",alignItems:"center"}}>
+      <div style={{background:"#6a0000",padding:"7px 16px",flexShrink:0,display:"flex",alignItems:"center",gap:8,borderRight:"1px solid #8a0000",zIndex:1}}>
+        <div style={{width:7,height:7,borderRadius:"50%",background:"#ff6666",boxShadow:"0 0 6px #ff6666",animation:"pulse 1s ease-in-out infinite",flexShrink:0}}/>
+        <span style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.25em",color:"#ffcccc",whiteSpace:"nowrap"}}>BREAKING NEWS</span>
+      </div>
+      <div style={{overflow:"hidden",flex:1}}>
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:13,fontWeight:700,whiteSpace:"nowrap",padding:"7px 0",animation:"breakingScroll 35s linear infinite"}}>
+          {repeated}
+        </div>
+      </div>
+      <button onClick={function(){setDismissed(true);}} style={{background:"transparent",border:"none",borderLeft:"1px solid #8a0000",color:"rgba(255,255,255,.5)",cursor:"pointer",fontSize:14,padding:"7px 14px",flexShrink:0,lineHeight:1,fontFamily:"'Playfair Display SC',serif"}}>x</button>
+    </div>
+    <style dangerouslySetInnerHTML={{__html:"@keyframes breakingScroll{0%{transform:translateX(60%);}100%{transform:translateX(-60%);}} @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}"}}/> 
+  </div>;
+}
+
+// -- BREAKING NEWS BANNER --
+
+function BreakingNewsBanner(props){
+  var breaking=props.breaking;
+  if(!breaking||!breaking.active||!breaking.text)return null;
+  return <div style={{background:"var(--red)",color:"var(--paper)",padding:"7px 0",overflow:"hidden",position:"relative",borderBottom:"2px solid #5a0000"}}>
+    <div style={{display:"flex",alignItems:"center"}}>
+      <div style={{background:"#5a0000",padding:"7px 16px",flexShrink:0,fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.2em",whiteSpace:"nowrap"}}>BREAKING</div>
+      <div style={{overflow:"hidden",flex:1}}>
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:13,fontWeight:700,whiteSpace:"nowrap",paddingLeft:16,animation:"marquee 30s linear infinite"}}>{breaking.text}</div>
+      </div>
+    </div>
+    <style dangerouslySetInnerHTML={{__html:"@keyframes marquee{0%{transform:translateX(100%);}100%{transform:translateX(-100%);}}"}}/> 
+  </div>;
+}
+
+// -- BREAKING NEWS EDITOR (in journalist panel) --
+
+function BreakingEditor(props){
+  var breaking=props.breaking; var onSave=props.onSave;
+  var s1=useState((breaking&&breaking.text)||""); var text=s1[0]; var setText=s1[1];
+  var s2=useState((breaking&&breaking.active)||false); var active=s2[0]; var setActive=s2[1];
+  var s3=useState(false); var saving=s3[0]; var setSaving=s3[1];
+  return <div style={{background:"var(--paper2)",border:"1px solid var(--rule)",borderLeft:"4px solid var(--red)",padding:"1rem",marginBottom:"1.5rem"}}>
+    <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.2em",color:"var(--red)",marginBottom:"0.75rem"}}>BREAKING NEWS BANNER</div>
+    <div style={{display:"flex",flexDirection:"column",gap:"0.6rem"}}>
+      <Inp value={text} onChange={setText} placeholder="Breaking news text - will scroll across top of page..."/>
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.12em",color:"var(--ink3)"}}>
+          <input type="checkbox" checked={active} onChange={function(e){setActive(e.target.checked);}} style={{accentColor:"var(--red)"}}/>
+          BANNER ACTIVE
+        </label>
+        <PressBtn small onClick={function(){setSaving(true);onSave({text:text.trim(),active:active}).then(function(){setSaving(false);});}}>
+          {saving?"Saving...":"Save Banner"}
+        </PressBtn>
+        {breaking&&breaking.active&&<ArmBtn small label="Turn Off" confirmLabel="Deactivate banner?" variant="ghost" onConfirm={function(){onSave({text:text.trim(),active:false});setActive(false);}}/>}
+      </div>
+    </div>
+  </div>;
+}
+
+// -- MOW ALERT WIDGET --
+
+var IRL_LABELS={
+  5:{short:"IRL-5",sub:"Peacetime",color:"#2a9a4a",bg:"#f0faf4",border:"#b0ddc0"},
+  4:{short:"IRL-4",sub:"Elevated Vigilance",color:"#4a7aaa",bg:"#f0f4fa",border:"#b0c8e0"},
+  3:{short:"IRL-3",sub:"Forces on Standby",color:"#8a6820",bg:"#faf6e8",border:"#d8c880"},
+  2:{short:"IRL-2",sub:"Armed Forces Ready",color:"#cc6a10",bg:"#faf2e8",border:"#e8b880"},
+  1:{short:"IRL-1",sub:"War Footing",color:"#cc2222",bg:"#faf0f0",border:"#e8b0b0"},
+};
+
+function AlertWidget(props){
+  var alertData=props.alertData; var wartime=props.wartime;
+  var level=(alertData&&alertData.level)||5;
+  var irl=IRL_LABELS[level]||IRL_LABELS[5];
+  var isWartime=wartime&&wartime.active;
+  return <div style={{background:irl.bg,border:"1px solid "+irl.border,borderLeft:"4px solid "+irl.color,padding:"0.85rem 1rem",marginBottom:"1.25rem"}}>
+    <div style={{display:"flex",alignItems:"center",gap:10}}>
+      <div style={{textAlign:"center",flexShrink:0}}>
+        <div style={{fontFamily:"'Playfair Display',serif",fontWeight:900,fontSize:22,color:irl.color,lineHeight:1}}>{irl.short}</div>
+        <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:7,letterSpacing:"0.15em",color:irl.color,marginTop:2}}>READINESS</div>
+      </div>
+      <div style={{flex:1,borderLeft:"1px solid "+irl.border,paddingLeft:10}}>
+        <div style={{fontFamily:"'Playfair Display',serif",fontWeight:700,fontSize:13,color:"var(--ink)",marginBottom:2}}>Imperial Readiness Level {level}</div>
+        <div style={{fontFamily:"'IM Fell English',serif",fontStyle:"italic",fontSize:12,color:"var(--ink3)"}}>{irl.sub}</div>
+        {isWartime&&<div style={{fontFamily:"'Playfair Display SC',serif",fontSize:8,letterSpacing:"0.12em",color:"#cc2222",marginTop:4}}>WARTIME MEASURES ACTIVE</div>}
+      </div>
+      <div style={{width:12,height:12,borderRadius:"50%",background:irl.color,flexShrink:0,boxShadow:"0 0 6px "+irl.color}}/>
+    </div>
+  </div>;
+}
+
+// -- MOF BUDGET WIDGET --
+
+function BudgetWidget(props){
+  var budget=props.budget;
+  if(!budget)return <div style={{background:"#faf0f0",border:"1px solid #e8b0b0",borderLeft:"4px solid #cc4040",padding:"0.85rem 1rem",marginBottom:"1.25rem"}}>
+    <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",color:"#cc4040",marginBottom:4}}>TREASURY STATUS</div>
+    <div style={{fontFamily:"'IM Fell English',serif",fontStyle:"italic",fontSize:13,color:"var(--ink3)"}}>No active budget - Empire operating without approved appropriation.</div>
+  </div>;
+  var now=Date.now();
+  var isActive=!budget.voided_at&&now<budget.valid_until;
+  var daysLeft=isActive?Math.max(0,Math.ceil((budget.valid_until-now)/(1000*60*60*24))):0;
+  var pct=isActive?Math.min(100,((now-budget.ratified_at)/(budget.valid_until-budget.ratified_at))*100):100;
+  var urgency=daysLeft>30?"#2a9a4a":daysLeft>14?"#8a6820":"#cc4040";
+  var bg=daysLeft>30?"#f0faf4":daysLeft>14?"#faf6e8":"#faf0f0";
+  var borderC=daysLeft>30?"#b0ddc0":daysLeft>14?"#d8c880":"#e8b0b0";
+  return <div style={{background:bg,border:"1px solid "+borderC,borderLeft:"4px solid "+urgency,padding:"0.85rem 1rem",marginBottom:"1.25rem"}}>
+    <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",color:urgency,marginBottom:6}}>{isActive?"BUDGET IN FORCE":"BUDGET EXPIRED"}</div>
+    <div style={{fontFamily:"'Playfair Display',serif",fontWeight:700,fontSize:13,color:"var(--ink)",marginBottom:isActive?6:0}}>{budget.title}</div>
+    {isActive&&<>
+      <div style={{height:4,background:"rgba(0,0,0,.1)",borderRadius:2,overflow:"hidden",marginBottom:4}}>
+        <div style={{width:pct+"%",height:"100%",background:urgency,borderRadius:2}}/>
+      </div>
+      <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:8,letterSpacing:"0.1em",color:urgency}}>{daysLeft+" days remaining"}</div>
+    </>}
+    {!isActive&&<div style={{fontFamily:"'IM Fell English',serif",fontStyle:"italic",fontSize:12,color:"#cc4040"}}>A new budget must be passed and ratified.</div>}
+  </div>;
+}
+
+// -- STOCK TICKER --
+
+var STOCKS=[
+  {sym:"ILC",name:"Imperial Lech Co.",base:1240},
+  {sym:"VNX",name:"Vindex Trading Ltd.",base:880},
+  {sym:"CRC",name:"Crown Resource Corp.",base:2150},
+  {sym:"AQB",name:"Aquitaine Bonds",base:430},
+  {sym:"LSS",name:"Lech Shipping Syndicate",base:715},
+  {sym:"RIM",name:"Royal Imperial Mint",base:3400},
+  {sym:"WLD",name:"Wilden Lumber & Docks",base:560},
+  {sym:"MRD",name:"Meridia Exports",base:290},
+  {sym:"IFB",name:"Imperial Finance Bank",base:1890},
+  {sym:"CCT",name:"Colonial Commerce Trust",base:670},
+];
+
+function getStockPrice(stock,seed){
+  var rng=Math.sin(seed*9301+stock.sym.charCodeAt(0)*49297+stock.sym.charCodeAt(1)*233720)*.5+.5;
+  var change=(rng-.48)*0.06;
+  return Math.round(stock.base*(1+change));
+}
+
+function StockTicker(){
+  var nowRef=useRef(Math.floor(Date.now()/3600000));
+  var prices=useMemo(function(){
+    var seed=nowRef.current;
+    return STOCKS.map(function(s){
+      var price=getStockPrice(s,seed);
+      var prevSeed=seed-1;
+      var prev=getStockPrice(s,prevSeed);
+      var chg=price-prev;
+      var pct=((chg/prev)*100).toFixed(2);
+      return {sym:s.sym,name:s.name,price:price,chg:chg,pct:pct};
+    });
+  },[]);
+
+  return <div style={{background:"var(--ink)",borderTop:"1px solid #3a2a10",borderBottom:"1px solid #3a2a10",overflow:"hidden",padding:"4px 0",marginBottom:"1.25rem",position:"relative"}}>
+    <div style={{display:"flex",alignItems:"center"}}>
+      <div style={{background:"#3a2a10",padding:"4px 12px",flexShrink:0,fontFamily:"'Playfair Display SC',serif",fontSize:8,letterSpacing:"0.2em",color:"var(--goldL)",whiteSpace:"nowrap",borderRight:"1px solid #5a4020"}}>MARKETS</div>
+      <div style={{overflow:"hidden",flex:1}}>
+        <div style={{display:"flex",animation:"ticker 40s linear infinite",whiteSpace:"nowrap"}}>
+          {prices.concat(prices).map(function(s,i){
+            var pos=s.chg>=0;
+            return <span key={i} style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.08em",padding:"0 20px",color:"var(--paper2)",display:"inline-flex",alignItems:"center",gap:8}}>
+              <span style={{color:"var(--goldL)",fontWeight:700}}>{s.sym}</span>
+              <span>{"$"+s.price.toLocaleString()}</span>
+              <span style={{color:pos?"#6ad47a":"#e07070"}}>{(pos?"+":"")+s.chg+" ("+(pos?"+":"")+s.pct+"%)"}</span>
+            </span>;
+          })}
+        </div>
+      </div>
+    </div>
+    <style dangerouslySetInnerHTML={{__html:"@keyframes ticker{0%{transform:translateX(0);}100%{transform:translateX(-50%);}}"}}/> 
+  </div>;
+}
+
+// -- SECTION WIDGETS (injected above article list per section) --
+
+function SectionWidgets(props){
+  var section=props.section; var sideData=props.sideData;
+  if(section==="military"){
+    return <AlertWidget alertData={sideData.alertData} wartime={sideData.wartime}/>;
+  }
+  if(section==="economy"){
+    return <div><StockTicker/><BudgetWidget budget={sideData.budget}/></div>;
+  }
+  return null;
+}
+
+// -- MASTHEAD --
+
+function Masthead(props){
+  var onPressPanel=props.onPressPanel; var pressUser=props.pressUser; var onLogout=props.onLogout;
+  var activeSection=props.activeSection; var setSection=props.setSection;
+  var today=fmtDateLong(Date.now());
+  return <header style={{background:"var(--paper)",borderBottom:"1px solid var(--rule)"}}>
+    <div style={{background:"var(--ink)",padding:"4px 2rem",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+      <span style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.2em",color:"var(--paper2)",opacity:.8}}>EMPIRE OF LECH &middot; OFFICIAL PRESS</span>
+      <div style={{display:"flex",gap:16,alignItems:"center"}}>
+        <a href="index.html" style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",color:"var(--ruleF)",textDecoration:"none",opacity:.8}}>{"<- Network"}</a>
+        {pressUser
+          ?<><span style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.1em",color:"var(--goldL)"}}>{pressUser.displayName||pressUser.username}</span>
+            <button onClick={onLogout} style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.12em",background:"transparent",border:"1px solid var(--rule)",color:"var(--ruleF)",padding:"2px 10px",cursor:"pointer"}}>Sign Out</button></>
+          :<button onClick={onPressPanel} style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.12em",background:"transparent",border:"1px solid var(--ruleF)",color:"var(--ruleF)",padding:"2px 10px",cursor:"pointer"}}>Journalist Login</button>}
+      </div>
+    </div>
+    <div style={{textAlign:"center",padding:"1.5rem 2rem 0.75rem",borderBottom:"1px solid var(--ruleL)"}}>
+      <div style={{fontFamily:"'IM Fell English',serif",fontSize:10,letterSpacing:"0.4em",color:"var(--ink3)",marginBottom:6,textTransform:"uppercase"}}>Est. by Imperial Charter</div>
+      <div style={{fontFamily:"'UnifrakturMaguntia',cursive",fontSize:"clamp(2.4rem,6vw,4.2rem)",color:"var(--ink)",lineHeight:1,marginBottom:4}}>The Imperial Gazette</div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"center",margin:"6px 0"}}>
+        <div style={{flex:1,height:1,background:"var(--rule)"}}/>
+        <div style={{width:6,height:6,background:"var(--ink)",transform:"rotate(45deg)",margin:"0 8px"}}/>
+        <div style={{flex:1,height:1,background:"var(--rule)"}}/>
+      </div>
+      <div style={{fontFamily:"'IM Fell English',serif",fontSize:11,color:"var(--ink3)",fontStyle:"italic",letterSpacing:"0.08em"}}>{today}</div>
+    </div>
+    <nav style={{display:"flex",justifyContent:"center",flexWrap:"wrap",borderBottom:"3px solid var(--ink)",borderTop:"1px solid var(--rule)"}}>
+      {[{v:"all",l:"All News"}].concat(SECTIONS).map(function(s){
+        var isActive=activeSection===s.v;
+        return <button key={s.v} onClick={function(){setSection(s.v);}}
+          style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.18em",padding:"9px 16px",background:"transparent",color:isActive?"var(--ink)":"var(--ink3)",border:"none",borderRight:"1px solid var(--ruleL)",borderBottom:isActive?"3px solid var(--ink)":"3px solid transparent",cursor:"pointer",whiteSpace:"nowrap",fontWeight:isActive?700:400,marginBottom:-3,transition:"all .12s"}}>
+          {s.l}
+        </button>;
+      })}
+    </nav>
+  </header>;
+}
+
+// -- ARTICLE CARD --
+
+function ArticleCard(props){
+  var article=props.article; var size=props.size||"medium"; var onRead=props.onRead;
+  var isLead=size==="lead"; var isSmall=size==="small";
+  var borderStyle=props.colRule?{borderRight:"1px solid var(--ruleL)"}:{};
+  return <div onClick={function(){onRead(article);}} style={Object.assign({cursor:"pointer",padding:isSmall?"0 0 1rem":"0 0 1rem"},borderStyle,props.colRule?{paddingRight:16}:{})}>
+    {article.coverImage&&!isSmall&&<div style={{marginBottom:8,overflow:"hidden"}}>
+      <img src={article.coverImage} alt={article.imgCaption||article.headline} style={{width:"100%",height:isLead?220:140,objectFit:"cover",display:"block",filter:"grayscale(100%) contrast(1.1) sepia(12%)"}}/>
+      {article.imgCaption&&<div style={{fontFamily:"'IM Fell English',serif",fontStyle:"italic",fontSize:10,color:"var(--ink3)",padding:"3px 0",borderBottom:"1px solid var(--ruleL)"}}>{article.imgCaption}</div>}
+    </div>}
+    <SectionBadge section={article.section}/>
+    <Divider style={{margin:"5px 0 6px"}}/>
+    <h2 style={{fontFamily:"'Playfair Display',serif",fontWeight:900,fontSize:isLead?"clamp(1.6rem,3.5vw,2.4rem)":isSmall?"1.05rem":"1.4rem",lineHeight:1.2,color:"var(--ink)",marginBottom:isLead?8:4}}>
+      {article.headline}
+    </h2>
+    {article.subheadline&&!isSmall&&<p style={{fontFamily:"'IM Fell English',serif",fontStyle:"italic",fontSize:isLead?15:13,color:"var(--ink3)",lineHeight:1.5,marginBottom:6}}>{article.subheadline}</p>}
+    <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,color:"var(--ink3)",letterSpacing:"0.1em",marginBottom:isSmall?4:8}}>
+      {"By "}{article.byline||article.author}
+      {article.dateline?" . "+article.dateline:""}{" . "}{fmtDateShort(article.publishedAt||article.created)}
+      {!isSmall&&" . "+readTime(article.body)+" min read"}
+    </div>
+    {!isSmall&&article.body&&<p style={{fontFamily:"'Source Serif 4',serif",fontSize:14,color:"var(--ink2)",lineHeight:1.75,display:"-webkit-box",WebkitLineClamp:isLead?5:3,WebkitBoxOrient:"vertical",overflow:"hidden"}}>
+      {(article.body||"").replace(/\n/g," ")}
+    </p>}
+  </div>;
+}
+
+// -- ARTICLE VIEW --
+
+function ArticleView(props){
+  var article=props.article; var onBack=props.onBack;
+  var paragraphs=useMemo(function(){return ((article&&article.body)||"").split(/\n+/).filter(Boolean);},[article]);
+  return <div className="fadeIn" style={{maxWidth:760,margin:"0 auto",padding:"2rem 1.5rem"}}>
+    <button onClick={onBack} style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",background:"transparent",border:"none",color:"var(--ink3)",cursor:"pointer",marginBottom:"1.5rem"}}>
+      {"<- Back to Front Page"}
+    </button>
+    <SectionBadge section={article.section}/>
+    <Divider thick style={{margin:"6px 0 12px"}}/>
+    <h1 style={{fontFamily:"'Playfair Display',serif",fontWeight:900,fontSize:"clamp(1.8rem,4vw,3rem)",lineHeight:1.15,color:"var(--ink)",marginBottom:12}}>{article.headline}</h1>
+    {article.subheadline&&<p style={{fontFamily:"'IM Fell English',serif",fontStyle:"italic",fontSize:18,color:"var(--ink3)",lineHeight:1.55,marginBottom:12,borderTop:"1px solid var(--ruleL)",borderBottom:"1px solid var(--ruleL)",padding:"8px 0"}}>{article.subheadline}</p>}
+    <div style={{display:"flex",gap:"1.5rem",alignItems:"baseline",marginBottom:"1.25rem",flexWrap:"wrap"}}>
+      <span style={{fontFamily:"'Playfair Display SC',serif",fontSize:10,letterSpacing:"0.12em",color:"var(--ink)"}}>{"By "}{article.byline||article.author}</span>
+      {article.dateline&&<span style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.1em",color:"var(--ink3)"}}>{article.dateline}</span>}
+      <span style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,color:"var(--ink3)",letterSpacing:"0.08em"}}>{fmtDateUpper(article.publishedAt||article.created)}</span>
+      <span style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,color:"var(--rule)",letterSpacing:"0.08em"}}>{readTime(article.body)+" min . "+wordCount(article.body)+" words"}</span>
+    </div>
+    <Divider style={{marginBottom:"1.5rem"}}/>
+    {article.coverImage&&<figure style={{margin:"0 0 1.5rem"}}>
+      <img src={article.coverImage} alt={article.imgCaption||article.headline} style={{width:"100%",maxHeight:440,objectFit:"cover",display:"block",filter:"grayscale(100%) contrast(1.1) sepia(12%)"}}/>
+      {article.imgCaption&&<figcaption style={{fontFamily:"'IM Fell English',serif",fontStyle:"italic",fontSize:12,color:"var(--ink3)",padding:"5px 2px",borderBottom:"1px solid var(--ruleL)",lineHeight:1.5}}>{article.imgCaption}</figcaption>}
+    </figure>}
+    <div style={{columns:paragraphs.length>6?"2":"1",columnGap:"2rem",columnRule:"1px solid var(--ruleL)"}}>
+      {paragraphs.map(function(p,i){
+        return <p key={i} className={i===0?"drop-cap":""} style={{fontFamily:"'Source Serif 4',serif",fontSize:15,lineHeight:1.8,color:"var(--ink)",marginBottom:"1em",breakInside:"avoid"}}>{p}</p>;
+      })}
+    </div>
+    {article.notes&&<div style={{marginTop:"2rem",borderTop:"1px solid var(--rule)",paddingTop:"1rem"}}>
+      <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",color:"var(--ink3)",marginBottom:4}}>{"Editor's Note"}</div>
+      <p style={{fontFamily:"'IM Fell English',serif",fontStyle:"italic",fontSize:13,color:"var(--ink3)",lineHeight:1.65}}>{article.notes}</p>
+    </div>}
+    <div style={{marginTop:"2rem",padding:"1rem 0",borderTop:"1px solid var(--ink)",borderBottom:"1px solid var(--ink)",textAlign:"center"}}>
+      <div style={{fontFamily:"'UnifrakturMaguntia',cursive",fontSize:22,color:"var(--ink)",marginBottom:2}}>The Imperial Gazette</div>
+      <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.2em",color:"var(--ink3)"}}>Published by Imperial Authority {"."} Empire of Lech</div>
+    </div>
+  </div>;
+}
+
+// -- FRONT PAGE --
+
+function FrontPage(props){
+  var articles=props.articles; var activeSection=props.activeSection; var onRead=props.onRead;
+  var sideData=props.sideData||{};
+  var published=useMemo(function(){
+    return Object.values(articles||{}).filter(function(a){return a.status==="published";}).sort(function(a,b){return (b.publishedAt||b.created)-(a.publishedAt||a.created);});
+  },[articles]);
+  var filtered=useMemo(function(){
+    return activeSection==="all"?published:published.filter(function(a){return a.section===activeSection;});
+  },[published,activeSection]);
+
+  if(filtered.length===0)return(
+    <div style={{textAlign:"center",padding:"6rem 2rem"}}>
+      <div style={{fontFamily:"'UnifrakturMaguntia',cursive",fontSize:40,color:"var(--ink)",opacity:.2,marginBottom:8}}>{"*"}</div>
+      <p style={{fontFamily:"'IM Fell English',serif",fontStyle:"italic",fontSize:16,color:"var(--ink3)"}}>No articles have been published in this section.</p>
+    </div>
+  );
+
+  var lead=filtered[0];
+  var secondary=filtered.slice(1,3);
+  var tertiary=filtered.slice(3,9);
+  var remainder=filtered.slice(9);
+
+  return <div style={{maxWidth:1200,margin:"0 auto",padding:"1.5rem 1.25rem"}}>
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:"1.25rem"}}>
+      <div style={{height:1,flex:1,background:"var(--rule)"}}/>
+      <span style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.25em",color:"var(--ink3)"}}>LATEST DISPATCHES</span>
+      <div style={{height:1,flex:1,background:"var(--rule)"}}/>
+    </div>
+    <SectionWidgets section={activeSection} sideData={sideData}/>
+
+    <div style={{display:"grid",gridTemplateColumns:secondary.length>0?"2fr 1fr":"1fr",gap:"1.5rem",marginBottom:"1.5rem",paddingBottom:"1.5rem",borderBottom:"3px solid var(--ink)"}}>
+      <div><ArticleCard article={lead} size="lead" onRead={onRead}/></div>
+      {secondary.length>0&&<div style={{borderLeft:"1px solid var(--ruleL)",paddingLeft:"1.5rem",display:"flex",flexDirection:"column",gap:"1rem"}}>
+        {secondary.map(function(a,i){return <div key={a.id}>{i>0&&<Divider style={{marginBottom:"1rem"}}/>}<ArticleCard article={a} size="medium" onRead={onRead}/></div>;})}
+      </div>}
+    </div>
+
+    {tertiary.length>0&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:"1.25rem 2rem",marginBottom:"1.5rem",paddingBottom:"1.5rem",borderBottom:"1px solid var(--rule)"}}>
+      {tertiary.map(function(a){return <div key={a.id}><ArticleCard article={a} size="small" onRead={onRead}/></div>;})}
+    </div>}
+
+    {remainder.length>0&&<>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:"1rem"}}>
+        <div style={{height:1,flex:1,background:"var(--rule)"}}/>
+        <span style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.25em",color:"var(--ink3)"}}>MORE FROM THE GAZETTE</span>
+        <div style={{height:1,flex:1,background:"var(--rule)"}}/>
+      </div>
+      {remainder.map(function(a){
+        return <div key={a.id} onClick={function(){onRead(a);}} style={{cursor:"pointer",padding:"0.75rem 0",borderBottom:"1px solid var(--ruleL)",display:"flex",alignItems:"baseline",gap:12}}>
+          <SectionBadge section={a.section}/>
+          <span style={{fontFamily:"'Playfair Display',serif",fontWeight:700,fontSize:15,color:"var(--ink)",flex:1}}>{a.headline}</span>
+          <span style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,color:"var(--ink3)",letterSpacing:"0.08em",flexShrink:0}}>{fmtDateShort(a.publishedAt||a.created)}</span>
+        </div>;
+      })}
+    </>}
+  </div>;
+}
+
+// -- AUTH --
+
+function JournalistAuth(props){
+  var onAuth=props.onAuth; var onCancel=props.onCancel;
+  var state=useState(""); var username=state[0]; var setUsername=state[1];
+  var state2=useState(""); var password=state2[0]; var setPassword=state2[1];
+  var state3=useState(""); var err=state3[0]; var setErr=state3[1];
+  var state4=useState(false); var loading=state4[0]; var setLoading=state4[1];
+
+  function doAuth(){
+    if(!username.trim()||!password.trim()){setErr("Credentials required.");return;}
+    setLoading(true);setErr("");
+    sgetAll().then(function(raw){
+      var accounts={};
+      Object.entries(raw).forEach(function(entry){
+        var k=entry[0]; var v=entry[1];
+        if(k.startsWith("mi_acc_")&&v)accounts[v.username]=v;
+      });
+      Object.entries(raw["mi_accounts"]||{}).forEach(function(entry){
+        var k=entry[0]; var v=entry[1];
+        if(!accounts[k])accounts[k]=v;
+      });
+      var user=Object.values(accounts).filter(function(a){return a.username.toLowerCase()===username.trim().toLowerCase();})[0];
+      if(!user){setErr("Access denied.");setLoading(false);return;}
+      sha256(password).then(function(hash){
+        if(hash!==user.passwordHash){setErr("Access denied.");setLoading(false);return;}
+        if(user.role!=="emperor"&&!user.pressRole&&!user.pressAccess){setErr("Press credentials not granted. Contact the Ministry of Interior.");setLoading(false);return;}
+        onAuth(user,raw);
+      });
+    }).catch(function(){setErr("Connection error.");setLoading(false);});
+  }
+
+  return <div style={{position:"fixed",inset:0,background:"rgba(245,240,232,.97)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}}>
+    <div style={{background:"var(--paper2)",border:"1px solid var(--rule)",maxWidth:400,width:"100%",margin:"1rem",padding:"2rem"}}>
+      <div style={{textAlign:"center",marginBottom:"1.5rem"}}>
+        <div style={{fontFamily:"'UnifrakturMaguntia',cursive",fontSize:28,color:"var(--ink)",marginBottom:4}}>The Imperial Gazette</div>
+        <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.2em",color:"var(--ink3)"}}>JOURNALIST PORTAL</div>
+      </div>
+      <Divider thick style={{marginBottom:"1.5rem"}}/>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.85rem"}}>
+        <div>
+          <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",color:"var(--ink3)",marginBottom:4}}>USERNAME</div>
+          <Inp value={username} onChange={setUsername} placeholder="Imperial Intranet username"/>
+        </div>
+        <div>
+          <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",color:"var(--ink3)",marginBottom:4}}>PASSWORD</div>
+          <Inp value={password} onChange={setPassword} type="password" placeholder="Password"/>
+        </div>
+        {err&&<div style={{fontFamily:"'Playfair Display SC',serif",fontSize:10,color:"var(--red)",letterSpacing:"0.1em",padding:"6px 10px",border:"1px solid var(--red)",background:"rgba(139,26,26,.06)"}}>{err.toUpperCase()}</div>}
+        <PressBtn onClick={doAuth} disabled={loading||!username.trim()||!password.trim()}>{loading?"Authenticating...":"Enter the Newsroom"}</PressBtn>
+        <PressBtn variant="ghost" onClick={onCancel}>Cancel</PressBtn>
+      </div>
+    </div>
+  </div>;
+}
+
+// -- ARTICLE FORM --
+
+function ArticleForm(props){
+  var article=props.article; var onSave=props.onSave; var onCancel=props.onCancel; var pressUser=props.pressUser;
+  var s1=useState((article&&article.headline)||""); var headline=s1[0]; var setHeadline=s1[1];
+  var s2=useState((article&&article.subheadline)||""); var subheadline=s2[0]; var setSubheadline=s2[1];
+  var s3=useState((article&&article.byline)||((pressUser&&pressUser.displayName)||(pressUser&&pressUser.username))||""); var byline=s3[0]; var setByline=s3[1];
+  var s4=useState((article&&article.dateline)||"IMPERIAL CITY"); var dateline=s4[0]; var setDateline=s4[1];
+  var s5=useState((article&&article.section)||"politics"); var section=s5[0]; var setSection=s5[1];
+  var s6=useState((article&&article.body)||""); var body=s6[0]; var setBody=s6[1];
+  var s7=useState((article&&article.notes)||""); var notes=s7[0]; var setNotes=s7[1];
+  var s8=useState((article&&article.coverImage)||null); var coverImage=s8[0]; var setCoverImage=s8[1];
+  var s9=useState((article&&article.imgCaption)||""); var imgCaption=s9[0]; var setImgCaption=s9[1];
+  var s10=useState(""); var imgWarn=s10[0]; var setImgWarn=s10[1];
+  var s11=useState(false); var saving=s11[0]; var setSaving=s11[1];
+  var imgRef=useRef(null);
+  var wc=wordCount(body); var rt=readTime(body);
+
+  function handleImg(e){
+    var file=e.target.files[0];
+    if(!file)return;
+    if(!file.type.startsWith("image/")){setImgWarn("Please select an image file.");return;}
+    setImgWarn("");
+    if(file.size>IMG_WARN_BYTES)setImgWarn("Image is large ("+Math.round(file.size/1024)+"KB) - consider resizing to under 900KB.");
+    fileToBase64(file).then(function(b64){setCoverImage(b64);});
+  }
+
+  function save(){
+    setSaving(true);
+    onSave({headline:headline.trim(),subheadline:subheadline.trim(),byline:byline.trim(),dateline:dateline.trim().toUpperCase(),section:section,body:body.trim(),notes:notes.trim(),coverImage:coverImage||null,imgCaption:imgCaption.trim()}).then(function(){setSaving(false);}).catch(function(){setSaving(false);});
+  }
+
+  var canSave=headline.trim()&&body.trim()&&byline.trim()&&!saving;
+
+  return <div style={{background:"var(--paper2)",border:"1px solid var(--rule)",padding:"1.5rem",marginBottom:"1.5rem"}}>
+    <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:10,letterSpacing:"0.2em",color:"var(--ink3)",marginBottom:"1rem",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      {article?"REVISE ARTICLE":"COMPOSE NEW ARTICLE"}
+      <button onClick={onCancel} style={{background:"transparent",border:"none",cursor:"pointer",fontSize:18,color:"var(--ink3)"}}>x</button>
+    </div>
+    <Divider style={{marginBottom:"1rem"}}/>
+    <div style={{display:"flex",flexDirection:"column",gap:"0.85rem"}}>
+      <div>
+        <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",color:"var(--ink3)",marginBottom:4}}>HEADLINE *</div>
+        <Inp value={headline} onChange={setHeadline} placeholder="The main headline"/>
+      </div>
+      <div>
+        <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",color:"var(--ink3)",marginBottom:4}}>SUBHEADLINE / STANDFIRST</div>
+        <Inp value={subheadline} onChange={setSubheadline} placeholder="Brief summary (optional)"/>
+      </div>
+      <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+        <div style={{flex:2,minWidth:160}}>
+          <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",color:"var(--ink3)",marginBottom:4}}>BYLINE *</div>
+          <Inp value={byline} onChange={setByline} placeholder="By whom"/>
+        </div>
+        <div style={{flex:1,minWidth:140}}>
+          <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",color:"var(--ink3)",marginBottom:4}}>DATELINE</div>
+          <Inp value={dateline} onChange={setDateline} placeholder="e.g. IMPERIAL CITY"/>
+        </div>
+        <div style={{flex:1,minWidth:140}}>
+          <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",color:"var(--ink3)",marginBottom:4}}>SECTION *</div>
+          <DD value={section} onChange={setSection} options={SECTIONS.map(function(s){return {v:s.v,l:s.l};})} style={{width:"100%"}}/>
+        </div>
+      </div>
+      <div>
+        <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",color:"var(--ink3)",marginBottom:6}}>
+          COVER IMAGE {"-"} rendered in black &amp; white (optional)
+        </div>
+        {coverImage
+          ?<div style={{position:"relative",marginBottom:6}}>
+            <img src={coverImage} alt="Cover preview" style={{width:"100%",maxHeight:200,objectFit:"cover",filter:"grayscale(100%) contrast(1.1) sepia(12%)",display:"block",border:"1px solid var(--rule)"}}/>
+            <div style={{position:"absolute",top:6,right:6,display:"flex",gap:4}}>
+              <button onClick={function(){imgRef.current&&imgRef.current.click();}} style={{fontFamily:"'Playfair Display SC',serif",fontSize:8,letterSpacing:"0.1em",background:"var(--ink)",color:"var(--paper)",border:"none",padding:"3px 8px",cursor:"pointer"}}>Replace</button>
+              <button onClick={function(){setCoverImage(null);setImgCaption("");}} style={{fontFamily:"'Playfair Display SC',serif",fontSize:8,letterSpacing:"0.1em",background:"var(--red)",color:"var(--paper)",border:"none",padding:"3px 8px",cursor:"pointer"}}>Remove</button>
+            </div>
+          </div>
+          :<div onClick={function(){imgRef.current&&imgRef.current.click();}} style={{border:"2px dashed var(--ruleL)",padding:"1.5rem",textAlign:"center",cursor:"pointer",background:"var(--paper3)",marginBottom:6}}>
+            <div style={{fontSize:24,marginBottom:4,opacity:.4}}>Image</div>
+            <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",color:"var(--ink3)"}}>Click to Upload Cover Image</div>
+            <div style={{fontFamily:"'IM Fell English',serif",fontStyle:"italic",fontSize:11,color:"var(--rule)",marginTop:2}}>JPG, PNG, WEBP - recommend under 900KB</div>
+          </div>}
+        <input ref={imgRef} type="file" accept="image/*" onChange={handleImg} style={{display:"none"}}/>
+        {imgWarn&&<div style={{fontFamily:"'IM Fell English',serif",fontStyle:"italic",fontSize:11,color:"var(--gold)",marginBottom:4}}>{"! "+imgWarn}</div>}
+        {coverImage&&<Inp value={imgCaption} onChange={setImgCaption} placeholder="Image caption (optional)"/>}
+      </div>
+      <div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
+          <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",color:"var(--ink3)"}}>ARTICLE BODY * - use blank lines between paragraphs</div>
+          <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:8,color:"var(--rule)",letterSpacing:"0.08em"}}>{wc+" words . "+rt+" min read"}</div>
+        </div>
+        <TA value={body} onChange={setBody} rows={14} placeholder="Write the full article here. Use blank lines to separate paragraphs."/>
+      </div>
+      <div>
+        <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",color:"var(--ink3)",marginBottom:4}}>{"EDITOR'S NOTE - shown below article (optional)"}</div>
+        <Inp value={notes} onChange={setNotes} placeholder="Context, correction or editorial note..."/>
+      </div>
+      <div style={{display:"flex",gap:8,borderTop:"1px solid var(--rule)",paddingTop:"1rem",flexWrap:"wrap"}}>
+        <PressBtn disabled={!canSave} onClick={save}>{saving?"Saving...":(article?"Save Changes":"Submit Article")}</PressBtn>
+        <PressBtn variant="ghost" onClick={onCancel}>Discard</PressBtn>
+      </div>
+    </div>
+  </div>;
+}
+
+// -- ARTICLE ROW (newsroom panel list item) --
+
+function ArticleRow(props){
+  var a=props.a; var showStatus=props.showStatus;
+  var isEditor=props.isEditor; var pressUser=props.pressUser;
+  var onAction=props.onAction; var notify=props.notify; var setProcessing=props.setProcessing;
+  var setEditing=props.setEditing; var setComposing=props.setComposing; var setSub=props.setSub;
+
+  var borderColor=a.status==="published"?"var(--ink)":a.status==="pending"?"var(--goldL)":"var(--rule)";
+  return <div style={{background:"var(--paper)",border:"1px solid var(--ruleL)",borderLeft:"4px solid "+borderColor,padding:"0.75rem 1rem",marginBottom:"0.4rem"}}>
+    <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap",marginBottom:3}}>
+      <SectionBadge section={a.section}/>
+      {showStatus&&<span style={{fontFamily:"'Playfair Display SC',serif",fontSize:8,letterSpacing:"0.12em",color:a.status==="published"?"var(--ink)":a.status==="pending"?"var(--goldL)":"var(--rule)",border:"1px solid currentColor",padding:"1px 6px"}}>{a.status.toUpperCase()}</span>}
+      <span style={{fontFamily:"'Playfair Display',serif",fontWeight:700,fontSize:15,color:"var(--ink)",flex:1}}>{a.headline}</span>
+      <span style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,color:"var(--ink3)",flexShrink:0}}>{fmtDateShort(a.created)}</span>
+    </div>
+    <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:8,color:"var(--ink3)",letterSpacing:"0.08em",marginBottom:6}}>{"By "+( a.byline||a.author)+" . "+wordCount(a.body)+" words"}</div>
+    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+      <PressBtn small variant="ghost" onClick={function(){setEditing(a);setComposing(false);}}>Edit</PressBtn>
+      {a.status==="draft"&&<PressBtn small variant="gold" onClick={function(){setProcessing("Submitting...");onAction("updateArticle",{id:a.id,status:"pending"}).then(function(){setProcessing(null);notify("Submitted for review.");});}}>Submit for Review</PressBtn>}
+      {isEditor&&a.status==="pending"&&<PressBtn small onClick={function(){setProcessing("Publishing...");onAction("publishArticle",{id:a.id}).then(function(){setProcessing(null);notify("Published.");setSub("published");});}}>Publish</PressBtn>}
+      {isEditor&&a.status==="published"&&<PressBtn small variant="ghost" onClick={function(){setProcessing("Unpublishing...");onAction("updateArticle",{id:a.id,status:"draft"}).then(function(){setProcessing(null);notify("Returned to drafts.");});}}>Unpublish</PressBtn>}
+      {(isEditor||(pressUser&&a.author===pressUser.username))&&<ArmBtn small label="Delete" confirmLabel="Delete permanently?" onConfirm={function(){setProcessing("Deleting...");onAction("deleteArticle",{id:a.id}).then(function(){setProcessing(null);notify("Deleted.");});}}/>}
+    </div>
+  </div>;
+}
+
+// -- BANNER EDITOR --
+
+function BannerEditor(props){
+  var banner=props.banner; var onAction=props.onAction; var notify=props.notify; var setProcessing=props.setProcessing;
+  var s1=useState((banner&&banner.text)||""); var text=s1[0]; var setText=s1[1];
+  var isActive=banner&&banner.active;
+
+  function activate(){
+    if(!text.trim())return;
+    setProcessing("Posting banner...");
+    onAction("setBanner",{active:true,text:text.trim(),postedAt:Date.now()}).then(function(){setProcessing(null);notify("Breaking banner posted.");});
+  }
+  function deactivate(){
+    setProcessing("Clearing banner...");
+    onAction("setBanner",{active:false,text:"",postedAt:null}).then(function(){setProcessing(null);notify("Banner cleared.");});
+  }
+
+  return <div>
+    <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:10,letterSpacing:"0.2em",color:"var(--ink3)",marginBottom:"1rem"}}>BREAKING NEWS BANNER</div>
+    <div style={{background:"var(--paper)",border:"1px solid var(--rule)",padding:"1.25rem",marginBottom:"1rem"}}>
+      <div style={{fontFamily:"'IM Fell English',serif",fontStyle:"italic",fontSize:13,color:"var(--ink3)",lineHeight:1.6,marginBottom:"1rem"}}>
+        When active, the breaking banner appears at the top of every page in red. Readers can dismiss it per session. Use for urgent news only.
+      </div>
+      {isActive&&<div style={{background:"var(--red)",color:"var(--paper)",padding:"8px 14px",marginBottom:"1rem",display:"flex",alignItems:"center",gap:10}}>
+        <span style={{fontFamily:"'Playfair Display SC',serif",fontSize:8,letterSpacing:"0.2em",background:"#6a0000",padding:"3px 8px",flexShrink:0}}>LIVE</span>
+        <span style={{fontFamily:"'Playfair Display',serif",fontSize:13,fontWeight:700,flex:1}}>{banner.text}</span>
+      </div>}
+      <div style={{marginBottom:"0.85rem"}}>
+        <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",color:"var(--ink3)",marginBottom:4}}>BANNER TEXT</div>
+        <Inp value={text} onChange={setText} placeholder="e.g. Emperor declares war on pigeons -- full story developing"/>
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <PressBtn variant="red" disabled={!text.trim()} onClick={activate}>{isActive?"Update Banner":"Activate Banner"}</PressBtn>
+        {isActive&&<ArmBtn label="Clear Banner" confirmLabel="Remove the banner?" onConfirm={deactivate} variant="ghost"/>}
+      </div>
+    </div>
+  </div>;
+}
+
+// -- JOURNALIST PANEL --
+
+function JournalistPanel(props){
+  var pressUser=props.pressUser; var articles=props.articles; var banner=props.banner;
+  var onAction=props.onAction; var notify=props.notify; var setProcessing=props.setProcessing; var onClose=props.onClose;
+
+  var s1=useState("drafts"); var sub=s1[0]; var setSub=s1[1];
+  var s2=useState(false); var composing=s2[0]; var setComposing=s2[1];
+  var s3=useState(null); var editing=s3[0]; var setEditing=s3[1];
+
+  var isEditor=pressUser.role==="emperor"||pressUser.pressRole==="editor";
+
+  var myArticles=useMemo(function(){
+    return Object.values(articles||{}).filter(function(a){return isEditor||a.author===pressUser.username;}).sort(function(a,b){return (b.created||0)-(a.created||0);});
+  },[articles,pressUser,isEditor]);
+
+  var drafts=myArticles.filter(function(a){return a.status==="draft";});
+  var pending=myArticles.filter(function(a){return a.status==="pending";});
+  var published=myArticles.filter(function(a){return a.status==="published";});
+  var allPending=Object.values(articles||{}).filter(function(a){return a.status==="pending";}).sort(function(a,b){return (a.created||0)-(b.created||0);});
+
+  var draftLabel="My Drafts"+(drafts.length>0?" ("+drafts.length+")":"");
+  var pendingLabel="Awaiting Review"+(isEditor&&allPending.length>0?" ("+allPending.length+")":"");
+  var SUBTABS=[
+    {v:"drafts",l:draftLabel},
+    {v:"pending",l:pendingLabel},
+    {v:"published",l:"Published"},
+  ];
+  if(isEditor)SUBTABS.push({v:"all",l:"All Articles"});
+  if(isEditor)SUBTABS.push({v:"banner",l:"Breaking Banner"});
+
+  var rowProps={isEditor:isEditor,pressUser:pressUser,onAction:onAction,notify:notify,setProcessing:setProcessing,setEditing:setEditing,setComposing:setComposing,setSub:setSub};
+
+  function saveArticle(data){
+    if(editing){
+      return onAction("updateArticle",Object.assign({},data,{id:editing.id})).then(function(){notify("Article updated.");setEditing(null);});
+    } else {
+      return onAction("createArticle",Object.assign({},data,{author:pressUser.username,status:"draft"})).then(function(){notify("Draft saved.");setComposing(false);setSub("drafts");});
+    }
+  }
+
+  var pendingList=isEditor?allPending:pending;
+
+  return <div style={{position:"fixed",inset:0,background:"rgba(26,18,8,.5)",zIndex:999,display:"flex",alignItems:"stretch",justifyContent:"flex-end"}}>
+    <div style={{background:"var(--paper2)",width:"min(680px,100%)",height:"100%",overflow:"auto",borderLeft:"3px solid var(--ink)",display:"flex",flexDirection:"column"}}>
+      <div style={{background:"var(--ink)",padding:"1rem 1.5rem",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+        <div>
+          <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:10,letterSpacing:"0.2em",color:"var(--paper3)"}}>NEWSROOM PANEL</div>
+          <div style={{fontFamily:"'IM Fell English',serif",fontStyle:"italic",fontSize:12,color:"var(--ruleF)",marginTop:2}}>{(pressUser.displayName||pressUser.username)+" . "+(isEditor?"Editor-in-Chief":"Journalist")}</div>
+        </div>
+        <button onClick={onClose} style={{background:"transparent",border:"1px solid var(--rule)",color:"var(--ruleF)",cursor:"pointer",fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.1em",padding:"4px 10px"}}>Close</button>
+      </div>
+      <div style={{padding:"1.25rem 1.5rem",flex:1}}>
+        {(composing||editing)
+          ?<ArticleForm article={editing} onSave={saveArticle} onCancel={function(){setComposing(false);setEditing(null);}} pressUser={pressUser}/>
+          :<div style={{display:"flex",justifyContent:"flex-end",marginBottom:"1rem"}}>
+            <PressBtn onClick={function(){setComposing(true);setEditing(null);}}>+ New Article</PressBtn>
+          </div>}
+        {!composing&&!editing&&<>
+          <div style={{display:"flex",gap:0,borderBottom:"2px solid var(--ink)",marginBottom:"1.25rem"}}>
+            {SUBTABS.map(function(t){
+              return <button key={t.v} onClick={function(){setSub(t.v);}}
+                style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",padding:"6px 12px",background:"transparent",border:"none",cursor:"pointer",borderBottom:"2px solid "+(sub===t.v?"var(--ink)":"transparent"),color:sub===t.v?"var(--ink)":"var(--ink3)",marginBottom:-2}}>
+                {t.l}
+              </button>;
+            })}
+          </div>
+          {sub==="drafts"&&(drafts.length===0
+            ?<p style={{fontFamily:"'IM Fell English',serif",fontStyle:"italic",color:"var(--ink3)",textAlign:"center",padding:"2rem"}}>No drafts. Write a new article to begin.</p>
+            :drafts.map(function(a){return <ArticleRow key={a.id} a={a} {...rowProps}/>;}))
+          }
+          {sub==="pending"&&(pendingList.length===0
+            ?<p style={{fontFamily:"'IM Fell English',serif",fontStyle:"italic",color:"var(--ink3)",textAlign:"center",padding:"2rem"}}>{isEditor?"No articles awaiting review.":"No articles submitted for review."}</p>
+            :pendingList.map(function(a){return <ArticleRow key={a.id} a={a} {...rowProps}/>;}))
+          }
+          {sub==="published"&&(published.length===0
+            ?<p style={{fontFamily:"'IM Fell English',serif",fontStyle:"italic",color:"var(--ink3)",textAlign:"center",padding:"2rem"}}>No published articles yet.</p>
+            :published.map(function(a){return <ArticleRow key={a.id} a={a} {...rowProps}/>;}))
+          }
+          {sub==="all"&&isEditor&&(Object.values(articles||{}).length===0
+            ?<p style={{fontFamily:"'IM Fell English',serif",fontStyle:"italic",color:"var(--ink3)",textAlign:"center",padding:"2rem"}}>No articles on record.</p>
+            :Object.values(articles||{}).sort(function(a,b){return (b.created||0)-(a.created||0);}).map(function(a){return <ArticleRow key={a.id} a={a} showStatus={true} {...rowProps}/>;}))
+          }
+          {sub==="banner"&&isEditor&&<BannerEditor banner={banner} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+        </>}
+      </div>
+    </div>
+  </div>;
+}
+
+// -- APP --
+
+function App(){
+  var s1=useState({}); var raw=s1[0]; var setRaw=s1[1];
+  var s2=useState(false); var loaded=s2[0]; var setLoaded=s2[1];
+  var s3=useState(null); var pressUser=s3[0]; var setPressUser=s3[1];
+  var s4=useState(false); var showAuth=s4[0]; var setShowAuth=s4[1];
+  var s5=useState(false); var showPanel=s5[0]; var setShowPanel=s5[1];
+  var s6=useState(null); var readingArticle=s6[0]; var setReadingArticle=s6[1];
+  var s7=useState("all"); var activeSection=s7[0]; var setActiveSection=s7[1];
+  var s8=useState({msg:"",err:false}); var toast=s8[0]; var setToast=s8[1];
+  var s9=useState(null); var processing=s9[0]; var setProcessing=s9[1];
+  var s10=useState({}); var sideRaw=s10[0]; var setSideRaw=s10[1];
+
+  function notify(msg,err){
+    setToast({msg:msg,err:err||false});
+    setTimeout(function(){setToast(function(t){return t.msg===msg?{msg:"",err:false}:t;});},3500);
+  }
+
+  useEffect(function(){
+    sgetAll().then(function(r){setRaw(r);setLoaded(true);});
+    // Fetch side data: MOW alert + BK budget (fire and forget, best effort)
+    Promise.all([
+      fetch(SCRIPT_URL+"?action=getall").then(function(r){return r.json();}).catch(function(){return {success:false};}),
+      fetch(BK_URL+"?action=getall").then(function(r){return r.json();}).catch(function(){return {success:false};})
+    ]).then(function(results){
+      var sharedData=results[0]; var bkData=results[1];
+      var side={};
+      function parseStore(d){
+        if(!d||!d.success)return{};
+        var out={};
+        Object.entries(d.data||{}).forEach(function(e){
+          try{out[e[0]]=JSON.parse(e[1]);}catch(err){}
+        });
+        return out;
+      }
+      var shared=parseStore(sharedData);
+      var bk=parseStore(bkData);
+      side.alertData=shared["mow_alert"]||{level:5};
+      side.wartime=shared["mow_wartime"]||{active:false};
+      side.budget=bk["bk_active_budget"]||null;
+      setSideRaw(side);
+    }).catch(function(){});
+  },[]);
+
+  var articles=useMemo(function(){return raw["press_articles"]||{};},[raw]);
+  var breaking=useMemo(function(){return raw["press_breaking"]||null;},[raw]);
+  var banner=useMemo(function(){return raw["press_banner"]||null;},[raw]);
+
+  function onAction(type,payload){
+    if(type==="setBanner"){
+      setRaw(function(r){return Object.assign({},r,{press_banner:payload});});
+      return sset("press_banner",payload);
+    }
+    if(type==="saveBreaking"){
+      setRaw(function(r){return Object.assign({},r,{press_breaking:payload});});
+      return sset("press_breaking",payload);
+    }
+    if(type==="createArticle"){
+      var id="art_"+uid();
+      var article=Object.assign({},payload,{id:id,created:Date.now()});
+      var next=Object.assign({},articles);
+      next[id]=article;
+      setRaw(function(r){return Object.assign({},r,{press_articles:next});});
+      return sset("press_articles",next);
+    }
+    if(type==="updateArticle"){
+      var id2=payload.id;
+      var rest=Object.assign({},payload);
+      delete rest.id;
+      var next2=Object.assign({},articles);
+      next2[id2]=Object.assign({},articles[id2],rest,{updatedAt:Date.now()});
+      setRaw(function(r){return Object.assign({},r,{press_articles:next2});});
+      return sset("press_articles",next2);
+    }
+    if(type==="publishArticle"){
+      var id3=payload.id;
+      var next3=Object.assign({},articles);
+      next3[id3]=Object.assign({},articles[id3],{status:"published",publishedAt:Date.now()});
+      setRaw(function(r){return Object.assign({},r,{press_articles:next3});});
+      return sset("press_articles",next3);
+    }
+    if(type==="deleteArticle"){
+      var next4=Object.assign({},articles);
+      delete next4[payload.id];
+      setRaw(function(r){return Object.assign({},r,{press_articles:next4});});
+      return sset("press_articles",next4);
+    }
+    return Promise.resolve();
+  }
+
+  return <div style={{minHeight:"100vh",background:"var(--paper)"}}>
+    <Toast msg={toast.msg} err={toast.err}/>
+    <Overlay label={processing}/>
+    {showAuth&&<JournalistAuth
+      onAuth={function(u){setPressUser(u);setShowAuth(false);setShowPanel(true);notify("Welcome, "+(u.displayName||u.username)+".");}}
+      onCancel={function(){setShowAuth(false);}}
+    />}
+    {showPanel&&pressUser&&<JournalistPanel
+      pressUser={pressUser} articles={articles} banner={banner} onAction={onAction}
+      notify={notify} setProcessing={setProcessing} onClose={function(){setShowPanel(false);}}
+    />}
+    <BreakingNewsBanner breaking={breaking}/>
+    <Masthead
+      onPressPanel={function(){pressUser?setShowPanel(true):setShowAuth(true);}}
+      pressUser={pressUser}
+      onLogout={function(){setPressUser(null);setShowPanel(false);notify("Signed out.");}}
+      activeSection={activeSection}
+      setSection={function(v){setActiveSection(v);setReadingArticle(null);}}
+    />
+    <BreakingBanner banner={banner}/>
+    {!loaded
+      ?<div style={{textAlign:"center",padding:"6rem",fontFamily:"'IM Fell English',serif",fontStyle:"italic",color:"var(--ink3)"}}>Fetching dispatches from the wire...</div>
+      :readingArticle
+        ?<ArticleView article={readingArticle} onBack={function(){setReadingArticle(null);}}/>
+        :<FrontPage articles={articles} activeSection={activeSection} sideData={sideRaw} onRead={function(a){setReadingArticle(a);window.scrollTo(0,0);}}/>}
+    <footer style={{background:"var(--ink)",color:"var(--paper3)",padding:"1rem 2rem",textAlign:"center",marginTop:"3rem"}}>
+      <div style={{fontFamily:"'UnifrakturMaguntia',cursive",fontSize:22,marginBottom:4}}>The Imperial Gazette</div>
+      <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:8,letterSpacing:"0.2em",opacity:.6}}>Published by Imperial Authority &middot; Empire of Lech &middot; All Rights Reserved</div>
+    </footer>
+  </div>;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

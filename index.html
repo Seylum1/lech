@@ -171,7 +171,8 @@ header{
 .portal:nth-child(4){animation-delay:0.55s; border-top-color:#8b1a1a;}
 .portal:nth-child(5){animation-delay:0.65s; border-top-color:#2a7a3a;}
 .portal:nth-child(6){animation-delay:0.75s; border-top-color:#4a6a3a;}
-.portal:nth-child(7){animation-delay:0.85s; border-top-color:#a07820; grid-column:2;}
+.portal:nth-child(7){animation-delay:0.85s; border-top-color:#a07820;} #portal-mof{border-top-color:#a07820;}
+.portal:nth-child(8){animation-delay:0.95s; border-top-color:#4a2a0a;} #portal-gazette{border-top-color:#4a2a0a;}
 
 .portal::before{
   content:'';
@@ -186,7 +187,8 @@ header{
 .portal:nth-child(4)::before{color:#8b1a1a08;}
 .portal:nth-child(5)::before{color:#2a7a3a08;}
 .portal:nth-child(6)::before{color:#4a6a3a08;}
-.portal:nth-child(7)::before{color:#a0782008;}
+.portal:nth-child(7)::before{color:#a0782008;} #portal-mof::before{color:#a0782008;}
+.portal:nth-child(8)::before{color:#4a2a0a08;} #portal-gazette::before{color:#4a2a0a08;}
 
 .portal:hover{transform:translateY(-4px);border-color:var(--border);box-shadow:0 12px 40px #00000066;}
 .portal:nth-child(1):hover{border-top-color:#e8c45a; box-shadow:0 12px 40px #C9A84C22;}
@@ -195,7 +197,8 @@ header{
 .portal:nth-child(4):hover{border-top-color:#c05050; box-shadow:0 12px 40px #8b1a1a22;}
 .portal:nth-child(5):hover{border-top-color:#4a9a5a; box-shadow:0 12px 40px #2a7a3a22;}
 .portal:nth-child(6):hover{border-top-color:#6a8a4a; box-shadow:0 12px 40px #4a6a3a22;}
-.portal:nth-child(7):hover{border-top-color:#c9a030; box-shadow:0 12px 40px #a0782022;}
+.portal:nth-child(7):hover{border-top-color:#c9a030; box-shadow:0 12px 40px #a0782022;} #portal-mof:hover{border-top-color:#c9a030; box-shadow:0 12px 40px #a0782022;}
+.portal:nth-child(8):hover{border-top-color:#7a4a18; box-shadow:0 12px 40px #4a2a0a22;} #portal-gazette:hover{border-top-color:#7a4a18; box-shadow:0 12px 40px #4a2a0a22;}
 .portal:hover::before{opacity:1;}
 
 .portal-icon{
@@ -210,7 +213,8 @@ header{
 .portal:nth-child(4) .portal-icon{color:#c05050;}
 .portal:nth-child(5) .portal-icon{color:#4a9a5a;}
 .portal:nth-child(6) .portal-icon{color:#6a8a4a;}
-.portal:nth-child(7) .portal-icon{color:#a07820;}
+.portal:nth-child(7) .portal-icon{color:#a07820;} #portal-mof .portal-icon{color:#a07820;}
+.portal:nth-child(8) .portal-icon{color:#6a3a10;} #portal-gazette .portal-icon{color:#6a3a10;}
 
 
 .portal-ministry{
@@ -226,7 +230,8 @@ header{
 .portal:nth-child(4) .portal-ministry{color:#6a1a1a;}
 .portal:nth-child(5) .portal-ministry{color:#1a5a2a;}
 .portal:nth-child(6) .portal-ministry{color:#2a4a1a;}
-.portal:nth-child(7) .portal-ministry{color:#705010;}
+.portal:nth-child(7) .portal-ministry{color:#705010;} #portal-mof .portal-ministry{color:#705010;}
+.portal:nth-child(8) .portal-ministry{color:#4a2a08;} #portal-gazette .portal-ministry{color:#4a2a08;}
 
 
 .portal-name{
@@ -275,7 +280,8 @@ header{
 .portal:nth-child(3) .portal-enter{color:#4a9a5a;}
 .portal:nth-child(4) .portal-enter{color:#5a88cc;}
 .portal:nth-child(5) .portal-enter{color:#9a6acc;}
-.portal:nth-child(7) .portal-enter{color:#c9a030;}
+.portal:nth-child(7) .portal-enter{color:#c9a030;} #portal-mof .portal-enter{color:#c9a030;}
+.portal:nth-child(8) .portal-enter{color:#7a4a18;} #portal-gazette .portal-enter{color:#7a4a18;}
 
 .portal:hover .portal-enter{gap:14px;}
 
@@ -474,8 +480,10 @@ footer{
       <div class="portal-enter">Enter Portal →</div>
     </a>
 
-    <!-- Ministry of Finance -->
-    <a href="mof.html" class="portal">
+    <!-- Ministry of Finance + Imperial Gazette — centred bottom row -->
+    <div style="grid-column:1/-1;display:flex;justify-content:center;gap:2rem;flex-wrap:wrap;">
+
+    <a href="mof.html" class="portal" id="portal-mof" style="flex:0 1 340px;max-width:340px;">
       <span class="portal-icon">🪙</span>
       <div class="portal-ministry">Ministry of Finance</div>
       <div class="portal-name">Imperial Treasury</div>
@@ -489,6 +497,23 @@ footer{
       </div>
       <div class="portal-enter">Enter Portal →</div>
     </a>
+
+    <a href="press.html" class="portal" id="portal-gazette" style="flex:0 1 340px;max-width:340px;">
+      <span class="portal-icon">🗞</span>
+      <div class="portal-ministry">Imperial Press Office</div>
+      <div class="portal-name">The Imperial Gazette</div>
+      <p class="portal-desc">
+        Official news, imperial proclamations, and dispatches from across the Empire. Journalist panel for press credentialed staff.
+      </p>
+      <div class="portal-tags">
+        <span class="portal-tag">Public</span>
+        <span class="portal-tag">Press</span>
+        <span class="portal-tag">News</span>
+      </div>
+      <div class="portal-enter">Enter Portal →</div>
+    </a>
+
+    </div>
 
   </div>
 

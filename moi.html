@@ -1374,6 +1374,20 @@ function PermissionsReference(){
       </tbody></table>
       <Note>{"Auditor = read-only panel access. Treasurer adds payroll and debt management. Minister of Finance adds license approval, suspension, and revocation."}</Note>
     </Sec>
+    <Sec title="IMPERIAL PRESS ACCESS · set from MOI, controls Press journalist panel">
+      <table style={T}><thead><tr>
+        <th style={THL}>Level</th>
+        <th style={TH}>Press login</th>
+        <th style={TH}>Submit articles</th>
+        <th style={TH}>Publish articles</th>
+        <th style={TH}>Edit / delete any article</th>
+      </tr></thead><tbody>
+        <tr><td style={{...TDL,color:C.textD}}>No Access</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={TDL}>Journalist</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={{...TDL,color:"#c8a040"}}>Editor-in-Chief</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td></tr>
+      </tbody></table>
+      <Note>{"Journalists may write and submit articles for review. Only the Editor-in-Chief may publish, unpublish, or delete any article."}</Note>
+    </Sec>
   </div>;
 }function MinisterPanel({currentUser,accounts,onUpdate,notify,setProcessing}){
   const [sub,setSub]=useState("accounts");
@@ -1479,6 +1493,7 @@ function AccountRow({acc,currentUser,onUpdate,notify,setProcessing,canSetMiniste
   const [mfaAccess,setMfaAccess]=useState(acc.mfaAccess||false);
   const [ijAccess,setIjAccess]=useState(acc.ijAccess||"");
   const [mofRole,setMofRole]=useState(acc.mofRole||"");
+  const [pressRole,setPressRole]=useState(acc.pressRole||"");
   const [clearance,setClearance]=useState(String(acc.clearance||0));
   const [newPw,setNewPw]=useState("");
   const [saving,setSaving]=useState(false);
@@ -1568,6 +1583,16 @@ function AccountRow({acc,currentUser,onUpdate,notify,setProcessing,canSetMiniste
                 <option value="minister">Minister of Finance</option>
               </select>
             </div>
+            <div style={{flex:1,minWidth:200}}>
+              <FL>IMPERIAL PRESS ACCESS</FL>
+              <select value={pressRole} onChange={e=>setPressRole(e.target.value)}
+                style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
+                         padding:"8px 12px",color:C.text,fontSize:14,outline:"none",fontFamily:"'Crimson Text',serif"}}>
+                <option value="">No Access</option>
+                <option value="journalist">Journalist</option>
+                <option value="editor">Editor-in-Chief</option>
+              </select>
+            </div>
           </div>
           <div style={{display:"flex",gap:8,alignItems:"flex-end",flexWrap:"wrap"}}>
             <div style={{flex:1,minWidth:180}}>
@@ -1576,7 +1601,7 @@ function AccountRow({acc,currentUser,onUpdate,notify,setProcessing,canSetMiniste
             </div>
             <Btn small variant="gold" disabled={saving} onClick={async()=>{
               setSaving(true); setProcessing("Saving account…");
-              const patch={role,ministry,isContractor,agentAssigned,officerAssigned,mowAccess:!!mowRole,mowRole,canSetAlert:canSetAlert&&!!mowRole,mfaAccess,ijAccess,mofRole,mofAccess:!!mofRole,clearance:parseInt(clearance)};
+              const patch={role,ministry,isContractor,agentAssigned,officerAssigned,mowAccess:!!mowRole,mowRole,canSetAlert:canSetAlert&&!!mowRole,mfaAccess,ijAccess,mofRole,mofAccess:!!mofRole,pressRole,pressAccess:!!pressRole,clearance:parseInt(clearance)};
               if(newPw.trim()) patch.passwordHash=await sha256(newPw.trim());
               await onUpdate(acc.username,patch);
               setProcessing(null); setSaving(false); setNewPw("");
