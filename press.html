@@ -120,9 +120,17 @@ function sgetAll(){
   }).catch(function(){return{};});
 }
 function sset(k,v){
+  var bodyStr=JSON.stringify({action:"set",key:k,value:JSON.stringify(v)});
+  console.log("[sset] Saving key:",k,"| payload bytes:",bodyStr.length);
   return fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
-    body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v)})
-  }).then(function(){return true;}).catch(function(){return false;});
+    body:bodyStr
+  }).then(function(){
+    console.log("[sset] Fetch resolved (no-cors, opaque) for key:",k);
+    return true;
+  }).catch(function(e){
+    console.error("[sset] Fetch FAILED for key:",k,e);
+    return false;
+  });
 }
 function sdel(k){
   return fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
@@ -680,7 +688,22 @@ function ArticleForm(props){
 
   function save(){
     setSaving(true);
-    onSave({headline:headline.trim(),subheadline:subheadline.trim(),byline:byline.trim(),dateline:dateline.trim().toUpperCase(),section:section,body:body.trim(),notes:notes.trim(),coverImage:coverImage||null,imgCaption:imgCaption.trim()}).then(function(){setSaving(false);}).catch(function(){setSaving(false);});
+    var result=onSave({
+      headline:headline.trim(),
+      subheadline:subheadline.trim(),
+      byline:byline.trim(),
+      dateline:dateline.trim().toUpperCase(),
+      section:section,
+      body:body.trim(),
+      notes:notes.trim(),
+      coverImage:coverImage||null,
+      imgCaption:imgCaption.trim()
+    });
+    if(result&&result.then){
+      result.then(function(){setSaving(false);}).catch(function(){setSaving(false);});
+    } else {
+      setSaving(false);
+    }
   }
 
   var canSave=headline.trim()&&body.trim()&&byline.trim()&&!saving&&!imgLoading;
@@ -859,9 +882,17 @@ function JournalistPanel(props){
 
   function saveArticle(data){
     if(editing){
-      return onAction("updateArticle",Object.assign({},data,{id:editing.id})).then(function(){notify("Article updated.");setEditing(null);});
+      return onAction("updateArticle",Object.assign({},data,{id:editing.id})).then(function(){
+        notify("Article updated.");setEditing(null);
+      }).catch(function(){
+        notify("Save failed. Try again.",true);
+      });
     } else {
-      return onAction("createArticle",Object.assign({},data,{author:pressUser.username,status:"draft"})).then(function(){notify("Draft saved.");setComposing(false);setSub("drafts");});
+      return onAction("createArticle",Object.assign({},data,{author:pressUser.username,status:"draft"})).then(function(){
+        notify("Draft saved.");setComposing(false);setSub("drafts");
+      }).catch(function(){
+        notify("Save failed. Try again.",true);
+      });
     }
   }
 
