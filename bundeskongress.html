@@ -26,6 +26,12 @@ const PARTIES = [
   { id:"rappier",     name:"Rappier of Order",    color:"#4A5A8A" },
   { id:"independent", name:"Independent",          color:"#888888" },
 ];
+
+// Former members — used to attribute votes after dismissal/by-election
+// Add any departed member here so their archive votes remain named
+const KNOWN_FORMER_MEMBERS = {
+  "KelsoKevin": {name:"KelsoKevin", seats:67, party:"catholic"},
+};
 const BT_SEATS_TOTAL = 1000;
 const BT_THRESHOLD   = 501;
 const BT_SUPERMAJORITY = 667; // 2/3 of 1000
@@ -215,6 +221,17 @@ async function sha256(t) {
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
 }
 function uid() { return Date.now()+"_"+Math.random().toString(36).slice(2,8); }
+// Convert "7:00 PM" style times to "19:00" for Date parsing
+function convertTo24(timeStr){
+  if(!timeStr) return "00:00";
+  const clean=timeStr.trim().toUpperCase();
+  const m=clean.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/);
+  if(!m) return "00:00";
+  let h=parseInt(m[1]); const min=m[2]; const ampm=m[3];
+  if(ampm==="PM"&&h!==12) h+=12;
+  if(ampm==="AM"&&h===12) h=0;
+  return String(h).padStart(2,"0")+":"+min;
+}
 
 async function sget(k) {
   try {
@@ -403,22 +420,84 @@ function SeatBar({members}) {
   );
 }
 
-function OfficialsBanner({officials,chamber}) {
-  const items = chamber==="bundestag"
-    ? [{label:"PRESIDENT OF THE BUNDESTAG",value:officials?.president_bt||"Vacant",icon:"🏛"},
-       {label:"IMPERIAL CHANCELLOR",value:officials?.chancellor||"Vacant",icon:"⚜"}]
-    : [{label:"PRESIDENT OF THE BUNDESHERREN",value:officials?.president_bh||"Vacant",icon:"🏰"}];
-  return (
-    <div style={{display:"flex",gap:"1rem",marginBottom:"1.5rem",flexWrap:"wrap"}}>
-      {items.map(({label,value,icon})=>(
-        <div key={label} className="shm" style={{flex:1,minWidth:200,background:C.s1,border:`1px solid ${C.gold}44`,borderTop:`3px solid ${C.gold}`,borderRadius:"0 0 3px 3px",padding:"0.85rem 1.1rem"}}>
-          <div style={{fontFamily:"'Cinzel',serif",fontSize:8,letterSpacing:"0.25em",color:C.textDD,marginBottom:4}}>{label}</div>
+function OfficialsBanner({officials,chamber,members}) {
+  if(chamber!=="bundestag"){
+    const val=officials?.president_bh||"Vacant";
+    return(
+      <div style={{marginBottom:"1.5rem"}}>
+        <div className="shm" style={{background:C.s1,border:`1px solid ${C.gold}44`,borderTop:`3px solid ${C.gold}`,borderRadius:"0 0 3px 3px",padding:"0.85rem 1.1rem"}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:8,letterSpacing:"0.25em",color:C.textDD,marginBottom:4}}>PRESIDENT OF THE BUNDESHERREN</div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <span style={{fontSize:20}}>{icon}</span>
-            <span style={{fontFamily:"'Cinzel',serif",fontSize:16,color:C.gold,fontWeight:700}}>{value}</span>
+            <span style={{fontSize:20}}>🏰</span>
+            <span style={{fontFamily:"'Cinzel',serif",fontSize:16,color:C.gold,fontWeight:700}}>{val}</span>
           </div>
         </div>
-      ))}
+      </div>
+    );
+  }
+
+  // Find party of Chancellor and BT President from member list
+  const chancellorName=officials?.chancellor||"";
+  const btPresName=officials?.president_bt||"";
+  const findParty=(name)=>{
+    if(!name||name==="Vacant") return null;
+    const m=Object.values(members||{}).find(x=>x.name===name);
+    return m?PARTIES.find(p=>p.id===m.party):null;
+  };
+  const chanParty=findParty(chancellorName);
+  const btPresParty=findParty(btPresName);
+
+  return(
+    <div style={{marginBottom:"1.5rem",display:"flex",flexDirection:"column",gap:"0.6rem"}}>
+
+      {/* Chancellor — full width, prominent */}
+      <div className="shm" style={{
+        background:chanParty?`linear-gradient(135deg,${C.s1} 70%,${chanParty.color}18)`:`${C.s1}`,
+        border:`1px solid ${chanParty?chanParty.color+"55":C.gold+"44"}`,
+        borderLeft:`5px solid ${chanParty?chanParty.color:C.gold}`,
+        borderRadius:"0 3px 3px 0",padding:"1rem 1.25rem",
+        display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:200}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:8,letterSpacing:"0.3em",color:C.gold,marginBottom:5,display:"flex",alignItems:"center",gap:8}}>
+            <span>⚜ IMPERIAL CHANCELLOR</span>
+            {chanParty&&<span style={{padding:"1px 7px",border:`1px solid ${chanParty.color}55`,borderRadius:2,color:chanParty.color,fontSize:7,letterSpacing:"0.12em"}}>{chanParty.name}</span>}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:22}}>⚜</span>
+            <span style={{fontFamily:"'Cinzel',serif",fontSize:20,fontWeight:700,
+              color:chanParty?chanParty.color:C.gold,
+              textShadow:chanParty?`0 0 20px ${chanParty.color}44`:"none"}}>
+              {chancellorName||"Vacant"}
+            </span>
+          </div>
+        </div>
+        <div style={{fontSize:11,color:C.textDD,fontStyle:"italic",textAlign:"right"}}>
+          Head of Government
+        </div>
+      </div>
+
+      {/* BT President — secondary */}
+      <div className="shm" style={{
+        background:C.s1,
+        border:`1px solid ${btPresParty?btPresParty.color+"33":C.gold+"33"}`,
+        borderLeft:`3px solid ${btPresParty?btPresParty.color:C.gold+"88"}`,
+        borderRadius:"0 3px 3px 0",padding:"0.75rem 1.1rem",
+        display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+        <div style={{flex:1}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:8,letterSpacing:"0.25em",color:C.textDD,marginBottom:3,display:"flex",alignItems:"center",gap:8}}>
+            <span>PRESIDENT OF THE BUNDESTAG</span>
+            {btPresParty&&<span style={{padding:"1px 6px",border:`1px solid ${btPresParty.color}44`,borderRadius:2,color:btPresParty.color,fontSize:7,letterSpacing:"0.1em"}}>{btPresParty.name}</span>}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:16}}>🏛</span>
+            <span style={{fontFamily:"'Cinzel',serif",fontSize:15,color:C.gold,fontWeight:700}}>{btPresName||"Vacant"}</span>
+          </div>
+        </div>
+        <div style={{fontSize:11,color:C.textDD,fontStyle:"italic"}}>
+          Presiding Officer
+        </div>
+      </div>
+
     </div>
   );
 }
@@ -645,13 +724,18 @@ function BillCard({bill,members,bundesherren,ijStatutes,ijCases,bills}) {
               <VoteBar fv={btData.for_seats} av={btData.against_seats} abv={btData.abstain_seats} total={BT_SEATS_TOTAL} thresh={bill.type==="constitutional_amendment"?BT_SUPERMAJORITY:BT_THRESHOLD} isBT={true}/>
               {Object.keys(bill.bt_votes||{}).length>0&&(
                 <div style={{marginTop:"0.75rem",display:"flex",flexWrap:"wrap",gap:4}}>
-                  {Object.entries(bill.bt_votes).sort((a,b)=>(members[b[0]]?.seats||0)-(members[a[0]]?.seats||0)).map(([mid,vote])=>{
-                    const m=members[mid]; if(!m) return null;
-                    const p=PARTIES.find(x=>x.id===m.party);
+                  {Object.entries(bill.bt_votes).sort((a,b)=>(members[b[0]]?.seats||((bill.bt_vote_names?.[b[0]]||KNOWN_FORMER_MEMBERS[b[0]])?.seats||0))-(members[a[0]]?.seats||((bill.bt_vote_names?.[a[0]]||KNOWN_FORMER_MEMBERS[a[0]])?.seats||0))).map(([mid,vote])=>{
+                    const m=members[mid];
+                    const snap=bill.bt_vote_names?.[mid]||KNOWN_FORMER_MEMBERS[mid];
+                    const name=m?m.name:(snap?.name||"Former Member");
+                    const seats=m?m.seats:(snap?.seats||"—");
+                    const party=m?m.party:snap?.party;
+                    const p=PARTIES.find(x=>x.id===party);
                     const vc=vote==="for"?"#7ad47a":vote==="against"?C.redL:vote==="absent"?"#8888bb":C.textDD;
-                    return <div key={mid} style={{background:C.s3,border:`1px solid ${C.border}`,borderLeft:`2px solid ${p?.color||C.border}`,borderRadius:"0 2px 2px 0",padding:"3px 8px",display:"flex",alignItems:"center",gap:5}}>
-                      <span style={{fontSize:12,color:C.text}}>{m.name}</span>
-                      <span style={{fontSize:10,color:C.textDD}}>({m.seats})</span>
+                    const isFormer=!m;
+                    return <div key={mid} style={{background:C.s3,border:`1px solid ${C.border}`,borderLeft:`2px solid ${p?.color||C.border}`,borderRadius:"0 2px 2px 0",padding:"3px 8px",display:"flex",alignItems:"center",gap:5,opacity:isFormer?0.65:1}}>
+                      <span style={{fontSize:12,color:C.text}}>{name}{isFormer&&<span style={{fontSize:9,color:C.textDD,marginLeft:3}}>(former)</span>}</span>
+                      <span style={{fontSize:10,color:C.textDD}}>({seats})</span>
                       <span style={{fontFamily:"'Cinzel',serif",fontSize:9,fontWeight:700,color:vc}}>{vote.toUpperCase()}</span>
                     </div>;
                   })}
@@ -665,13 +749,16 @@ function BillCard({bill,members,bundesherren,ijStatutes,ijCases,bills}) {
               <VoteBar fv={bhData.for_count} av={bhData.against_count} abv={bhData.abstain_count} total={Math.max(bhData.total,1)} thresh={bhData.threshold} isBT={false}/>
               <div style={{marginTop:"0.75rem",display:"flex",flexWrap:"wrap",gap:4}}>
                 {Object.entries(bill.bh_votes).map(([bid,vote])=>{
-                  const bh=bundesherren[bid]; if(!bh) return null;
+                  const bh=bundesherren[bid];
+                  const snap=bill.bh_vote_names?.[bid];
+                  const name=bh?bh.name:(snap?.name||bid);
+                  const rank=bh?bh.rank:snap?.rank;
                   const vc=vote==="for"?"#7ad47a":vote==="against"?C.redL:C.textDD;
-                  return <div key={bid} style={{background:C.s3,border:`1px solid ${C.gold}33`,borderLeft:`2px solid ${C.gold}`,borderRadius:"0 2px 2px 0",padding:"3px 8px",display:"flex",alignItems:"center",gap:5}}>
+                  return <div key={bid} style={{background:C.s3,border:`1px solid ${C.gold}33`,borderLeft:`2px solid ${C.gold}`,borderRadius:"0 2px 2px 0",padding:"3px 8px",display:"flex",alignItems:"center",gap:5,opacity:bh?1:0.65}}>
                     <span style={{fontSize:10,color:C.gold}}>⚜</span>
                     <div>
-                      {bh.rank&&(()=>{const pr=PEERAGE_RANKS.find(r=>r.v===bh.rank);return pr?<span style={{fontFamily:"'Cinzel',serif",fontSize:8,letterSpacing:"0.12em",color:pr.color,display:"block"}}>{pr.l}</span>:null;})()}
-                      <span style={{fontSize:12,color:C.text}}>{bh.name}</span>
+                      {rank&&(()=>{const pr=PEERAGE_RANKS.find(r=>r.v===rank);return pr?<span style={{fontFamily:"'Cinzel',serif",fontSize:8,letterSpacing:"0.12em",color:pr.color,display:"block"}}>{pr.l}</span>:null;})()}
+                      <span style={{fontSize:12,color:C.text}}>{name}{!bh&&<span style={{fontSize:9,color:C.textDD,marginLeft:3}}>(former)</span>}</span>
                     </div>
                     <span style={{fontFamily:"'Cinzel',serif",fontSize:9,fontWeight:700,color:vc}}>{vote.toUpperCase()}</span>
                   </div>;
@@ -834,7 +921,7 @@ const BH_TYPES = [
 ];
 
 
-function SubmitTab({onSubmit,onSubmitBudget,activeBudget,budgetCooldown,orgChart,submitLock,imperialReserve,bills}) {
+function SubmitTab({onSubmit,onSubmitBudget,activeBudget,budgetCooldown,orgChart,submitLock,imperialReserve,bills,session}) {
   const [chamber,setChamber]=useState(null); // null | "bt" | "bh"
   const [topType,setTopType]=useState("regular");
   const [bhType,setBhType]=useState("regular");
@@ -899,6 +986,40 @@ function SubmitTab({onSubmit,onSubmitBudget,activeBudget,budgetCooldown,orgChart
         <div style={{fontSize:36,marginBottom:"0.75rem"}}>🔒</div>
         <div style={{fontFamily:"'Cinzel',serif",fontSize:16,color:C.text,marginBottom:12}}>Submissions Locked</div>
         <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7}}>{submitLock.msg||"The Emperor has temporarily suspended bill submissions."}</div>
+      </div>
+    </div>
+  );
+
+  // Notice period check — block if within the notice window of a scheduled session
+  const noticeBlock=(()=>{
+    if(!submitLock&&bills&&session?.date&&session?.time){
+      const noticePeriod=session.noticePeriod!=null?session.noticePeriod:24;
+      if(noticePeriod===0) return null; // emergency mode — always open
+      // Parse session datetime
+      try{
+        const sessionDt=new Date(session.date+"T"+convertTo24(session.time));
+        const nowMs=Date.now();
+        const windowMs=noticePeriod*60*60*1000;
+        const diffMs=sessionDt.getTime()-nowMs;
+        if(diffMs>0&&diffMs<windowMs){
+          const hoursLeft=Math.ceil(diffMs/3600000);
+          return {hoursLeft,sessionDate:session.date,sessionTime:session.time,noticePeriod};
+        }
+      }catch(e){}
+    }
+    return null;
+  })();
+
+  if(noticeBlock) return (
+    <div style={{maxWidth:480,margin:"0 auto"}}>
+      <div style={{background:C.s2,border:"1px solid #4a6a20",borderLeft:"4px solid #6a9a30",borderRadius:"0 4px 4px 0",padding:"2.5rem",textAlign:"center"}}>
+        <div style={{fontSize:36,marginBottom:"0.75rem"}}>⏳</div>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:16,color:C.text,marginBottom:12}}>Notice Period Active</div>
+        <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7}}>
+          The {noticeBlock.noticePeriod}-hour submission notice period is in effect.
+          The next session begins {noticeBlock.sessionDate} at {noticeBlock.sessionTime}.
+          New bill submissions are closed — approximately {noticeBlock.hoursLeft} hour{noticeBlock.hoursLeft!==1?"s":""} remaining.
+        </div>
       </div>
     </div>
   );
@@ -1315,7 +1436,7 @@ function BundestagTab({members,officials,bills,bundesherren,session,nextElection
   const SUBTABS=[["chamber","Chamber"],["ministers","Council of Ministers"],["absences","📋 Absences"]];
   return (
     <div className="fu">
-      <OfficialsBanner officials={officials} chamber="bundestag"/>
+      <OfficialsBanner officials={officials} chamber="bundestag" members={members}/>
       <ElectionCountdown nextElection={nextElection}/>
       <div style={{display:"flex",gap:0,marginBottom:"1.5rem",borderBottom:`1px solid ${C.border}`}}>
         {SUBTABS.map(([id,label])=>(
@@ -1394,12 +1515,12 @@ function BundestagTab({members,officials,bills,bundesherren,session,nextElection
               {hasCoalition&&(
                 <div style={{marginBottom:"1.5rem"}}>
                   <div style={{height:36,background:C.s3,borderRadius:3,overflow:"hidden",display:"flex",border:`1px solid ${C.border}`,position:"relative",marginBottom:6}}>
-                    {/* Coalition segment */}
+                    {/* Government segment */}
                     <div style={{width:(coalSeats/1000*100)+"%",background:"linear-gradient(135deg,#1a1a4a,#2a2a6a)",
                                   display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,
                                   borderRight:`2px solid #6666cc`,position:"relative",minWidth:coalSeats>0?2:0}}>
                       {coalSeats>80&&<span style={{fontFamily:"'Cinzel',serif",fontSize:10,color:"#aaaaee",letterSpacing:"0.1em",whiteSpace:"nowrap"}}>
-                        COALITION · {coalSeats}
+                        {officials?.governmentType==="single"?"GOVERNMENT":"COALITION"} · {coalSeats}
                       </span>}
                     </div>
                     {/* Opposition segment */}
@@ -1415,7 +1536,9 @@ function BundestagTab({members,officials,bills,bundesherren,session,nextElection
                   <div style={{display:"flex",gap:"1rem",flexWrap:"wrap"}}>
                     <div style={{display:"flex",alignItems:"center",gap:6}}>
                       <div style={{width:12,height:12,borderRadius:2,background:"linear-gradient(135deg,#1a1a4a,#2a2a6a)",border:"1px solid #6666cc"}}/>
-                      <span style={{fontFamily:"'Cinzel',serif",fontSize:10,color:"#aaaaee"}}>Government Coalition — <strong>{coalSeats}</strong> seats</span>
+                      <span style={{fontFamily:"'Cinzel',serif",fontSize:10,color:"#aaaaee"}}>
+                        {officials?.governmentType==="single"?"Government":"Government Coalition"} — <strong>{coalSeats}</strong> seats
+                      </span>
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:6}}>
                       <div style={{width:12,height:12,borderRadius:2,background:"linear-gradient(135deg,#1a0e0e,#2a1414)",border:"1px solid #884444"}}/>
@@ -1433,7 +1556,7 @@ function BundestagTab({members,officials,bills,bundesherren,session,nextElection
                   <div style={{background:"#0a0a18",border:"1px solid #4444aa44",borderRadius:3,padding:"0.6rem 0.85rem 0.5rem",marginBottom:4}}>
                     <div style={{fontFamily:"'Cinzel',serif",fontSize:8,letterSpacing:"0.25em",color:"#8888cc",textTransform:"uppercase",marginBottom:"0.6rem",display:"flex",alignItems:"center",gap:8}}>
                       <div style={{flex:1,height:1,background:"linear-gradient(to right,#4444aa44,transparent)"}}/>
-                      ⚜ Government Coalition
+                      {officials?.governmentType==="single"?"⚜ Government":"⚜ Government Coalition"}
                       <div style={{flex:1,height:1,background:"linear-gradient(to left,#4444aa44,transparent)"}}/>
                     </div>
                     <div style={{display:"flex",flexDirection:"column",gap:3}}>
@@ -1534,7 +1657,7 @@ function BundesherrenTab({bundesherren,officials,bills,members}) {
   const total=bhList.length, thresh=total>0?Math.floor(total/2)+1:0;
   return (
     <div className="fu">
-      <OfficialsBanner officials={officials} chamber="bundesherren"/>
+      <OfficialsBanner officials={officials} chamber="bundesherren" members={members}/>
       <STitle>The Imperial Lords</STitle>
       <div style={{fontSize:14,color:C.textD,fontStyle:"italic",marginBottom:"0.85rem"}}>{total} member{total!==1?"s":""} · Majority: {thresh} of {total}</div>
       {bhList.length>0?(
@@ -2018,6 +2141,7 @@ function BTPanelContent({bills,members,bundesherren,session,absences,onAction,no
   const [sessTime,setSessTime]=useState(session?.time||"");
   const [sessTZ,setSessTZ]=useState(session?.tz||"EST");
   const [sessNotes,setSessNotes]=useState(session?.notes||"");
+  const [sessNotice,setSessNotice]=useState(String(session?.noticePeriod!=null?session.noticePeriod:24));
 
   const returned=Object.values(bills||{}).filter(b=>b.status==="returned"&&b.return_to!=="bh").sort((a,b)=>a.created-b.created);
   const pending=Object.values(bills||{}).filter(b=>b.status==="pending").sort((a,b)=>a.created-b.created);
@@ -2051,6 +2175,9 @@ function BTPanelContent({bills,members,bundesherren,session,absences,onAction,no
               ?<div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text}}>{session.date}{session.time?" at "+session.time:""}{session.tz?" ("+session.tz+")":""}</div>
               :<div style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>No session scheduled</div>
             }
+            {session?.date&&<div style={{fontSize:11,color:C.textDD,marginTop:2}}>
+              Notice period: {session?.noticePeriod===0?"Emergency (0h)":(session?.noticePeriod||24)+"h"}
+            </div>}
           </div>
           <div style={{display:"flex",gap:6}}>
             {docket.length>0&&(
@@ -2076,9 +2203,27 @@ function BTPanelContent({bills,members,bundesherren,session,absences,onAction,no
             <div><FL>SESSION NOTES (optional)</FL>
               <Inp value={sessNotes} onChange={setSessNotes} placeholder="e.g. Emergency sitting, special orders…"/>
             </div>
+            <div>
+              <FL>SUBMISSION NOTICE PERIOD</FL>
+              <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                {[["0","⚡ Emergency (0h)"],["12","12 Hours"],["24","24 Hours (Standard)"],["36","36 Hours"]].map(([v,l])=>(
+                  <button key={v} onClick={()=>setSessNotice(v)}
+                    style={{flex:1,minWidth:90,fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.08em",
+                      padding:"5px 8px",border:`1px solid ${sessNotice===v?"#4a88ff":"#2a3a20"}`,borderRadius:2,cursor:"pointer",
+                      background:sessNotice===v?"#0a1225":"transparent",color:sessNotice===v?"#6aa8ff":"#6a7a60"}}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+              <div style={{fontSize:12,color:C.textDD,fontStyle:"italic",marginTop:4,lineHeight:1.5}}>
+                {sessNotice==="0"
+                  ?"⚠ Emergency — submissions allowed until session opens. Use only in extenuating circumstances."
+                  :"Members cannot submit new bills within "+sessNotice+" hours of the scheduled session start."}
+              </div>
+            </div>
             <Btn variant="blue" small onClick={async()=>{
               setProcessing("Saving session…");
-              await onAction("saveSession",{session:{date:sessDate,time:sessTime,tz:sessTZ,notes:sessNotes}});
+              await onAction("saveSession",{session:{date:sessDate,time:sessTime,tz:sessTZ,notes:sessNotes,noticePeriod:parseInt(sessNotice)||24}});
               setProcessing(null); notify("Session scheduled.",C.green); setSessSection(false);
             }}>💾 Save Session</Btn>
           </div>
@@ -2589,11 +2734,16 @@ function PartyRolesSection({officials,members,onAction,notify,setProcessing}) {
       opposition:   officials?.opposition||"",
       coalitions:  [...(officials?.coalitions  ||[])],
       coalitionMembers:[...(officials?.coalitionMembers||[])],
+      governmentType: officials?.governmentType||"coalition",
+      governingParty: officials?.governingParty||"",
       ...patch,
     };
     await onAction("savePartyRoles",next);
     setProcessing(null);
   };
+
+  const govType=officials?.governmentType||"coalition";
+  const govParty=officials?.governingParty||"";
 
   const setLeader=(partyId,memberId)=>{
     const next={...(officials?.partyLeaders||{})};
@@ -2644,7 +2794,51 @@ function PartyRolesSection({officials,members,onAction,notify,setProcessing}) {
         Designate party roles and mark coalition partners. All changes are reflected immediately on the public Bundestag page.
       </div>
 
-      {/* Per-party: Leader + Whip + Coalition */}
+      {/* Government Type */}
+      <div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:3,padding:"1rem",marginBottom:"1.5rem"}}>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:10,letterSpacing:"0.15em",color:C.gold,marginBottom:"0.85rem"}}>GOVERNMENT TYPE</div>
+        <div style={{display:"flex",gap:6,marginBottom:"0.85rem"}}>
+          {[["coalition","Coalition Government"],["single","Single-Party Government"]].map(([v,l])=>(
+            <button key={v} onClick={()=>save({governmentType:v})}
+              style={{flex:1,fontFamily:"'Cinzel',serif",fontSize:10,letterSpacing:"0.1em",padding:"7px 14px",
+                border:`1px solid ${govType===v?C.accent:C.border}`,borderRadius:2,cursor:"pointer",
+                background:govType===v?"#1a1500":"transparent",color:govType===v?C.accent:C.textD}}>
+              {govType===v?"✓ ":""}{l}
+            </button>
+          ))}
+        </div>
+
+        {govType==="single"&&(
+          <div>
+            <div style={{fontSize:13,color:C.textD,fontStyle:"italic",lineHeight:1.6,marginBottom:"0.75rem"}}>
+              One party holds government. All other parties are the opposition. The coalition marking system below is still available for confidence-and-supply or other arrangements.
+            </div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.15em",color:"#8888ff",marginBottom:6}}>GOVERNING PARTY</div>
+            <select value={govParty} onChange={e=>{
+              const pid=e.target.value;
+              // Auto-set coalitions to just this party when switching
+              save({governingParty:pid,coalitions:pid?[pid]:[],coalitionMembers:[]});
+              notify(pid?(PARTIES.find(p=>p.id===pid)?.name||pid)+" set as governing party.":"Governing party cleared.",C.accent);
+            }} style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:2,padding:"6px 10px",color:C.text,fontSize:13,fontFamily:"'Crimson Text',serif",width:"100%"}}>
+              <option value="">— Select governing party —</option>
+              {PARTIES.filter(p=>Object.values(members||{}).some(m=>m.party===p.id)).map(p=>(
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+            {govParty&&(
+              <div style={{marginTop:8,background:"#0a0a1a",border:"1px solid #8888ff44",borderRadius:2,padding:"6px 12px",fontSize:12,color:"#8888cc",fontStyle:"italic"}}>
+                Government: {PARTIES.find(p=>p.id===govParty)?.name||govParty} &nbsp;·&nbsp; All others are opposition.
+              </div>
+            )}
+          </div>
+        )}
+
+        {govType==="coalition"&&(
+          <div style={{fontSize:13,color:C.textD,fontStyle:"italic",lineHeight:1.6}}>
+            Multiple parties form a coalition government. Mark each party or individual member below.
+          </div>
+        )}
+      </div>
       <div style={{display:"flex",flexDirection:"column",gap:"0.75rem",marginBottom:"1.5rem"}}>
         {PARTIES.map(party=>{
           const partyMembers=Object.values(members||{}).filter(m=>m.party===party.id).sort((a,b)=>b.seats-a.seats);
@@ -5093,7 +5287,20 @@ function App() {
     else if(type==="saveVotes"){
       const {billId,votes,chamber}=payload;
       const bill=bills[billId]; if(!bill) return;
-      const next={...bill,[chamber+"_votes"]:votes};
+      // Snapshot voter names/seats/party at save time so they survive membership changes
+      // Always refresh the snapshot entry so name/seat changes from by-elections are captured
+      const snapshotKey=chamber+"_vote_names";
+      const existing=bill[snapshotKey]||{};
+      const snapshot={...existing};
+      Object.keys(votes).forEach(id=>{
+        if(chamber==="bt"&&members[id]){
+          snapshot[id]={name:members[id].name,seats:members[id].seats,party:members[id].party};
+        } else if(chamber==="bh"&&bundesherren[id]){
+          snapshot[id]={name:bundesherren[id].name,rank:bundesherren[id].rank};
+        }
+        // If member no longer exists and no snapshot, preserve whatever we had
+      });
+      const next={...bill,[chamber+"_votes"]:votes,[snapshotKey]:snapshot};
       setBills(p=>({...p,[billId]:next}));
       await sset("bk_bill_"+billId,next);
     }
@@ -5436,7 +5643,7 @@ function App() {
       setNextElection(payload.election); await sset("bk_next_election",payload.election);
     }
     else if(type==="savePartyRoles"){
-      const newOff={...(officials||{}),partyLeaders:payload.partyLeaders,partyWhips:payload.partyWhips,opposition:payload.opposition,coalitions:payload.coalitions,coalitionMembers:payload.coalitionMembers||[]};
+      const newOff={...(officials||{}),partyLeaders:payload.partyLeaders,partyWhips:payload.partyWhips,opposition:payload.opposition,coalitions:payload.coalitions,coalitionMembers:payload.coalitionMembers||[],governmentType:payload.governmentType||"coalition",governingParty:payload.governingParty||""};
       setOff(newOff); await sset("bk_officials",newOff);
     }
     else if(type==="dismissOfficial"){
@@ -5512,7 +5719,7 @@ function App() {
             <div style={{display:tab==="home"?"block":"none"}}><LandingPage bills={bills} members={members} bundesherren={bundesherren} officials={officials} orgChart={orgChart} activeBudget={activeBudget} budgetCooldown={budgetCooldown} imperialReserve={imperialReserve} onAction={onAction} ijStatutes={ijStatutes} ijCases={ijCases}/></div>
             <div style={{display:tab==="bundestag"?"block":"none"}}><BundestagTab members={members} officials={officials} bills={bills} bundesherren={bundesherren} session={session} nextElection={nextElection} absences={absences}/></div>
             <div style={{display:tab==="bundesherren"?"block":"none"}}><BundesherrenTab bundesherren={bundesherren} officials={officials} bills={bills} members={members}/></div>
-            <div style={{display:tab==="submit"?"block":"none"}}><SubmitTab onSubmit={async(p)=>await onAction("submitBill",p)} onSubmitBudget={async(p)=>await onAction("submitBudget",p)} activeBudget={activeBudget} budgetCooldown={budgetCooldown} orgChart={orgChart} submitLock={submitLock} imperialReserve={imperialReserve} bills={bills}/></div>
+            <div style={{display:tab==="submit"?"block":"none"}}><SubmitTab onSubmit={async(p)=>await onAction("submitBill",p)} onSubmitBudget={async(p)=>await onAction("submitBudget",p)} activeBudget={activeBudget} budgetCooldown={budgetCooldown} orgChart={orgChart} submitLock={submitLock} imperialReserve={imperialReserve} bills={bills} session={session}/></div>
             <div style={{display:tab==="links"?"block":"none"}}><ImperialLinksTab imperialLinks={imperialLinks}/></div>
             <div style={{display:tab==="panel"?"block":"none"}}><PanelTab bills={bills} members={members} bundesherren={bundesherren} officials={officials} orgChart={orgChart} session={session} announcement={announcement} activeBudget={activeBudget} submitLock={submitLock} imperialReserve={imperialReserve} imperialLinks={imperialLinks} nextElection={nextElection} absences={absences} onAction={onAction} notify={notify} setProcessing={setProcessing} onEmperorAuth={()=>{}}/></div>
           </>
