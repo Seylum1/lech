@@ -36,13 +36,14 @@ const SCRIPT_URL="https://script.google.com/macros/s/AKfycbxLu8jQehAZJEvMEeCLoHc
 
 // ── CLEARANCE ─────────────────────────────────────────────────────────────────
 const CLEARANCE=[
-  {level:0,code:"UNCLASSIFIED",short:"UC",  color:"#2a9a4a",bg:"#0a1a0e",border:"#1a4a2a"},
-  {level:1,code:"CONFIDENTIAL",short:"C",   color:"#2a6acc",bg:"#0a1228",border:"#1a3a6a"},
-  {level:2,code:"SECRET",       short:"S",  color:"#cc7a10",bg:"#1a1000",border:"#6a3a00"},
-  {level:3,code:"TOP SECRET",   short:"TS", color:"#cc2222",bg:"#1a0808",border:"#6a1010"},
-  {level:4,code:"TS/SCI",       short:"SCI",color:"#9a22cc",bg:"#150a1a",border:"#5a1a6a"},
+  {level:0,code:"UNCLASSIFIED",         short:"UC", color:"#2a9a4a",bg:"#0a1a0e",border:"#1a4a2a"},
+  {level:1,code:"RELIABILITY SCREENING",short:"RS", color:"#5a9a7a",bg:"#0a1810",border:"#1a4a30"},
+  {level:2,code:"CONFIDENTIAL",         short:"C",  color:"#2a6acc",bg:"#0a1228",border:"#1a3a6a"},
+  {level:3,code:"SECRET",               short:"S",  color:"#cc7a10",bg:"#1a1000",border:"#6a3a00"},
+  {level:4,code:"TOP SECRET",           short:"TS", color:"#cc2222",bg:"#1a0808",border:"#6a1010"},
+  {level:5,code:"TS/SCI",               short:"SCI",color:"#9a22cc",bg:"#150a1a",border:"#5a1a6a"},
 ];
-const CL=(level)=>CLEARANCE[Math.max(0,Math.min(4,level||0))];
+const CL=(level)=>CLEARANCE[Math.max(0,Math.min(5,level||0))];
 
 // ── ROLES ─────────────────────────────────────────────────────────────────────
 const ROLES=[

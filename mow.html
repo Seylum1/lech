@@ -1177,13 +1177,14 @@ function ShipsSection({ships,commands,canManage,onAction,notify,setProcessing}){
 }
 function ShipCard({ship,commands,canManage,onAction,notify,setProcessing}){
   const [open,setOpen]=useState(false);
+  const [editing,setEditing]=useState(false);
   const st=SHIP_STATUSES.find(s=>s.v===ship.status)||SHIP_STATUSES[0];
   const tp=SHIP_TYPES.find(t=>t.v===ship.type);
   const cmd=commands?.[ship.commandId];
   return(
     <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${st.color}`,
       borderRadius:"0 3px 3px 0",marginBottom:"0.5rem",overflow:"hidden"}}>
-      <div onClick={()=>setOpen(o=>!o)}
+      <div onClick={()=>{if(!editing)setOpen(o=>!o);}}
         style={{display:"flex",alignItems:"center",gap:10,padding:"0.75rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
         <span className="mono" style={{fontSize:9,padding:"2px 8px",background:C.s3,
           border:`1px solid ${st.color}44`,color:st.color}}>{ship.status?.toUpperCase()}</span>
@@ -1192,10 +1193,10 @@ function ShipCard({ship,commands,canManage,onAction,notify,setProcessing}){
           {ship.hullNumber&&<span className="mono" style={{fontSize:10,color:C.textDD,marginLeft:8}}>{ship.hullNumber}</span>}
         </span>
         {tp&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{tp.l}</span>}
-        {cmd&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{cmd.name}</span>}
+        {cmd&&<span className="mono" style={{fontSize:9,color:C.navy}}>{cmd.name}</span>}
         <span style={{fontSize:11,color:C.textDD}}>{open?"▲":"▼"}</span>
       </div>
-      {open&&(
+      {open&&!editing&&(
         <div style={{borderTop:`1px solid ${C.border}`,padding:"1rem",background:C.s2}}>
           <div style={{display:"flex",gap:"2rem",flexWrap:"wrap",marginBottom:"0.85rem"}}>
             {ship.shipClass&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>CLASS</div>
@@ -1206,13 +1207,13 @@ function ShipCard({ship,commands,canManage,onAction,notify,setProcessing}){
               <span style={{fontSize:13,color:C.text}}>{ship.crew}</span></div>}
             {ship.homePort&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>HOME PORT</div>
               <span style={{fontSize:13,color:C.text}}>{ship.homePort}</span></div>}
-            {cmd&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>COMMAND</div>
-              <span style={{fontSize:13,color:C.textD}}>{cmd.name}</span></div>}
+            <div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>FLEET / COMMAND</div>
+              <span style={{fontSize:13,color:cmd?C.navy:C.textDD}}>{cmd?cmd.name:"Unassigned"}</span></div>
           </div>
           {ship.notes&&<div style={{fontSize:13,color:C.textD,fontStyle:"italic",marginBottom:"0.75rem"}}>{ship.notes}</div>}
           {canManage&&(
-            <div style={{display:"flex",gap:6,borderTop:`1px solid ${C.border}`,paddingTop:"0.75rem"}}>
-              <ShipStatusEditor ship={ship} onAction={onAction} notify={notify} setProcessing={setProcessing}/>
+            <div style={{display:"flex",gap:6,borderTop:`1px solid ${C.border}`,paddingTop:"0.75rem",flexWrap:"wrap"}}>
+              <Btn small variant="ghost" onClick={(e)=>{e.stopPropagation();setEditing(true);}}>✎ Edit Asset</Btn>
               <ArmBtn small label="Decommission" confirmLabel="Remove asset?" onConfirm={async()=>{
                 setProcessing("Removing asset…");
                 await onAction("deleteShip",{id:ship.id});
@@ -1222,27 +1223,70 @@ function ShipCard({ship,commands,canManage,onAction,notify,setProcessing}){
           )}
         </div>
       )}
+      {open&&editing&&(
+        <div style={{borderTop:`1px solid ${C.border}`,padding:"1rem",background:C.s2}}>
+          <ShipEditForm ship={ship} commands={commands} onAction={onAction} notify={notify}
+            setProcessing={setProcessing} onClose={()=>setEditing(false)}/>
+        </div>
+      )}
     </div>
   );
 }
-function ShipStatusEditor({ship,onAction,notify,setProcessing}){
+
+function ShipEditForm({ship,commands,onAction,notify,setProcessing,onClose}){
+  const [name,setName]=useState(ship.name||"");
+  const [type,setType]=useState(ship.type||"destroyer");
+  const [shipClass,setShipClass]=useState(ship.shipClass||"");
+  const [hullNumber,setHullNumber]=useState(ship.hullNumber||"");
+  const [displacement,setDisplacement]=useState(ship.displacement||"");
+  const [crew,setCrew]=useState(ship.crew||"");
+  const [homePort,setHomePort]=useState(ship.homePort||"");
+  const [commandId,setCommandId]=useState(ship.commandId||"");
   const [status,setStatus]=useState(ship.status||"active");
+  const [notes,setNotes]=useState(ship.notes||"");
   const [saving,setSaving]=useState(false);
+  const cmdList=Object.values(commands||{});
+
   return(
-    <div style={{display:"flex",gap:6,alignItems:"flex-end"}}>
-      <div style={{minWidth:160}}>
-        <select value={status} onChange={e=>setStatus(e.target.value)}
-          style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:2,
-                   padding:"4px 8px",color:C.text,fontSize:12,fontFamily:"'Crimson Text',serif"}}>
-          {SHIP_STATUSES.map(s=><option key={s.v} value={s.v}>{s.l}</option>)}
-        </select>
+    <div>
+      <div className="mono" style={{fontSize:9,letterSpacing:".2em",color:C.accent,marginBottom:10}}>EDITING — {ship.name}</div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.6rem"}}>
+        <div style={{display:"flex",gap:"0.6rem",flexWrap:"wrap"}}>
+          <div style={{flex:2,minWidth:160}}><FL>VESSEL NAME *</FL><Inp value={name} onChange={setName} placeholder="Vessel name"/></div>
+          <div style={{flex:1,minWidth:120}}><FL>TYPE</FL><DD value={type} onChange={setType} options={SHIP_TYPES.map(t=>({v:t.v,l:t.l}))}/></div>
+          <div style={{flex:1,minWidth:100}}><FL>HULL NUMBER</FL><Inp value={hullNumber} onChange={setHullNumber} placeholder="e.g. BB-01"/></div>
+        </div>
+        <div style={{display:"flex",gap:"0.6rem",flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:120}}><FL>CLASS</FL><Inp value={shipClass} onChange={setShipClass} placeholder="Ship class"/></div>
+          <div style={{flex:1,minWidth:120}}><FL>DISPLACEMENT</FL><Inp value={displacement} onChange={setDisplacement} placeholder="e.g. 45,000 tons"/></div>
+          <div style={{flex:1,minWidth:80}}><FL>CREW</FL><Inp value={crew} onChange={setCrew} placeholder="e.g. 850"/></div>
+          <div style={{flex:1,minWidth:120}}><FL>HOME PORT</FL><Inp value={homePort} onChange={setHomePort} placeholder="Port name"/></div>
+        </div>
+        <div style={{display:"flex",gap:"0.6rem",flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:180}}>
+            <FL>FLEET / COMMAND *</FL>
+            <DD value={commandId} onChange={setCommandId}
+              options={[{v:"",l:"— Select Fleet (required) —"},...cmdList.map(x=>({v:x.id,l:x.name}))]}/>
+            {!commandId&&<div className="mono" style={{fontSize:7,color:"#cc6a10",marginTop:2}}>⚠ Fleet assignment required.</div>}
+          </div>
+          <div style={{flex:1,minWidth:140}}>
+            <FL>STATUS</FL>
+            <DD value={status} onChange={setStatus} options={SHIP_STATUSES.map(s=>({v:s.v,l:s.l}))}/>
+          </div>
+        </div>
+        <div><FL>NOTES</FL><TA value={notes} onChange={setNotes} placeholder="Additional notes…" rows={2}/></div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn disabled={!name.trim()||!commandId||saving} onClick={async()=>{
+            setSaving(true); setProcessing("Saving changes…");
+            await onAction("updateShip",{id:ship.id,name:name.trim(),type,shipClass:shipClass.trim(),
+              hullNumber:hullNumber.trim(),displacement:displacement.trim(),crew:crew.trim(),
+              homePort:homePort.trim(),commandId,status,notes:notes.trim()});
+            setProcessing(null); setSaving(false);
+            notify(name+" updated.",C.accent); onClose();
+          }}>{saving?"Saving…":"Save Changes"}</Btn>
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        </div>
       </div>
-      <Btn small variant="gold" disabled={status===ship.status||saving} onClick={async()=>{
-        setSaving(true); setProcessing("Updating asset status…");
-        await onAction("updateShipStatus",{id:ship.id,status});
-        setProcessing(null); setSaving(false);
-        notify("Asset status updated.",C.gold);
-      }}>{saving?"…":"Update"}</Btn>
     </div>
   );
 }
@@ -1280,13 +1324,15 @@ function ShipForm({commands,navyBases=[],onAction,notify,setProcessing,onClose})
             {homePort==="__custom"&&<Inp value={homePortCustom} onChange={setHomePortCustom} placeholder="Enter port name" style={{marginTop:4}}/>}
           </div>
         </div>
-        {cmdList.length>0&&<div style={{maxWidth:300}}>
-          <FL>NAVAL COMMAND</FL>
-          <DD value={commandId} onChange={setCommandId} options={[{v:"",l:"— None —"},...cmdList.filter(x=>x.type==="component"?x.branchType==="navy":true).map(x=>({v:x.id,l:x.name}))]}/>
-        </div>}
+        <div style={{maxWidth:300}}>
+          <FL>FLEET / NAVAL COMMAND *</FL>
+          <DD value={commandId} onChange={setCommandId}
+            options={[{v:"",l:"— Select Fleet (required) —"},...cmdList.filter(x=>x.type==="component"?x.branchType==="navy":true).map(x=>({v:x.id,l:x.name}))]}/>
+          {!commandId&&<div className="mono" style={{fontSize:7,color:"#cc6a10",marginTop:3}}>⚠ A fleet assignment is required to register an asset.</div>}
+        </div>
         <div><FL>NOTES</FL><TA value={notes} onChange={setNotes} placeholder="Additional notes…" rows={2}/></div>
         <div style={{display:"flex",gap:8}}>
-          <Btn disabled={!name.trim()||saving} onClick={async()=>{
+          <Btn disabled={!name.trim()||!commandId||saving} onClick={async()=>{
             setSaving(true); setProcessing("Registering asset…");
             await onAction("createShip",{ship:{name:name.trim(),type,shipClass:shipClass.trim(),
               hullNumber:hullNumber.trim(),displacement:displacement.trim(),crew:crew.trim(),
@@ -1320,33 +1366,54 @@ function OrbatNodeCard({unit,depth,children,canManage,onEdit,onDelete,isOpen,onT
           </div>
         ))}
         {/* Node */}
-        <div style={{flex:1,background:C.s2,border:`1px solid ${C.border}`,borderLeft:`3px solid ${ech.color}`,
-          padding:"6px 10px",display:"flex",alignItems:"center",gap:8,minWidth:0}}>
-          {hasChildren&&(
-            <button onClick={onToggle}
-              style={{background:"transparent",border:`1px solid ${C.border}`,color:C.textD,
-                cursor:"pointer",fontFamily:"'Share Tech Mono',monospace",fontSize:8,
-                width:16,height:16,flexShrink:0,padding:0,lineHeight:1}}>
-              {isOpen?"-":"+"}
-            </button>
-          )}
-          {!hasChildren&&<div style={{width:16,flexShrink:0}}/>}
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-              <span className="mono" style={{fontSize:7,color:ech.color,letterSpacing:".12em"}}>{ech.short}</span>
-              {unit.branchType&&<span className="mono" style={{fontSize:7,color:branchColor}}>
-                {CMD_BRANCH_TYPES.find(b=>b.v===unit.branchType)?.l||unit.branchType}
-              </span>}
-              {unit.status==="disbanded"&&<span className="mono" style={{fontSize:7,color:C.redL,border:`1px solid ${C.redD}`,padding:"0 3px"}}>DISBANDED</span>}
-              {unit.status==="reserve"&&<span className="mono" style={{fontSize:7,color:C.textDD,border:`1px solid ${C.border}`,padding:"0 3px"}}>RESERVE</span>}
+        {(()=>{
+          const cmdStatus=unit.status||"active";
+          const statusStyle={
+            active:   {bg:C.s2,          border:C.border,    leftAccent:ech.color,    opacity:1,   textDeco:"none"},
+            forming:  {bg:"#1a1400",      border:"#4a3a00",   leftAccent:"#C9A84C",   opacity:1,   textDeco:"none"},
+            reserve:  {bg:"#1a0808",      border:"#4a1a1a",   leftAccent:"#7a2a2a",   opacity:0.85,textDeco:"none"},
+            disbanded:{bg:"#0e0e0e",      border:"#2a2a2a",   leftAccent:"#3a3a3a",   opacity:0.5, textDeco:"line-through"},
+          }[cmdStatus]||{bg:C.s2,border:C.border,leftAccent:ech.color,opacity:1,textDeco:"none"};
+          const statusBadge={
+            active:   {label:"ACTIVE",   color:"#2a9a4a",border:"#1a4a2a"},
+            forming:  {label:"FORMING",  color:"#C9A84C",border:"#5a4000"},
+            reserve:  {label:"RESERVE",  color:"#9a4a4a",border:"#5a2a2a"},
+            disbanded:{label:"DISBANDED",color:"#4a4a4a",border:"#2a2a2a"},
+          }[cmdStatus];
+          return(
+          <div style={{flex:1,background:statusStyle.bg,border:`1px solid ${statusStyle.border}`,borderLeft:`3px solid ${statusStyle.leftAccent}`,
+            padding:"6px 10px",display:"flex",alignItems:"center",gap:8,minWidth:0,opacity:statusStyle.opacity,
+            backgroundImage:cmdStatus==="disbanded"?"repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(255,255,255,0.015) 8px,rgba(255,255,255,0.015) 16px)":undefined}}>
+            {hasChildren&&(
+              <button onClick={onToggle}
+                style={{background:"transparent",border:`1px solid ${statusStyle.border}`,color:C.textD,
+                  cursor:"pointer",fontFamily:"'Share Tech Mono',monospace",fontSize:8,
+                  width:16,height:16,flexShrink:0,padding:0,lineHeight:1}}>
+                {isOpen?"-":"+"}
+              </button>
+            )}
+            {!hasChildren&&<div style={{width:16,flexShrink:0}}/>}
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                <span className="mono" style={{fontSize:7,color:statusStyle.leftAccent,letterSpacing:".12em"}}>{ech.short}</span>
+                {unit.branchType&&<span className="mono" style={{fontSize:7,color:branchColor}}>
+                  {CMD_BRANCH_TYPES.find(b=>b.v===unit.branchType)?.l||unit.branchType}
+                </span>}
+                {statusBadge&&cmdStatus!=="active"&&(
+                  <span className="mono" style={{fontSize:7,color:statusBadge.color,border:`1px solid ${statusBadge.border}`,padding:"0 4px",letterSpacing:".08em"}}>
+                    {statusBadge.label}
+                  </span>
+                )}
+              </div>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:12,fontWeight:700,color:cmdStatus==="disbanded"?C.textDD:C.text,
+                letterSpacing:".06em",marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
+                textDecoration:statusStyle.textDeco}}>
+                {unit.name}
+                {unit.nickname&&<span className="mono" style={{fontSize:8,color:C.textDD,marginLeft:6,textDecoration:"none"}}>{unit.nickname}</span>}
+              </div>
+              {unit.commanderName&&<div className="mono" style={{fontSize:8,color:cmdStatus==="disbanded"?C.textDD:C.textD,marginTop:1}}>CO: {unit.commanderName}</div>}
+              {unit.notes&&<div style={{fontSize:11,color:C.textDD,fontStyle:"italic",marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{unit.notes}</div>}
             </div>
-            <div style={{fontFamily:"'Cinzel',serif",fontSize:12,fontWeight:700,color:C.text,letterSpacing:".06em",marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-              {unit.name}
-              {unit.nickname&&<span className="mono" style={{fontSize:8,color:C.textDD,marginLeft:6}}>{unit.nickname}</span>}
-            </div>
-            {unit.commanderName&&<div className="mono" style={{fontSize:8,color:C.textD,marginTop:1}}>CO: {unit.commanderName}</div>}
-            {unit.notes&&<div style={{fontSize:11,color:C.textDD,fontStyle:"italic",marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{unit.notes}</div>}
-          </div>
           {/* Stats */}
           {(assignedPersonnel>0||assignedShips>0)&&(
             <div style={{display:"flex",gap:8,flexShrink:0}}>
@@ -1360,8 +1427,10 @@ function OrbatNodeCard({unit,depth,children,canManage,onEdit,onDelete,isOpen,onT
               </div>}
             </div>
           )}
-          {canManage&&<Btn small variant="ghost" onClick={()=>onEdit(unit)}>EDIT</Btn>}
-        </div>
+            {canManage&&<Btn small variant="ghost" onClick={()=>onEdit(unit)}>EDIT</Btn>}
+          </div>
+          );
+        })()}
       </div>
     </div>
   );
@@ -2836,6 +2905,10 @@ function App(){
     else if(type==="createShip"){
       const id="ship_"+uid();
       const next={...ships,[id]:{...payload.ship,id,created:Date.now()}};
+      setRaw(r=>({...r,mow_ships:next})); await sset("mow_ships",next);
+    } else if(type==="updateShip"){
+      const {id,...rest}=payload;
+      const next={...ships,[id]:{...ships[id],...rest,updatedAt:Date.now()}};
       setRaw(r=>({...r,mow_ships:next})); await sset("mow_ships",next);
     } else if(type==="updateShipStatus"){
       const next={...ships,[payload.id]:{...ships[payload.id],status:payload.status}};
