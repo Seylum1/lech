@@ -184,12 +184,16 @@ const SHIP_STATUSES=[
   {v:"decommissioned",l:"Decommissioned", color:"#8b1010"},
 ];
 const OP_STATUSES=[
-  {v:"planning",  l:"Planning",   color:"#4a7aaa"},
-  {v:"active",    l:"Active",     color:"#2a9a4a"},
-  {v:"suspended", l:"Suspended",  color:"#C9A84C"},
-  {v:"completed", l:"Completed",  color:"#6a6a6a"},
-  {v:"cancelled", l:"Cancelled",  color:"#8b1010"},
+  {v:"planning",     l:"Planning",               color:"#4a7aaa"},
+  {v:"recommended",  l:"Recommended",            color:"#9a5aaa"},
+  {v:"approved",     l:"Approved",               color:"#C9A84C"},
+  {v:"active",       l:"Active",                 color:"#2a9a4a"},
+  {v:"suspended",    l:"Suspended",              color:"#cc6a10"},
+  {v:"completed",    l:"Completed",              color:"#6a6a6a"},
+  {v:"cancelled",    l:"Cancelled",              color:"#8b1010"},
 ];
+// Which statuses require minister/emperor to set
+const MINISTER_STATUSES=["approved","active","suspended","completed","cancelled"];
 const MEDAL_TYPES=[
   // Grand Military Orders
   {v:"IIC",   l:"Imperial Iron Cross",                        cat:"military_grand", abbr:"IIC"},
@@ -353,7 +357,7 @@ function DD({value,onChange,options,style:ex={}}){
   return<select value={value} onChange={e=>onChange(e.target.value)}
     style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
              padding:"7px 11px",color:C.text,fontSize:14,outline:"none",fontFamily:"'Crimson Text',serif",...ex}}>
-    {options.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+    {options.map(o=><option key={o.v} value={o.v} disabled={o.disabled}>{o.l}</option>)}
   </select>;
 }
 function FL({children}){
@@ -1718,6 +1722,16 @@ function OpordView({op}){
   if(!op) return null;
   const cl=MCL(op.clearance||0);
   const smeac=op.smeac||{};
+  const STATUS_FLOW=[
+    {v:"planning",    label:"Draft",       color:"#4a7aaa"},
+    {v:"recommended", label:"Recommended", color:"#9a5aaa"},
+    {v:"approved",    label:"Approved",    color:"#C9A84C"},
+    {v:"active",      label:"Active",      color:"#2a9a4a"},
+    {v:"suspended",   label:"Suspended",   color:"#cc6a10"},
+    {v:"completed",   label:"Completed",   color:"#6a6a6a"},
+    {v:"cancelled",   label:"Cancelled",   color:"#8b1010"},
+  ];
+  const curIdx=STATUS_FLOW.findIndex(s=>s.v===op.status);
   function Para({label,content}){
     if(!content) return null;
     return(
@@ -1727,9 +1741,37 @@ function OpordView({op}){
       </div>
     );
   }
+  function SigBlock({label,sig,color}){
+    if(!sig) return null;
+    return(
+      <div style={{background:color+"11",border:`1px solid ${color}44`,borderLeft:`3px solid ${color}`,padding:"6px 10px",marginBottom:6}}>
+        <div className="mono" style={{fontSize:7,color,letterSpacing:".15em",marginBottom:2}}>{label}</div>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <span className="mono" style={{fontSize:10,color:C.text,fontWeight:700}}>{sig.by}</span>
+          <span className="mono" style={{fontSize:8,color,opacity:.8}}>{new Date(sig.at).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})}</span>
+        </div>
+      </div>
+    );
+  }
   return(
     <div>
-      <div className="mono" style={{fontSize:7,letterSpacing:".25em",color:cl.color,marginBottom:4,textAlign:"center"}}>{`// ${cl.code} //`}</div>
+      <div className="mono" style={{fontSize:7,letterSpacing:".25em",color:cl.color,marginBottom:6,textAlign:"center"}}>{`// ${cl.code} //`}</div>
+      {/* Status progress bar */}
+      <div style={{display:"flex",gap:2,marginBottom:10,alignItems:"center"}}>
+        {STATUS_FLOW.slice(0,4).map((s,i)=>{
+          const isActive=s.v===op.status;
+          const isPast=i<curIdx&&curIdx<=3;
+          return(
+            <div key={s.v} style={{flex:1,textAlign:"center"}}>
+              <div style={{height:3,background:isPast||isActive?s.color:C.border,marginBottom:3,transition:"background .3s"}}/>
+              <div className="mono" style={{fontSize:6,color:isActive?s.color:isPast?s.color+"88":C.textDD,letterSpacing:".05em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.label.toUpperCase()}</div>
+            </div>
+          );
+        })}
+      </div>
+      {/* Signature blocks */}
+      <SigBlock label="✔ RECOMMENDED BY" sig={op.recommendedBy} color="#9a5aaa"/>
+      <SigBlock label="★ APPROVED BY" sig={op.approvedBy} color="#C9A84C"/>
       {op.mission&&<div style={{background:C.s2,border:`1px solid ${C.borderL}`,borderLeft:`3px solid ${C.accent}`,padding:"8px 12px",marginBottom:10}}>
         <div className="mono" style={{fontSize:8,color:C.accentD,marginBottom:4,letterSpacing:".15em"}}>2. MISSION</div>
         <div className="mono" style={{fontSize:11,color:C.accent,lineHeight:1.7}}>{op.mission}</div>
@@ -1752,7 +1794,7 @@ function OpordView({op}){
 }
 
 // SMEAC edit form
-function SmeacForm({op,onSave,onCancel,operations,personnel,ships,commands}){
+function SmeacForm({op,onSave,onCancel,operations,personnel,ships,commands,isMowMinister}){
   const existing=op||{};
   const existingSmeac=existing.smeac||{};
   const [name,setName]=useState(existing.name||"");
@@ -1824,7 +1866,20 @@ function SmeacForm({op,onSave,onCancel,operations,personnel,ships,commands}){
         </div>
         <div style={{display:"flex",gap:"0.6rem",flexWrap:"wrap"}}>
           <div style={{flex:1,minWidth:130}}><FL>TYPE</FL><DD value={type} onChange={setType} options={OP_TYPES.map(t=>({v:t.v,l:t.l}))} style={{width:"100%"}}/></div>
-          <div style={{flex:1,minWidth:130}}><FL>STATUS</FL><DD value={status} onChange={setStatus} options={OP_STATUSES.map(s=>({v:s.v,l:s.l}))} style={{width:"100%"}}/></div>
+          <div style={{flex:1,minWidth:130}}>
+            <FL>STATUS</FL>
+            {/* Commanders can only set planning/cancelled; minister+ can set any */}
+            <DD value={status} onChange={v=>{
+              const ministerOnly=["recommended","approved","active","suspended","completed"];
+              if(ministerOnly.includes(v)&&!isMowMinister) return; // silently block
+              setStatus(v);
+            }} options={OP_STATUSES.map(s=>{
+              const ministerOnly=["recommended","approved","active","suspended","completed"];
+              const locked=ministerOnly.includes(s.v)&&!isMowMinister;
+              return {v:s.v,l:locked?s.l+" (minister only)":s.l,disabled:locked};
+            }).filter(s=>!s.disabled||isMowMinister)} style={{width:"100%"}}/>
+            {!isMowMinister&&<div className="mono" style={{fontSize:7,color:C.textDD,marginTop:3}}>Status is set via the approval workflow.</div>}
+          </div>
           <div style={{flex:1,minWidth:150}}><FL>CLASSIFICATION</FL><DD value={clearance} onChange={setClearance} options={MOW_CLEARANCE.map(c=>({v:String(c.level),l:c.code}))} style={{width:"100%"}}/></div>
         </div>
       </div>
@@ -1912,7 +1967,7 @@ function SmeacForm({op,onSave,onCancel,operations,personnel,ships,commands}){
 }
 
 // Op sidebar panel (right side when op selected)
-function OpSidePanel({op,currentUser,canManage,onAction,notify,setProcessing,onEdit,onClose,operations,ships}){
+function OpSidePanel({op,currentUser,canManage,isMowMinister,onAction,notify,setProcessing,onEdit,onClose,operations,ships}){
   const [tab,setTab]=useState("opord");
   const [note,setNote]=useState("");
   const [saving,setSaving]=useState(false);
@@ -1947,9 +2002,69 @@ function OpSidePanel({op,currentUser,canManage,onAction,notify,setProcessing,onE
         </div>
         {canManage&&<div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
           <Btn small onClick={onEdit}>EDIT OPORD</Btn>
-          {op.status!=="active"&&<Btn small variant="gold" onClick={async()=>{setProcessing("Updating...");await onAction("updateOperation",{id:op.id,status:"active"});setProcessing(null);notify("Set active.",C.accent);}}>SET ACTIVE</Btn>}
-          {op.status==="active"&&<Btn small onClick={async()=>{setProcessing("Updating...");await onAction("updateOperation",{id:op.id,status:"suspended"});setProcessing(null);notify("Suspended.",C.accent);}}>SUSPEND</Btn>}
-          {op.status!=="completed"&&<Btn small variant="ghost" onClick={async()=>{setProcessing("Updating...");await onAction("updateOperation",{id:op.id,status:"completed"});setProcessing(null);notify("Completed.",C.accent);}}>COMPLETE</Btn>}
+          {/* Commander: can recommend a planning op */}
+          {op.status==="planning"&&(
+            <Btn small variant="gold" onClick={async()=>{
+              setProcessing("Updating...");
+              const sig={by:currentUser.displayName||currentUser.username,at:Date.now()};
+              await onAction("updateOperation",{id:op.id,status:"recommended",recommendedBy:sig});
+              setProcessing(null); notify("Recommended for approval.",C.accent);
+            }}>✔ RECOMMEND</Btn>
+          )}
+          {/* Commander: withdraw own recommendation back to planning */}
+          {op.status==="recommended"&&!isMowMinister&&(
+            <Btn small variant="ghost" onClick={async()=>{
+              setProcessing("Updating...");
+              await onAction("updateOperation",{id:op.id,status:"planning",recommendedBy:null});
+              setProcessing(null); notify("Recommendation withdrawn.",C.textD);
+            }}>↩ WITHDRAW</Btn>
+          )}
+          {/* Minister/Emperor only: approve, activate, suspend, complete */}
+          {isMowMinister&&op.status==="recommended"&&(
+            <Btn small variant="gold" style={{background:"linear-gradient(135deg,#3a2800,#8a6a00)",borderColor:"#6a4a00"}}
+              onClick={async()=>{
+                setProcessing("Approving...");
+                const sig={by:currentUser.displayName||currentUser.username,at:Date.now()};
+                await onAction("updateOperation",{id:op.id,status:"approved",approvedBy:sig});
+                setProcessing(null); notify("OPORD approved.",C.accent);
+              }}>★ APPROVE</Btn>
+          )}
+          {isMowMinister&&op.status==="approved"&&(
+            <Btn small variant="green" onClick={async()=>{
+              setProcessing("Activating...");
+              await onAction("updateOperation",{id:op.id,status:"active"});
+              setProcessing(null); notify("Operation activated.",C.accent);
+            }}>▶ ACTIVATE</Btn>
+          )}
+          {isMowMinister&&op.status==="active"&&(
+            <Btn small onClick={async()=>{
+              setProcessing("Updating...");
+              await onAction("updateOperation",{id:op.id,status:"suspended"});
+              setProcessing(null); notify("Suspended.",C.accent);
+            }}>⏸ SUSPEND</Btn>
+          )}
+          {isMowMinister&&op.status==="suspended"&&(
+            <Btn small variant="gold" onClick={async()=>{
+              setProcessing("Updating...");
+              await onAction("updateOperation",{id:op.id,status:"active"});
+              setProcessing(null); notify("Reactivated.",C.accent);
+            }}>▶ REACTIVATE</Btn>
+          )}
+          {isMowMinister&&(op.status==="active"||op.status==="suspended")&&(
+            <Btn small variant="ghost" onClick={async()=>{
+              setProcessing("Updating...");
+              await onAction("updateOperation",{id:op.id,status:"completed"});
+              setProcessing(null); notify("Operation completed.",C.textD);
+            }}>✓ COMPLETE</Btn>
+          )}
+          {/* Minister only: reject back to planning */}
+          {isMowMinister&&(op.status==="recommended"||op.status==="approved")&&(
+            <ArmBtn small label="✗ REJECT" confirmLabel="REJECT OPORD?" variant="danger" onConfirm={async()=>{
+              setProcessing("Updating...");
+              await onAction("updateOperation",{id:op.id,status:"planning",recommendedBy:null,approvedBy:null});
+              setProcessing(null); notify("OPORD returned to planning.",C.textD);
+            }}/>
+          )}
           <ArmBtn small label="DELETE" confirmLabel="DELETE OP?" onConfirm={async()=>{setProcessing("Deleting...");await onAction("deleteOperation",{id:op.id});setProcessing(null);onClose();notify("Deleted.",C.textD);}}/>
         </div>}
       </div>
@@ -2012,7 +2127,7 @@ function OpSidePanel({op,currentUser,canManage,onAction,notify,setProcessing,onE
 }
 
 // Main operations section
-function OperationsSection({operations,currentUser,commands,ships,personnel,canManage,onAction,notify,setProcessing,mapBorders,mfaCountries,isEmperor}){
+function OperationsSection({operations,currentUser,commands,ships,personnel,canManage,isMowMinister,onAction,notify,setProcessing,mapBorders,mfaCountries,isEmperor}){
   const [selectedId,setSelectedId]=useState(null);
   const [editing,setEditing]=useState(null);
   const [creating,setCreating]=useState(false);
@@ -2086,11 +2201,22 @@ function OperationsSection({operations,currentUser,commands,ships,personnel,canM
 
   async function handleSave(data){
     setProcessing("Saving operation...");
+    const ministerOnly=["recommended","approved","active","suspended","completed"];
+    // Clamp status: commanders cannot save a minister-only status
+    const safeStatus=(ministerOnly.includes(data.status)&&!isMowMinister)
+      ? (editing?.status||"planning")  // revert to existing status or planning
+      : data.status;
+    // Also preserve approval signatures when editing (don't wipe them on save)
+    const extraPreserved=editing?{
+      recommendedBy:editing.recommendedBy||null,
+      approvedBy:editing.approvedBy||null,
+    }:{};
+    const safeData={...data,...extraPreserved,status:safeStatus};
     if(editing){
-      await onAction("updateOperation",{id:editing.id,...data});
+      await onAction("updateOperation",{id:editing.id,...safeData});
       setProcessing(null); setEditing(null); notify("Operation saved.",C.accent);
     } else {
-      await onAction("createOperation",{op:{...data,notes:[],assignedAssets:data.assignedAssets||[]}});
+      await onAction("createOperation",{op:{...safeData,notes:[],assignedAssets:data.assignedAssets||[]}});
       setProcessing(null); setCreating(false); notify("Operation created.",C.accent);
     }
   }
@@ -2104,6 +2230,7 @@ function OperationsSection({operations,currentUser,commands,ships,personnel,canM
           </div>
           <SmeacForm op={editing} onSave={handleSave}
             onCancel={()=>{setEditing(null);setCreating(false);}}
+            isMowMinister={isMowMinister}
             operations={operations} personnel={personnel} ships={ships} commands={commands}/>
         </div>
       </div>
@@ -2147,7 +2274,7 @@ function OperationsSection({operations,currentUser,commands,ships,personnel,canM
                   {op.codename&&<div className="mono" style={{fontSize:7,color:C.textDD}}>{op.name}</div>}
                 </div>
                 {/* Pin placement controls */}
-                {isSel&&canManage&&(
+                {isSel&&isMowMinister&&(
                   <div style={{padding:"0 8px 6px",display:"flex",gap:4,flexWrap:"wrap"}}>
                     {!isPlacing
                       ?<button onClick={()=>setPlacingPinFor(op.id)}
@@ -2276,6 +2403,7 @@ function OperationsSection({operations,currentUser,commands,ships,personnel,canM
       {selectedOp&&(
         <div style={{width:340,flexShrink:0}}>
           <OpSidePanel op={selectedOp} currentUser={currentUser} canManage={canManage}
+            isMowMinister={isMowMinister}
             onAction={onAction} notify={notify} setProcessing={setProcessing}
             onEdit={()=>{setEditing(selectedOp);setSelectedId(null);}}
             onClose={()=>setSelectedId(null)}
@@ -2847,7 +2975,7 @@ function App(){
           <AnnouncementBanner announcement={announcement}/>
           <WartimeBanner wartime={wartime}/>
           <OperationsSection operations={operations}
-            currentUser={user} commands={commands} ships={ships} personnel={personnel} canManage={canManage} onAction={onAction} notify={notify} setProcessing={setProcessing}
+            currentUser={user} commands={commands} ships={ships} personnel={personnel} canManage={canManage} isMowMinister={isMowMinister} onAction={onAction} notify={notify} setProcessing={setProcessing}
             mapBorders={mapBorders} mfaCountries={mfaCountries} isEmperor={isEmperor}/>
         </div>
         :<div style={{maxWidth:1100,margin:"0 auto",padding:"1.5rem 1.25rem"}}>
