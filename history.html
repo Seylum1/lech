@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>History &amp; Laws — Empire of Lech</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.7/babel.min.js"></script>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  html,body{background:#0a0808;font-family:'Crimson Text',Georgia,serif;color:#f0ece4;min-height:100vh;-webkit-text-size-adjust:100%;}
+  input,select,textarea,button{font-family:'Crimson Text',Georgia,serif;}
+  ::-webkit-scrollbar{width:9px;height:9px;}
+  ::-webkit-scrollbar-track{background:#0a0808;}
+  ::-webkit-scrollbar-thumb{background:#352020;border-radius:4px;}
+  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+/* ════════════════════════════════════════════════════════════════════════════
+   HISTORY & LAWS — Empire of Lech
+   Reads the same backend store as the Bundeskongress (bk_ keys).
+   Governments are curated manually and stored under  bk_governments .
+   Bills are read live from  bk_bill_*  and filtered to each government's term.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz37c5Okp9c7PkXv38x2lq7Is3RifkJPee5ASb2KQfA7EJgsN0NwrigmiRr1a_G0E6d4Q/exec";
+
+const C = {
+  bg:"#0a0808",s1:"#160f0f",s2:"#1e1414",s3:"#261a1a",
+  border:"#352020",red:"#9a1a1a",redL:"#c02020",redD:"#6a1010",
+  text:"#f0ece4",textD:"#9a8878",textDD:"#4a3838",
+  gold:"#C9A84C",goldD:"#8a6a20",green:"#3a9c3a",
+};
+
+const PARTIES = [
+  { id:"catholic",        name:"Lech Catholic Social Union", color:"#C9A84C" },
+  { id:"lech_first",      name:"Lech First Party",           color:"#8B0000" },
+  { id:"sup",             name:"Social Unity Party",         color:"#C05050" },
+  { id:"rappier",         name:"Rappier of Order",           color:"#4A5A8A" },
+  { id:"starkes_militar", name:"Starkes Militär Party",      color:"#3a5a2a" },
+  { id:"independent",     name:"Independent",                color:"#888888" },
+];
+const partyById = id => PARTIES.find(p=>p.id===id) || null;
+
+const STATUS_META = {
+  pending:{label:"Pending BT President Approval",color:"#888888",icon:"⏳"},
+  pending_bh:{label:"Pending BH President Approval",color:"#9a7840",icon:"⏳"},
+  pending_emperor:{label:"Pending Imperial Approval",color:"#C9A84C",icon:"👑"},
+  docket:{label:"On the Docket",color:"#5a9a5a",icon:"📋"},
+  bt_voting:{label:"Session — Active Vote",color:"#4a88ff",icon:"🗳"},
+  bh_voting:{label:"Bundesherren — Open Vote",color:"#f0a050",icon:"🗳"},
+  ratification:{label:"Awaiting Imperial Ratification",color:"#C9A84C",icon:"👑"},
+  vetoed:{label:"Vetoed by the Emperor",color:"#8b1a1a",icon:"🚫"},
+  pulled:{label:"Pulled",color:"#6a3a6a",icon:"📥"},
+  returned:{label:"Returned for Revisions",color:"#b05a10",icon:"↩"},
+  passed:{label:"Passed — Now Law",color:"#3a9c3a",icon:"✅"},
+  motion_passed:{label:"Motion Passed",color:"#5a9a8a",icon:"✋"},
+  decree:{label:"Imperial Decree",color:"#C9A84C",icon:"⚜"},
+  motion_failed:{label:"Motion Failed",color:"#c02020",icon:"❌"},
+  failed_bt:{label:"Failed — Bundestag Rejected",color:"#c02020",icon:"❌"},
+  failed_bh:{label:"Failed — Bundesherren Rejected",color:"#c02020",icon:"❌"},
+  repealed:{label:"Repealed",color:"#8b2020",icon:"🚫"},
+  grandfathered:{label:"Standing Law",color:"#8a7040",icon:"📜"},
+};
+const ENACTED_STATUSES = ["passed","grandfathered","decree","motion_passed"];
+
+const LAW_CATEGORIES = [
+  {v:"criminal",l:"Criminal Law",color:"#9a2020"},
+  {v:"civil",l:"Civil Law",color:"#4a6a9a"},
+  {v:"civil_rights",l:"Civil Rights Law",color:"#4a8a6a"},
+  {v:"revenue",l:"Revenue Law",color:"#8a7a20"},
+  {v:"court_proc",l:"Court Procedural Law",color:"#6a4a8a"},
+  {v:"administrative",l:"Administrative Law",color:"#4a6a6a"},
+  {v:"nobility",l:"Nobility Law",color:"#8a6a30"},
+  {v:"transport",l:"Transport Law",color:"#4a6a8a"},
+];
+const catMeta = v => LAW_CATEGORIES.find(c=>c.v===v) || null;
+
+const MINISTER_PORTFOLIOS = [
+  "Vice Chancellor","Minister of the Chancellery","Minister of Colonies",
+  "Minister of Interior","Minister of Finance","Minister of War",
+  "Minister of Infrastructure","Minister of Health","Minister of Foreign Affairs",
+];
+
+const BT_SEATS_TOTAL=1000, BT_THRESHOLD=501, BT_SUPERMAJORITY=667;
+
+/* ── helpers ──────────────────────────────────────────────────────────────── */
+async function sha256(t){
+  const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
+async function sgetAll(prefix){
+  try{
+    const r=await fetch(SCRIPT_URL+"?action=getall");
+    const d=await r.json();
+    if(!d.success) return {};
+    const out={};
+    Object.entries(d.data||{}).forEach(([k,v])=>{ if(k.startsWith(prefix||"")&&v){ try{out[k]=JSON.parse(v);}catch{} } });
+    return out;
+  }catch(e){return {};}
+}
+async function sset(k,v){
+  try{
+    await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
+      body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v)})});
+    return true;
+  }catch(e){return false;}
+}
+function fmtDate(ts){ if(ts==null||isNaN(ts)) return "—"; return new Date(ts).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}); }
+function fmtRange(g){
+  const s=g.startDate?new Date(g.startDate+"T00:00:00").toLocaleDateString("en-GB",{month:"short",year:"numeric"}):"—";
+  const e=g.endDate?new Date(g.endDate+"T00:00:00").toLocaleDateString("en-GB",{month:"short",year:"numeric"}):"Present";
+  return s+" – "+e;
+}
+function startMs(g){ return g.startDate?new Date(g.startDate+"T00:00:00").getTime():-Infinity; }
+function endMs(g){ return g.endDate?new Date(g.endDate+"T23:59:59").getTime():Infinity; }
+function billDate(b){ return b.ratified_at||b.failed_at||b.repealed_at||b.created||0; }
+function govSeatTotal(g){ return Object.values(g.seats||{}).reduce((a,n)=>a+(Number(n)||0),0); }
+
+/* ── hemicycle geometry ───────────────────────────────────────────────────── */
+function buildHemicycle(nSeats,rInner,rOuter){
+  if(nSeats<=0) return {seats:[],seatR:6};
+  const rows=Math.max(3,Math.min(22,Math.round(Math.sqrt(nSeats)*0.6)));
+  const radii=[]; for(let i=0;i<rows;i++) radii.push(rows===1?(rInner+rOuter)/2:rInner+(rOuter-rInner)*i/(rows-1));
+  const sum=radii.reduce((a,b)=>a+b,0);
+  let counts=radii.map(r=>Math.max(1,Math.floor(nSeats*r/sum)));
+  let assigned=counts.reduce((a,b)=>a+b,0), i=rows-1;
+  while(assigned<nSeats){counts[i]++;assigned++;i=(i-1+rows)%rows;}
+  while(assigned>nSeats){if(counts[i]>1){counts[i]--;assigned--;}i=(i-1+rows)%rows;}
+  const rowSpacing=(rOuter-rInner)/Math.max(1,rows-1);
+  let minArc=Infinity; for(let k=0;k<rows;k++){const a=Math.PI*radii[k]/counts[k]; if(a<minArc)minArc=a;}
+  const seatR=Math.max(2.4,0.40*Math.min(rowSpacing,minArc));
+  const seats=[];
+  for(let k=0;k<rows;k++){const m=counts[k],r=radii[k];
+    for(let j=0;j<m;j++){const t=(j+0.5)/m, phi=Math.PI*(1-t); seats.push({phi,r});}}
+  seats.sort((a,b)=> b.phi-a.phi || a.r-b.r);
+  return {seats,seatR};
+}
+
+/* Order parties: government coalition (by seats desc) on the left,
+   then opposition (by seats desc), independents last. */
+function orderedBlocs(g){
+  const seats=g.seats||{};
+  const coal=new Set(g.coalitionParties||[]);
+  const present=PARTIES.filter(p=>(Number(seats[p.id])||0)>0);
+  const gov=present.filter(p=>coal.has(p.id)&&p.id!=="independent").sort((a,b)=>seats[b.id]-seats[a.id]);
+  const opp=present.filter(p=>!coal.has(p.id)&&p.id!=="independent").sort((a,b)=>seats[b.id]-seats[a.id]);
+  const ind=present.filter(p=>p.id==="independent");
+  return {gov,opp,ind,order:[...gov,...opp,...ind]};
+}
+
+function Hemicycle({g}){
+  const total=govSeatTotal(g);
+  const W=720, cx=W/2, rOuter=300, rInner=120, cy=rOuter+14, H=cy+14;
+  const {seats,seatR}=React.useMemo(()=>buildHemicycle(total,rInner,rOuter),[total]);
+  const {order,gov}=orderedBlocs(g);
+  // build per-seat party color by cumulative counts in bloc order
+  const colored=React.useMemo(()=>{
+    const seq=[]; order.forEach(p=>{ const n=Number(g.seats[p.id])||0; for(let i=0;i<n;i++) seq.push(p.color); });
+    return seats.map((s,i)=>({...s,color:seq[i]||C.textDD}));
+  },[seats,order,g]);
+  const coalSeats=gov.reduce((a,p)=>a+(Number(g.seats[p.id])||0),0);
+
+  if(total<=0) return (
+    <div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No seat distribution recorded for this government.</div>
+  );
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto",display:"block"}} role="img"
+           aria-label={`Seat distribution: ${total} seats`}>
+        {colored.map((s,i)=>{
+          const x=cx+s.r*Math.cos(s.phi), y=cy-s.r*Math.sin(s.phi);
+          return <circle key={i} cx={x} cy={y} r={seatR} fill={s.color} stroke="#0a0808" strokeWidth={seatR>4?1:0.5}/>;
+        })}
+        {/* center readout */}
+        <text x={cx} y={cy-30} textAnchor="middle" style={{fontFamily:"'Cinzel',serif",fontSize:38,fontWeight:700,fill:C.text}}>{total}</text>
+        <text x={cx} y={cy-12} textAnchor="middle" style={{fontFamily:"'Cinzel',serif",fontSize:10,letterSpacing:"0.25em",fill:C.textD}}>SEATS</text>
+        {/* majority hub line */}
+        <line x1={cx} y1={cy} x2={cx} y2={cy-6} stroke={C.gold} strokeWidth={2}/>
+      </svg>
+      {/* gov / opp split bar */}
+      <SplitBar g={g} coalSeats={coalSeats} total={total}/>
+    </div>
+  );
+}
+
+function SplitBar({g,coalSeats,total}){
+  const {gov,opp,ind}=orderedBlocs(g);
+  const seg=(arr)=>arr.map(p=>({p,n:Number(g.seats[p.id])||0})).filter(x=>x.n>0);
+  const govSeg=seg(gov), oppSeg=seg([...opp,...ind]);
+  const majority = coalSeats>=BT_THRESHOLD;
+  const superM = coalSeats>=BT_SUPERMAJORITY;
+  const govType=g.govType||"coalition";
+  return (
+    <div style={{marginTop:"0.5rem"}}>
+      <div style={{display:"flex",height:14,borderRadius:3,overflow:"hidden",border:`1px solid ${C.border}`}}>
+        {[...govSeg,...oppSeg].map(({p,n},i)=>(
+          <div key={i} title={`${p.name} — ${n}`} style={{width:(n/total*100)+"%",background:p.color}}/>
+        ))}
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",marginTop:6,fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.textD}}>
+        <span style={{color:majority?C.green:C.redL}}>
+          {govType==="single"?"GOVERNMENT":govType==="caretaker"?"CARETAKER":"COALITION"} · {coalSeats}
+          {majority?"  ✓ majority":"  ✗ minority"}{superM?"  ⚜ supermajority":""}
+        </span>
+        <span>OPPOSITION · {total-coalSeats}</span>
+      </div>
+      <div style={{marginTop:4,fontFamily:"'Share Tech Mono',monospace",fontSize:8.5,color:C.textDD,letterSpacing:"0.05em"}}>
+        Majority {BT_THRESHOLD} · Supermajority {BT_SUPERMAJORITY} · House {BT_SEATS_TOTAL}
+      </div>
+    </div>
+  );
+}
+
+/* ── legend ───────────────────────────────────────────────────────────────── */
+function Legend({g}){
+  const {order}=orderedBlocs(g);
+  const coal=new Set(g.coalitionParties||[]);
+  return (
+    <div style={{display:"flex",flexWrap:"wrap",gap:"0.4rem 1rem",marginTop:"0.75rem"}}>
+      {order.map(p=>{
+        const n=Number(g.seats[p.id])||0;
+        return (
+          <div key={p.id} style={{display:"flex",alignItems:"center",gap:6}}>
+            <span style={{width:11,height:11,borderRadius:2,background:p.color,flexShrink:0,
+              boxShadow:coal.has(p.id)?`0 0 0 1.5px ${C.gold}66`:"none"}}/>
+            <span style={{fontFamily:"'Cinzel',serif",fontSize:11,color:C.textD}}>
+              {p.name} <strong style={{color:p.color}}>{n}</strong>
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── cabinet ──────────────────────────────────────────────────────────────── */
+function CabinetCard({g}){
+  const chanP=partyById(g.chancellorParty);
+  const ministers=(g.ministers||[]).filter(m=>m.portfolio||m.name);
+  return (
+    <div>
+      {/* Chancellor hero */}
+      <div style={{background:chanP?`linear-gradient(135deg,${C.s1} 70%,${chanP.color}18)`:C.s1,
+        border:`1px solid ${chanP?chanP.color+"55":C.gold+"44"}`,borderLeft:`5px solid ${chanP?chanP.color:C.gold}`,
+        borderRadius:3,padding:"1rem 1.1rem",marginBottom:"0.85rem"}}>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.3em",color:C.gold,textTransform:"uppercase",marginBottom:6}}>⚜ Chancellor of the Empire</div>
+        <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap"}}>
+          <span style={{fontFamily:"'Cinzel',serif",fontSize:22,fontWeight:700,color:chanP?chanP.color:C.text,
+            textShadow:chanP?`0 0 18px ${chanP.color}44`:"none"}}>{g.chancellor||"Vacant"}</span>
+          {chanP&&<span style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",padding:"2px 8px",
+            border:`1px solid ${chanP.color}55`,borderRadius:2,color:chanP.color}}>{chanP.name}</span>}
+        </div>
+      </div>
+      {/* Ministers grid */}
+      {ministers.length>0 ? (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:"0.6rem"}}>
+          {ministers.map((m,i)=>{
+            const mp=partyById(m.party);
+            return (
+              <div key={i} style={{background:C.s1,border:`1px solid ${C.border}`,
+                borderLeft:`3px solid ${mp?mp.color:C.textDD}`,borderRadius:2,padding:"0.6rem 0.75rem"}}>
+                <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.12em",color:C.textD,textTransform:"uppercase",marginBottom:3}}>{m.portfolio||"Minister"}</div>
+                <div style={{fontSize:15,color:C.text}}>{m.name||"—"}</div>
+                {mp&&<div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:8.5,color:mp.color,marginTop:2}}>{mp.name}</div>}
+              </div>
+            );
+          })}
+        </div>
+      ):(
+        <div style={{color:C.textDD,fontStyle:"italic",fontSize:14,padding:"0.5rem 0"}}>No ministers recorded.</div>
+      )}
+    </div>
+  );
+}
+
+/* ── bill card ────────────────────────────────────────────────────────────── */
+function BillRow({b}){
+  const sm=STATUS_META[b.status]||{label:b.status,color:C.textD,icon:"•"};
+  const cm=catMeta(b.category);
+  return (
+    <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`3px solid ${sm.color}`,borderRadius:2,
+      padding:"0.7rem 0.9rem",display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:"0.75rem",flexWrap:"wrap"}}>
+      <div style={{minWidth:0,flex:1}}>
+        <div style={{fontSize:15,color:C.text,lineHeight:1.3}}>{b.title||"Untitled bill"}</div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginTop:5}}>
+          {cm&&<span style={{fontFamily:"'Cinzel',serif",fontSize:8,letterSpacing:"0.08em",color:cm.color,border:`1px solid ${cm.color}55`,borderRadius:2,padding:"1px 6px"}}>{cm.l}</span>}
+          {b.submitter&&<span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textDD}}>by {b.submitter}</span>}
+          {b.gdoc_url&&<a href={b.gdoc_url} target="_blank" rel="noopener" style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.gold,textDecoration:"none"}}>document ↗</a>}
+        </div>
+      </div>
+      <div style={{textAlign:"right",flexShrink:0}}>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:8,color:sm.color,border:`1px solid ${sm.color}44`,borderRadius:2,padding:"2px 7px",whiteSpace:"nowrap"}}>{sm.icon} {sm.label}</div>
+        <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textD,marginTop:4}}>{fmtDate(billDate(b))}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ── detail panel ─────────────────────────────────────────────────────────── */
+function GovDetail({g,bills}){
+  const [showAll,setShowAll]=React.useState(false);
+  const s=startMs(g), e=endMs(g);
+  const inRange = Object.values(bills).filter(b=>{ const d=billDate(b); return d>=s && d<=e; });
+  const enacted = inRange.filter(b=>ENACTED_STATUSES.includes(b.status)).sort((a,b)=>billDate(b)-billDate(a));
+  const others  = inRange.filter(b=>!ENACTED_STATUSES.includes(b.status)).sort((a,b)=>billDate(b)-billDate(a));
+  const shown = showAll ? [...enacted,...others] : enacted;
+
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:"1rem",flexWrap:"wrap",marginBottom:"0.4rem"}}>
+        <div>
+          {g.number!=null&&g.number!==""&&<div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.gold,letterSpacing:"0.2em"}}>GOVERNMENT №{g.number}</div>}
+          <h2 style={{fontFamily:"'Cinzel',serif",fontSize:"clamp(1.4rem,4vw,2rem)",fontWeight:700,color:C.text,lineHeight:1.1}}>{g.name||"Untitled Government"}</h2>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.gold,letterSpacing:"0.08em"}}>{fmtRange(g)}</div>
+          {g.example&&<div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:8,color:C.redL,marginTop:3,letterSpacing:"0.1em"}}>SAMPLE — replace via Curator</div>}
+        </div>
+      </div>
+      {g.notes&&<p style={{color:C.textD,fontStyle:"italic",lineHeight:1.7,margin:"0.5rem 0 1rem",fontSize:15}}>{g.notes}</p>}
+
+      <SectionTitle>The Chamber</SectionTitle>
+      <div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:4,padding:"1.25rem 1.25rem 1rem"}}>
+        <Hemicycle g={g}/>
+        <Legend g={g}/>
+      </div>
+
+      <SectionTitle>Cabinet</SectionTitle>
+      <CabinetCard g={g}/>
+
+      <SectionTitle>
+        <span>Laws Enacted in this Term</span>
+        <span style={{fontFamily:"'Share Tech Mono',monospace",fontSize:10,color:C.gold,letterSpacing:"0.1em",textTransform:"none"}}>{enacted.length} enacted</span>
+      </SectionTitle>
+      {shown.length===0 ? (
+        <div style={{background:C.s1,border:`1px dashed ${C.border}`,borderRadius:3,padding:"1.5rem",textAlign:"center",color:C.textDD,fontStyle:"italic"}}>
+          No bills recorded with an enactment date inside this term.
+          {g.endDate?"":" If this term is ongoing, new laws will appear here as they pass."}
+        </div>
+      ):(
+        <div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>
+          {shown.map((b,i)=><BillRow key={b.id||i} b={b}/>)}
+        </div>
+      )}
+      {others.length>0&&(
+        <button onClick={()=>setShowAll(v=>!v)} style={{marginTop:"0.75rem",background:"transparent",
+          border:`1px solid ${C.border}`,borderRadius:2,color:C.textD,fontFamily:"'Cinzel',serif",fontSize:10,
+          letterSpacing:"0.15em",textTransform:"uppercase",padding:"0.5rem 1rem",cursor:"pointer"}}>
+          {showAll?"Hide other bills":`Show ${others.length} other bill${others.length!==1?"s":""} from this period (failed / pulled / pending)`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function SectionTitle({children}){
+  return (
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,
+      fontFamily:"'Cinzel',serif",fontSize:11,letterSpacing:"0.3em",textTransform:"uppercase",color:C.gold,
+      borderBottom:`1px solid ${C.border}`,paddingBottom:6,margin:"1.75rem 0 0.85rem"}}>
+      {typeof children==="string"?<span>{children}</span>:children}
+    </div>
+  );
+}
+
+/* ── government list (timeline) ───────────────────────────────────────────── */
+function GovList({govs,activeId,onPick}){
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>
+      {govs.map(g=>{
+        const {gov}=orderedBlocs(g);
+        const active=g.id===activeId;
+        return (
+          <button key={g.id} onClick={()=>onPick(g.id)} style={{textAlign:"left",cursor:"pointer",
+            background:active?C.s2:C.s1,border:`1px solid ${active?C.gold+"66":C.border}`,
+            borderLeft:`4px solid ${gov[0]?gov[0].color:C.textDD}`,borderRadius:3,padding:"0.7rem 0.9rem",
+            transition:"background .15s,border-color .15s"}}>
+            <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"baseline"}}>
+              <span style={{fontFamily:"'Cinzel',serif",fontSize:14,fontWeight:700,color:active?C.text:C.textD,lineHeight:1.2}}>
+                {g.number!=null&&g.number!==""?`№${g.number} `:""}{g.name||"Untitled"}
+              </span>
+            </div>
+            <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9.5,color:C.gold,marginTop:3,letterSpacing:"0.05em"}}>{fmtRange(g)}</div>
+            <div style={{fontSize:12.5,color:C.textDD,marginTop:2}}>Chancellor {g.chancellor||"—"}{g.example?" · sample":""}</div>
+            {/* mini bar */}
+            <div style={{display:"flex",height:5,marginTop:6,borderRadius:2,overflow:"hidden",opacity:active?1:0.7}}>
+              {orderedBlocs(g).order.map(p=>{const n=Number(g.seats?.[p.id])||0; const tot=govSeatTotal(g)||1;
+                return n>0?<div key={p.id} style={{width:(n/tot*100)+"%",background:p.color}}/>:null;})}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   CURATOR — passcode-gated editor.  First use sets the passcode (bk_hist_hash).
+   ════════════════════════════════════════════════════════════════════════════ */
+function blankGov(){
+  return {id:uid(),name:"",number:"",startDate:"",endDate:"",chancellor:"",chancellorParty:"",
+    govType:"coalition",coalitionParties:[],seats:{},ministers:[],notes:""};
+}
+
+function CuratorGate({hashExists,onUnlock,onCancel}){
+  const [pw,setPw]=React.useState(""), [pw2,setPw2]=React.useState(""), [err,setErr]=React.useState("");
+  const setMode=!hashExists;
+  const go=async()=>{
+    if(!pw.trim()){setErr("Enter a passcode.");return;}
+    if(setMode){
+      if(pw.length<4){setErr("Use at least 4 characters.");return;}
+      if(pw!==pw2){setErr("Passcodes do not match.");return;}
+      const h=await sha256(pw); await sset("bk_hist_hash",h); onUnlock();
+    }else{
+      const h=await sha256(pw); onUnlock(h);
+    }
+  };
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(6,4,4,0.9)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:"1rem"}}>
+      <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:4,padding:"1.5rem",maxWidth:380,width:"100%"}}>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.3em",color:C.gold,textTransform:"uppercase",marginBottom:4}}>⚜ Curator Access</div>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:17,fontWeight:700,color:C.text,marginBottom:"0.5rem"}}>{setMode?"Set a curator passcode":"Unlock editing"}</div>
+        <p style={{color:C.textD,fontSize:13,lineHeight:1.6,marginBottom:"1rem"}}>
+          {setMode?"No passcode is set yet. Choose one now — it will be required to add or change governments.":"Enter the curator passcode to add or edit governments."}
+        </p>
+        <Field label="Passcode"><input type="password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!setMode&&go()} style={inp}/></Field>
+        {setMode&&<Field label="Confirm passcode"><input type="password" value={pw2} onChange={e=>setPw2(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()} style={inp}/></Field>}
+        {err&&<div style={{color:C.redL,fontSize:12,marginBottom:"0.75rem"}}>{err}</div>}
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <Btn ghost onClick={onCancel}>Cancel</Btn>
+          <Btn gold onClick={go}>{setMode?"Set passcode":"Unlock"}</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GovEditor({gov,onSave,onDelete,onClose,saving}){
+  const [g,setG]=React.useState(()=>({...blankGov(),...gov,seats:{...(gov?.seats||{})},
+    coalitionParties:[...(gov?.coalitionParties||[])],ministers:[...(gov?.ministers||[])]}));
+  const set=(k,v)=>setG(p=>({...p,[k]:v}));
+  const setSeat=(pid,v)=>setG(p=>({...p,seats:{...p.seats,[pid]:v===""?"":Math.max(0,parseInt(v)||0)}}));
+  const toggleCoal=(pid)=>setG(p=>({...p,coalitionParties:p.coalitionParties.includes(pid)?p.coalitionParties.filter(x=>x!==pid):[...p.coalitionParties,pid]}));
+  const setMin=(i,k,v)=>setG(p=>{const ms=[...p.ministers]; ms[i]={...ms[i],[k]:v}; return {...p,ministers:ms};});
+  const addMin=()=>setG(p=>({...p,ministers:[...p.ministers,{portfolio:MINISTER_PORTFOLIOS[0],name:"",party:""}]}));
+  const delMin=(i)=>setG(p=>({...p,ministers:p.ministers.filter((_,j)=>j!==i)}));
+  const total=govSeatTotal(g);
+
+  const save=()=>{
+    const clean={...g,example:false,number:g.number===""?"":g.number,
+      seats:Object.fromEntries(Object.entries(g.seats).filter(([_,v])=>v!==""&&Number(v)>0).map(([k,v])=>[k,Number(v)])),
+      ministers:g.ministers.filter(m=>m.portfolio||m.name)};
+    onSave(clean);
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(6,4,4,0.92)",display:"flex",alignItems:"flex-start",justifyContent:"center",zIndex:1000,padding:"1rem",overflowY:"auto"}}>
+      <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:4,maxWidth:680,width:"100%",margin:"1rem 0"}}>
+        <div style={{position:"sticky",top:0,background:`linear-gradient(135deg,${C.s1},${C.s2})`,borderBottom:`1px solid ${C.border}`,
+          padding:"1rem 1.25rem",display:"flex",justifyContent:"space-between",alignItems:"center",zIndex:2}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:C.text,letterSpacing:"0.05em"}}>{gov?.name?"Edit Government":"New Government"}</div>
+          <button onClick={onClose} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.textD,width:30,height:30,borderRadius:2,cursor:"pointer"}}>✕</button>
+        </div>
+
+        <div style={{padding:"1.25rem"}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 90px",gap:"0.75rem"}}>
+            <Field label="Name *"><input value={g.name} onChange={e=>set("name",e.target.value)} placeholder="e.g. First Vance Government" style={inp}/></Field>
+            <Field label="№"><input value={g.number} onChange={e=>set("number",e.target.value)} placeholder="3" style={inp}/></Field>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.75rem"}}>
+            <Field label="Start date *"><input type="date" value={g.startDate} onChange={e=>set("startDate",e.target.value)} style={inp}/></Field>
+            <Field label="End date (blank = present)"><input type="date" value={g.endDate} onChange={e=>set("endDate",e.target.value)} style={inp}/></Field>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0.75rem"}}>
+            <Field label="Chancellor"><input value={g.chancellor} onChange={e=>set("chancellor",e.target.value)} style={inp}/></Field>
+            <Field label="Chancellor's party"><select value={g.chancellorParty} onChange={e=>set("chancellorParty",e.target.value)} style={inp}><option value="">—</option>{PARTIES.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
+            <Field label="Government type"><select value={g.govType} onChange={e=>set("govType",e.target.value)} style={inp}><option value="coalition">Coalition</option><option value="single">Single-party</option><option value="caretaker">Caretaker</option></select></Field>
+          </div>
+
+          <FieldLabel>Seats per party <span style={{color:total===BT_SEATS_TOTAL?C.green:C.gold}}>· {total}/{BT_SEATS_TOTAL}</span></FieldLabel>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:"0.5rem",marginBottom:"1rem"}}>
+            {PARTIES.map(p=>(
+              <div key={p.id} style={{display:"flex",alignItems:"center",gap:8,background:C.s1,border:`1px solid ${C.border}`,borderLeft:`3px solid ${p.color}`,borderRadius:2,padding:"4px 8px"}}>
+                <label style={{display:"flex",alignItems:"center",gap:6,flex:1,fontSize:12.5,color:C.textD,cursor:"pointer"}}>
+                  {p.id!=="independent"&&<input type="checkbox" checked={g.coalitionParties.includes(p.id)} onChange={()=>toggleCoal(p.id)} title="In governing coalition"/>}
+                  {p.name}
+                </label>
+                <input type="number" min="0" value={g.seats[p.id]??""} onChange={e=>setSeat(p.id,e.target.value)} placeholder="0" style={{...inp,width:62,padding:"3px 6px",textAlign:"right"}}/>
+              </div>
+            ))}
+          </div>
+          <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textDD,marginTop:"-0.75rem",marginBottom:"1rem"}}>☑ = governing coalition (shaded gold in the legend, counts toward the majority line)</div>
+
+          <FieldLabel>Cabinet</FieldLabel>
+          <div style={{display:"flex",flexDirection:"column",gap:"0.4rem",marginBottom:"0.5rem"}}>
+            {g.ministers.map((m,i)=>(
+              <div key={i} style={{display:"grid",gridTemplateColumns:"1.3fr 1.2fr 1fr 30px",gap:6,alignItems:"center"}}>
+                <input list="portfolios" value={m.portfolio||""} onChange={e=>setMin(i,"portfolio",e.target.value)} placeholder="Portfolio" style={inp}/>
+                <input value={m.name||""} onChange={e=>setMin(i,"name",e.target.value)} placeholder="Name" style={inp}/>
+                <select value={m.party||""} onChange={e=>setMin(i,"party",e.target.value)} style={inp}><option value="">party…</option>{PARTIES.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
+                <button onClick={()=>delMin(i)} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.redL,borderRadius:2,height:30,cursor:"pointer"}}>✕</button>
+              </div>
+            ))}
+          </div>
+          <datalist id="portfolios">{MINISTER_PORTFOLIOS.map(p=><option key={p} value={p}/>)}</datalist>
+          <Btn ghost onClick={addMin}>+ Add minister</Btn>
+
+          <div style={{marginTop:"1rem"}}>
+            <Field label="Notes (optional)"><textarea value={g.notes} onChange={e=>set("notes",e.target.value)} rows={2} style={{...inp,resize:"vertical"}}/></Field>
+          </div>
+        </div>
+
+        <div style={{position:"sticky",bottom:0,background:C.s1,borderTop:`1px solid ${C.border}`,padding:"0.85rem 1.25rem",display:"flex",justifyContent:"space-between",gap:8}}>
+          <div>{gov?.name&&!gov?.example&&<Btn danger onClick={()=>onDelete(g.id)}>Delete</Btn>}</div>
+          <div style={{display:"flex",gap:8}}>
+            <Btn ghost onClick={onClose}>Cancel</Btn>
+            <Btn gold onClick={save} disabled={!g.name||!g.startDate||saving}>{saving?"Saving…":"Save government"}</Btn>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── small UI atoms ───────────────────────────────────────────────────────── */
+const inp={width:"100%",background:C.s2,border:`1px solid ${C.border}`,borderRadius:2,color:C.text,
+  padding:"6px 9px",fontSize:14,outline:"none"};
+function FieldLabel({children}){return <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.15em",textTransform:"uppercase",color:C.textD,margin:"0.25rem 0 0.4rem"}}>{children}</div>;}
+function Field({label,children}){return <div style={{marginBottom:"0.75rem"}}><FieldLabel>{label}</FieldLabel>{children}</div>;}
+function Btn({children,onClick,gold,ghost,danger,disabled}){
+  const base={fontFamily:"'Cinzel',serif",fontSize:10,letterSpacing:"0.15em",textTransform:"uppercase",
+    padding:"0.5rem 1.1rem",borderRadius:2,cursor:disabled?"not-allowed":"pointer",opacity:disabled?0.5:1,
+    border:`1px solid ${C.border}`,background:"transparent",color:C.textD};
+  const v=gold?{background:C.gold,color:"#1a1206",border:`1px solid ${C.gold}`,fontWeight:700}
+    :danger?{border:`1px solid ${C.redD}`,color:C.redL}:{};
+  return <button onClick={disabled?undefined:onClick} disabled={disabled} style={{...base,...v}}>{children}</button>;
+}
+
+/* ── seed examples (shown only until real governments are saved) ──────────── */
+const SAMPLE_GOVERNMENTS=[
+  {id:"sample_2",example:true,name:"Second Catholic Ministry",number:2,startDate:"2024-09-01",endDate:"",
+   chancellor:"(sample chancellor)",chancellorParty:"catholic",govType:"coalition",
+   coalitionParties:["catholic","rappier"],
+   seats:{catholic:430,rappier:180,lech_first:210,sup:140,starkes_militar:40},
+   ministers:[
+     {portfolio:"Vice Chancellor",name:"(sample)",party:"rappier"},
+     {portfolio:"Minister of War",name:"(sample)",party:"catholic"},
+     {portfolio:"Minister of Finance",name:"(sample)",party:"catholic"},
+     {portfolio:"Minister of Foreign Affairs",name:"(sample)",party:"rappier"}],
+   notes:"This is a placeholder so you can see the page working. Open the Curator to add real governments — once you save one, these samples disappear."},
+  {id:"sample_1",example:true,name:"First Lech First Ministry",number:1,startDate:"2024-01-15",endDate:"2024-08-31",
+   chancellor:"(sample chancellor)",chancellorParty:"lech_first",govType:"coalition",
+   coalitionParties:["lech_first","starkes_militar"],
+   seats:{lech_first:470,starkes_militar:120,catholic:250,sup:160},
+   ministers:[
+     {portfolio:"Minister of War",name:"(sample)",party:"starkes_militar"},
+     {portfolio:"Minister of Interior",name:"(sample)",party:"lech_first"}],
+   notes:"Sample term with a defined end date — its laws are filtered to Jan–Aug 2024."},
+];
+
+/* ════════════════════════════════════════════════════════════════════════════ */
+function App(){
+  const [loading,setLoading]=React.useState(true);
+  const [bills,setBills]=React.useState({});
+  const [govs,setGovs]=React.useState({});
+  const [hashExists,setHashExists]=React.useState(false);
+  const [activeId,setActiveId]=React.useState(null);
+  const [unlocked,setUnlocked]=React.useState(false);
+  const [gateOpen,setGateOpen]=React.useState(false);
+  const [editing,setEditing]=React.useState(null); // gov object or {} for new
+  const [saving,setSaving]=React.useState(false);
+  const [toast,setToast]=React.useState("");
+  const [pendingAction,setPendingAction]=React.useState(null);
+
+  const note=(m)=>{setToast(m);setTimeout(()=>setToast(""),2600);};
+
+  const load=React.useCallback(async()=>{
+    setLoading(true);
+    const raw=await sgetAll("");
+    const bmap={};
+    Object.entries(raw).forEach(([k,v])=>{ if(k.startsWith("bk_bill_")&&v) bmap[k.replace("bk_bill_","")]=v; });
+    setBills(bmap);
+    const stored=raw["bk_governments"]||{};
+    setGovs(stored);
+    setHashExists(!!raw["bk_hist_hash"]);
+    setLoading(false);
+  },[]);
+  React.useEffect(()=>{load();},[load]);
+
+  // sorted list: real govs if any, else samples. Newest first.
+  const list=React.useMemo(()=>{
+    const real=Object.values(govs);
+    const arr=real.length?real:SAMPLE_GOVERNMENTS;
+    return [...arr].sort((a,b)=> (startMs(b)===startMs(a)? (b.number||0)-(a.number||0) : startMs(b)-startMs(a)));
+  },[govs]);
+
+  React.useEffect(()=>{ if(!activeId&&list.length) setActiveId(list[0].id); },[list,activeId]);
+  const active=list.find(g=>g.id===activeId)||list[0]||null;
+
+  // ── curator flow ──
+  const requireUnlock=(fn)=>{ if(unlocked){fn();} else {setPendingAction(()=>fn);setGateOpen(true);} };
+  const onUnlock=()=>{ setUnlocked(true);setGateOpen(false);setHashExists(true); if(pendingAction){pendingAction();setPendingAction(null);} };
+  const newGov=()=>requireUnlock(()=>setEditing(blankGov()));
+  const editGov=(g)=>requireUnlock(()=>setEditing(g));
+
+  const saveGov=async(g)=>{
+    setSaving(true);
+    const next={...govs,[g.id]:g};
+    setGovs(next); await sset("bk_governments",next);
+    setSaving(false); setEditing(null); setActiveId(g.id); note("⚜ Government saved.");
+  };
+  const deleteGov=async(id)=>{
+    const next={...govs}; delete next[id];
+    setGovs(next); await sset("bk_governments",next);
+    setEditing(null); setActiveId(null); note("Government removed.");
+  };
+
+  return (
+    <div style={{minHeight:"100vh"}}>
+      {/* ambient background */}
+      <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:0,
+        background:"radial-gradient(ellipse 80% 50% at 50% -10%, #3a1a0a18, transparent), radial-gradient(ellipse 120% 120% at 50% 50%, transparent 45%, #060404cc 100%)"}}/>
+
+      {/* header */}
+      <header style={{position:"relative",zIndex:1,background:`linear-gradient(180deg,${C.s1} 0%,${C.bg} 100%)`,borderBottom:`1px solid ${C.border}`,padding:"1.4rem 1rem 1.1rem"}}>
+        <div style={{maxWidth:1080,margin:"0 auto",display:"flex",alignItems:"center",gap:"1.1rem",flexWrap:"wrap"}}>
+          <a href="index.html" style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",color:C.textD,
+            textDecoration:"none",border:`1px solid ${C.border}`,borderRadius:2,padding:"4px 11px"}}>← Network</a>
+          <a href="bundeskongress.html" style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",color:C.textD,
+            textDecoration:"none",border:`1px solid ${C.border}`,borderRadius:2,padding:"4px 11px"}}>🏛 Bundeskongress</a>
+          <div style={{display:"flex",alignItems:"center",gap:"0.9rem",flex:1,minWidth:240}}>
+            <span style={{width:14,height:14,background:C.gold,transform:"rotate(45deg)",boxShadow:`0 0 14px ${C.gold}88`,flexShrink:0}}/>
+            <div>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:"clamp(20px,4vw,26px)",fontWeight:900,color:C.text,letterSpacing:"0.08em",lineHeight:1.05}}>History &amp; Laws</div>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.3em",color:C.gold,marginTop:3,textTransform:"uppercase"}}>Empire of Lech · The Imperial Record</div>
+            </div>
+          </div>
+          <button onClick={newGov} style={{fontFamily:"'Cinzel',serif",fontSize:9.5,letterSpacing:"0.18em",textTransform:"uppercase",
+            background:"transparent",border:`1px solid ${C.gold}`,color:C.gold,borderRadius:2,padding:"6px 14px",cursor:"pointer"}}>⚜ Curator</button>
+        </div>
+      </header>
+
+      <main style={{position:"relative",zIndex:1,maxWidth:1080,margin:"0 auto",padding:"1.5rem 1rem 3rem",
+        display:"grid",gridTemplateColumns:"300px 1fr",gap:"1.5rem",alignItems:"start"}}>
+        <style>{`@media(max-width:820px){main{grid-template-columns:1fr!important;}}`}</style>
+
+        {/* left — timeline */}
+        <aside>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:"0.75rem"}}>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:11,letterSpacing:"0.3em",textTransform:"uppercase",color:C.gold}}>Governments</div>
+            <button onClick={newGov} style={{background:"transparent",border:"none",color:C.textD,fontFamily:"'Cinzel',serif",fontSize:11,cursor:"pointer",letterSpacing:"0.1em"}}>+ Add</button>
+          </div>
+          {loading? <div style={{color:C.textDD,fontStyle:"italic",fontFamily:"'Share Tech Mono',monospace",fontSize:11}}>Loading the record…</div>
+            : <GovList govs={list} activeId={active?.id} onPick={setActiveId}/>}
+          {(!Object.keys(govs).length&&!loading)&&(
+            <div style={{marginTop:"0.85rem",fontFamily:"'Share Tech Mono',monospace",fontSize:9,color:C.textDD,lineHeight:1.6}}>
+              Showing sample governments. Use the Curator to add real ones — samples vanish once you save your first.
+            </div>
+          )}
+        </aside>
+
+        {/* right — detail */}
+        <section>
+          {active ? <GovDetail g={active} bills={bills}/> :
+            <div style={{color:C.textDD,fontStyle:"italic",padding:"3rem 0",textAlign:"center"}}>Select a government from the list.</div>}
+          {active&&(
+            <div style={{marginTop:"1.5rem",textAlign:"right"}}>
+              <Btn ghost onClick={()=>editGov(active)}>{active.example?"Use as template →":"Edit this government"}</Btn>
+            </div>
+          )}
+        </section>
+      </main>
+
+      <footer style={{position:"relative",zIndex:1,borderTop:`1px solid ${C.border}`,padding:"1rem",textAlign:"center",
+        fontFamily:"'Cinzel',serif",fontSize:9,color:C.textDD,letterSpacing:"0.2em"}}>
+        IMPERIAL BUNDESKONGRESS · HISTORY &amp; LAWS · GOTT MIT UNS
+      </footer>
+
+      {gateOpen&&<CuratorGate hashExists={hashExists} onUnlock={onUnlock} onCancel={()=>{setGateOpen(false);setPendingAction(null);}}/>}
+      {editing&&<GovEditor gov={editing} saving={saving} onSave={saveGov} onDelete={deleteGov} onClose={()=>setEditing(null)}/>}
+
+      {toast&&<div style={{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",zIndex:1100,
+        background:C.s2,border:`1px solid ${C.gold}66`,borderRadius:3,padding:"0.6rem 1.4rem",color:C.text,
+        fontFamily:"'Cinzel',serif",fontSize:12,letterSpacing:"0.05em",boxShadow:"0 10px 40px #000a"}}>{toast}</div>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+</script>
+</body>
+</html>
