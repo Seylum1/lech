@@ -118,6 +118,7 @@ function App(){
   const citizens=useMemo(()=>Object.values(raw["mfa_citizens"]||{}),[raw]);
   const accounts=useMemo(()=>{const a={};Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v&&v.username)a[v.username.toLowerCase()]=v;});Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(v&&v.username&&!a[v.username.toLowerCase()])a[v.username.toLowerCase()]=v;});return a;},[raw]);
   const ballotsByEl=useMemo(()=>{const m={};Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("el_ballot_")&&v&&v.elId){(m[v.elId]=m[v.elId]||[]).push(v);}});return m;},[raw]);
+  const voterIds=useMemo(()=>raw["el_voter_ids"]||{},[raw]);   // { citizenId: "ID" } — global, admin-assigned
 
   const elList=useMemo(()=>Object.values(elections).sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||0)-(a.createdAt||0)),[elections]);
   const featured=useMemo(()=>elList.find(e=>e.status==="open")||elList.find(e=>e.status==="closed")||elList[0]||null,[elList]);
@@ -140,6 +141,7 @@ function App(){
     setRaw(r=>{const c={...r};keys.forEach(k=>delete c[k]);return c;});};
   const clearBallots=async(id)=>{const keys=Object.keys(raw).filter(k=>k.startsWith("el_ballot_"+id+"_"));for(const k of keys)await sdel(k);
     setRaw(r=>{const c={...r};keys.forEach(k=>delete c[k]);return c;});note("Ballots cleared.",E.stamp);};
+  const saveVoterIds=async(next)=>{setRaw(r=>({...r,el_voter_ids:next}));await sset("el_voter_ids",next);};
 
   /* ── casting a ballot (public) ── */
   const castBallot=async(el,citizen,votes)=>{
@@ -158,9 +160,10 @@ function App(){
         {loading?<Loading/>:
          view==="admin"&&admin?
            <AdminPanel admin={admin} elections={elections} elList={elList} ballotsByEl={ballotsByEl} citizens={citizens}
+             voterIds={voterIds} onSaveVoterIds={saveVoterIds}
              onUpsert={upsertElection} onDelete={deleteElection} onClear={clearBallots} note={note} reload={loadAll}/>
         :view==="vote"&&selected?
-           <VoteFlow el={selected} citizens={citizens} ballots={ballotsByEl[selected.id]||[]} onCast={castBallot}
+           <VoteFlow el={selected} citizens={citizens} ballots={ballotsByEl[selected.id]||[]} voterIds={voterIds} onCast={castBallot}
              onBack={()=>{setView("hall");setSelId(null);}} note={note}/>
         :  <Hall elList={elList} featured={featured} ballotsByEl={ballotsByEl} citizens={citizens}
              onVote={(id)=>{setSelId(id);setView("vote");}}/>
@@ -411,20 +414,34 @@ function eligibleCitizens(citizens,el){
 }
 
 /* ── VOTE FLOW (public) ──────────────────────────────────────────────────── */
-function VoteFlow({el,citizens,ballots,onCast,onBack,note}){
+function VoteFlow({el,citizens,ballots,voterIds,onCast,onBack,note}){
   const [step,setStep]=useState("identify");   // identify | ballot | done
   const [citizen,setCitizen]=useState(null);
-  const [query,setQuery]=useState("");
+  const [username,setUsername]=useState("");
+  const [voterId,setVoterId]=useState("");
+  const [error,setError]=useState("");
+  const [castNow,setCastNow]=useState(false);
   const cands=Object.values(el.candidates||{});
-  const elig=eligibleCitizens(citizens,el);
   const voted=useMemo(()=>new Set(ballots.map(b=>b.citizenId)),[ballots]);
   const vpv=el.votesPerVoter||VOTES_PER_VOTER;
-
   const closed=el.status!=="open";
+  const eligLabel=(el.eligibility||DEFAULT_ELIGIBILITY).map(s=>CITIZEN_STATUSES[s]||s).join(" & ");
 
-  const pick=(c)=>{
-    if(voted.has(c.id)){setCitizen(c);setStep("done");return;}
-    setCitizen(c);setStep("ballot");
+  const submitId=()=>{
+    setError("");
+    const u=username.trim().toLowerCase();
+    if(!u){setError("Enter your registered username.");return;}
+    const match=citizens.find(c=>(c.username||"").trim().toLowerCase()===u);
+    if(!match){setError("No citizen on the register has that username. Check your spelling.");return;}
+    const allow=new Set(el.eligibility||DEFAULT_ELIGIBILITY);
+    if(!allow.has(match.status||"citizen")){setError(`Only registered ${eligLabel} may vote in this election.`);return;}
+    if(el.requireVoterId){
+      const assigned=String(voterIds[match.id]||"").trim();
+      if(!assigned){setError("No Voter ID number is on file for you. Contact the Electoral Commission.");return;}
+      if(voterId.trim()!==assigned){setError("That Voter ID number does not match our records.");return;}
+    }
+    if(voted.has(match.id)){setCitizen(match);setCastNow(false);setStep("done");return;}
+    setCitizen(match);setStep("ballot");
   };
 
   return(
@@ -448,35 +465,45 @@ function VoteFlow({el,citizens,ballots,onCast,onBack,note}){
           </div>
         ):step==="identify"?(
           <div style={{padding:"1.3rem 1.4rem"}}>
-            <PaperLabel>Step 1 — Confirm your entry on the register</PaperLabel>
-            <p style={{color:E.pMuted,fontSize:13.5,lineHeight:1.6,margin:"0 0 0.9rem"}}>Find your name in the citizenship register. Only registered {el.eligibility?el.eligibility.map(s=>CITIZEN_STATUSES[s]||s).join(" & "):"citizens"} may vote, and each citizen casts one ballot.</p>
-            <input autoFocus value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search your name or username…"
-              style={paperInp}/>
-            <div style={{marginTop:10,maxHeight:320,overflowY:"auto",border:`1px solid ${E.paperLine}`,borderRadius:5}}>
-              {elig.length===0&&<div style={{padding:"1rem",color:E.pMuted,fontStyle:"italic"}}>The citizenship register is empty. The Ministry of Foreign Affairs maintains it.</div>}
-              {elig.filter(c=>{const q=query.toLowerCase();return!q||(c.name||"").toLowerCase().includes(q)||(c.username||"").toLowerCase().includes(q);})
-                .sort((a,b)=>(a.name||"").localeCompare(b.name||"")).slice(0,80)
-                .map(c=>{const did=voted.has(c.id);return(
-                  <button key={c.id} onClick={()=>pick(c)} style={{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:10,
-                    padding:"0.6rem 0.9rem",background:"none",border:"none",borderBottom:`1px solid ${E.paperLine}`,cursor:"pointer"}}>
-                    <span className="arch" style={{fontWeight:700,fontSize:15,color:E.pInk,flex:1}}>{c.name}</span>
-                    {c.username&&<span className="mono" style={{fontSize:11,color:E.pMuted}}>{c.username}</span>}
-                    {did
-                      ?<span className="mono" style={{fontSize:9.5,color:E.green,border:`1px solid ${E.green}55`,borderRadius:3,padding:"1px 7px"}}>VOTED ✓</span>
-                      :<span className="arch" style={{fontSize:11,fontWeight:700,color:E.stamp}}>SELECT →</span>}
-                  </button>
-                );})}
+            <PaperLabel>Step 1 — Identify yourself on the register</PaperLabel>
+            <p style={{color:E.pMuted,fontSize:13.5,lineHeight:1.6,margin:"0 0 1rem"}}>
+              Enter your registered username exactly as it appears on the citizenship register. Only registered {eligLabel} may vote, and each citizen casts one ballot.
+              {el.requireVoterId?" This election also requires the Voter ID number issued to you.":""}
+            </p>
+            <div style={{display:"grid",gap:"0.8rem",maxWidth:440}}>
+              <div>
+                <label className="mono" style={{display:"block",fontSize:10,color:E.pMuted,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:5}}>Username</label>
+                <input autoFocus value={username} onChange={e=>{setUsername(e.target.value);setError("");}}
+                  onKeyDown={e=>{if(e.key==="Enter"&&!el.requireVoterId)submitId();}} placeholder="Your registered username" style={paperInp}/>
+              </div>
+              {el.requireVoterId&&(
+                <div>
+                  <label className="mono" style={{display:"block",fontSize:10,color:E.stamp,letterSpacing:"1.5px",textTransform:"uppercase",marginBottom:5}}>Voter ID number — required</label>
+                  <input value={voterId} onChange={e=>{setVoterId(e.target.value);setError("");}}
+                    onKeyDown={e=>{if(e.key==="Enter")submitId();}} placeholder="The number issued to you" style={paperInp}/>
+                </div>
+              )}
             </div>
-            <p className="mono" style={{fontSize:10,color:E.pMuted,marginTop:10,lineHeight:1.5}}>Identity is taken from the register on the honour system. Ask the Commission to add citizen PINs if you need verified ballots.</p>
+            {error&&<div className="mono" style={{color:E.stamp,fontSize:12,marginTop:11}}>{error}</div>}
+            <div style={{marginTop:16}}><PaperBtn onClick={submitId}>Continue →</PaperBtn></div>
+            <p className="mono" style={{fontSize:10,color:E.pMuted,marginTop:14,lineHeight:1.5}}>
+              {el.requireVoterId
+                ? "Your username and Voter ID are both checked against the register before your ballot opens."
+                : "Your username is matched against the citizenship register. The Commission can require Voter ID numbers per election for stronger verification."}
+            </p>
           </div>
         ):step==="ballot"?(
           <BallotCard el={el} citizen={citizen} cands={cands} vpv={vpv} onBack={()=>setStep("identify")}
-            onSubmit={async(votes)=>{await onCast(el,citizen,votes);note("Ballot recorded. Thank you for voting.",E.green);setStep("done");}}/>
+            onSubmit={async(votes)=>{await onCast(el,citizen,votes);note("Ballot recorded. Thank you for voting.",E.green);setCastNow(true);setStep("done");}}/>
         ):(
           <div style={{padding:"2.4rem 1.4rem",textAlign:"center"}}>
             <Stamp size={120} style={{transform:"rotate(-9deg)",animation:"seal .5s ease"}}/>
-            <div className="arch" style={{fontWeight:900,fontSize:24,color:E.pInk,marginTop:"0.8rem"}}>Ballot recorded</div>
-            <p style={{color:E.pMuted,marginTop:6}}>{citizen?.name}, your vote in “{el.name}” is counted. You may now watch the live result.</p>
+            <div className="arch" style={{fontWeight:900,fontSize:24,color:E.pInk,marginTop:"0.8rem"}}>{castNow?"Ballot recorded":"You’ve already voted"}</div>
+            <p style={{color:E.pMuted,marginTop:6}}>
+              {castNow
+                ? `${citizen?.name}, your vote in “${el.name}” is counted. You may now watch the live result.`
+                : `${citizen?.name}, our records show you have already cast a ballot in “${el.name}”. You may watch the live result.`}
+            </p>
             <div style={{marginTop:16}}><PaperBtn onClick={onBack}>Watch the live count →</PaperBtn></div>
           </div>
         )}
@@ -554,7 +581,7 @@ function AuthModal({accounts,onClose,onAuth}){
   );
 }
 
-function AdminPanel({admin,elections,elList,ballotsByEl,citizens,onUpsert,onDelete,onClear,note,reload}){
+function AdminPanel({admin,elections,elList,ballotsByEl,citizens,voterIds,onSaveVoterIds,onUpsert,onDelete,onClear,note,reload}){
   const [editing,setEditing]=useState(null);
   const [openId,setOpenId]=useState(elList[0]?.id||null);
   const sel=openId?elections[openId]:null;
@@ -592,7 +619,7 @@ function AdminPanel({admin,elections,elList,ballotsByEl,citizens,onUpsert,onDele
 
         {/* detail */}
         <section>
-          {sel?<AdminElection el={sel} ballots={ballotsByEl[sel.id]||[]} citizens={citizens}
+          {sel?<AdminElection el={sel} ballots={ballotsByEl[sel.id]||[]} citizens={citizens} voterIds={voterIds} onSaveVoterIds={onSaveVoterIds}
             onEdit={()=>setEditing(sel)} onUpsert={onUpsert} onDelete={onDelete} onClear={onClear} note={note}/>
           :<div className="mono" style={{color:E.onInkMute,padding:"2rem"}}>Select or create an election.</div>}
         </section>
@@ -604,7 +631,7 @@ function AdminPanel({admin,elections,elList,ballotsByEl,citizens,onUpsert,onDele
   );
 }
 
-function AdminElection({el,ballots,citizens,onEdit,onUpsert,onDelete,onClear,note}){
+function AdminElection({el,ballots,citizens,voterIds,onSaveVoterIds,onEdit,onUpsert,onDelete,onClear,note}){
   const {rows,totalVotes,ballotCount,seatsTotal}=useResults(el,ballots);
   const elig=eligibleCitizens(citizens,el).length;
   const setStatus=async(s)=>{await onUpsert({...el,status:s,closedAt:s==="closed"?Date.now():el.closedAt});note(s==="open"?"Polls opened.":s==="closed"?"Result certified.":"Set to draft.",E.indigo);};
@@ -615,7 +642,7 @@ function AdminElection({el,ballots,citizens,onEdit,onUpsert,onDelete,onClear,not
       <div style={{display:"flex",justifyContent:"space-between",gap:10,flexWrap:"wrap",alignItems:"flex-start"}}>
         <div>
           <h2 className="arch" style={{fontWeight:900,fontSize:22,color:E.onInk}}>{el.name}</h2>
-          <div className="mono" style={{fontSize:10,color:E.onInkMute,marginTop:2}}>{fmtDate(el.date)} · {el.votesPerVoter||VOTES_PER_VOTER} votes/voter · {seatsTotal} seats · register {elig}</div>
+          <div className="mono" style={{fontSize:10,color:E.onInkMute,marginTop:2}}>{fmtDate(el.date)} · {el.votesPerVoter||VOTES_PER_VOTER} votes/voter · {seatsTotal} seats · register {elig} · Voter ID {el.requireVoterId?<span style={{color:E.stamp}}>required</span>:"off"}</div>
         </div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           <InkBtn onClick={onEdit}>Edit</InkBtn>
@@ -629,6 +656,11 @@ function AdminElection({el,ballots,citizens,onEdit,onUpsert,onDelete,onClear,not
       {/* candidates manager */}
       <SectionLabel>Candidates</SectionLabel>
       <CandidateManager el={el} onUpsert={onUpsert} note={note}/>
+
+      {el.requireVoterId&&<>
+        <SectionLabel>Voter ID register</SectionLabel>
+        <VoterIdRegister key={el.id} el={el} citizens={citizens} voterIds={voterIds} onSaveVoterIds={onSaveVoterIds} note={note}/>
+      </>}
 
       {/* live tally */}
       <SectionLabel>Tally</SectionLabel>
@@ -693,6 +725,41 @@ function CandidateManager({el,onUpsert,note}){
   );
 }
 
+function VoterIdRegister({el,citizens,voterIds,onSaveVoterIds,note}){
+  const elig=eligibleCitizens(citizens,el);
+  const [draft,setDraft]=useState(()=>{const d={};elig.forEach(c=>{d[c.id]=voterIds[c.id]||"";});return d;});
+  const [q,setQ]=useState("");
+  const dirty=elig.some(c=>(draft[c.id]||"")!==(voterIds[c.id]||""));
+  const assigned=elig.filter(c=>(draft[c.id]||"").trim()).length;
+  const setId=(id,v)=>setDraft(d=>({...d,[id]:v.replace(/[^A-Za-z0-9-]/g,"")}));
+  const save=()=>{const next={...voterIds};elig.forEach(c=>{const v=(draft[c.id]||"").trim();if(v)next[c.id]=v;else delete next[c.id];});onSaveVoterIds(next);note("Voter IDs saved.",E.green);};
+  const autoNumber=()=>setDraft(d=>{const nd={...d};let n=1;elig.forEach(c=>{if(!(nd[c.id]||"").trim()){nd[c.id]=String(n).padStart(4,"0");}n++;});return nd;});
+  return(
+    <div>
+      <div className="mono" style={{fontSize:10.5,color:E.onInkMute,marginBottom:8,lineHeight:1.55}}>
+        Give each eligible citizen a Voter ID number. They must enter it together with their username to cast a ballot. IDs are shared across any election that requires them.
+      </div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:8}}>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Filter citizens…" style={{...inkInp,maxWidth:220,marginBottom:0}}/>
+        <InkBtn onClick={autoNumber}>Auto-number blanks</InkBtn>
+        <InkBtn primary onClick={save} disabled={!dirty}>{dirty?"Save IDs":"Saved ✓"}</InkBtn>
+        <span className="mono" style={{fontSize:10,color:E.onInkMute,marginLeft:"auto"}}>{assigned}/{elig.length} assigned</span>
+      </div>
+      <div style={{maxHeight:260,overflowY:"auto",border:`1px solid ${E.inkLine}`,borderRadius:5}}>
+        {elig.length===0&&<div className="mono" style={{fontSize:11,color:E.onInkMute,padding:"0.7rem"}}>No eligible citizens on the register for this election.</div>}
+        {elig.filter(c=>{const s=q.toLowerCase();return !s||(c.name||"").toLowerCase().includes(s)||(c.username||"").toLowerCase().includes(s);})
+          .sort((a,b)=>(a.name||"").localeCompare(b.name||"")).map(c=>(
+          <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,padding:"0.4rem 0.7rem",borderBottom:`1px solid ${E.inkLine}`}}>
+            <span className="arch" style={{fontSize:13,color:E.onInk,flex:1,minWidth:0}}>{c.name}{c.username&&<span className="mono" style={{fontSize:10,color:E.onInkMute,marginLeft:6}}>{c.username}</span>}</span>
+            <input value={draft[c.id]||""} onChange={e=>setId(c.id,e.target.value)} placeholder="—"
+              style={{...inkInp,width:120,marginBottom:0,textAlign:"right",fontFamily:"'Space Mono',monospace"}}/>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ElectionEditor({el,onClose,onSave}){
   const [g,setG]=useState({...el});
   const set=(k,v)=>setG(p=>({...p,[k]:v}));
@@ -721,6 +788,15 @@ function ElectionEditor({el,onClose,onSave}){
               </label>
             ))}
           </div>
+
+          <InkLabel>Verification</InkLabel>
+          <label style={{display:"flex",alignItems:"flex-start",gap:9,border:`1px solid ${g.requireVoterId?E.stamp:E.inkLine}`,borderRadius:5,padding:"0.7rem 0.85rem",cursor:"pointer"}}>
+            <input type="checkbox" checked={!!g.requireVoterId} onChange={e=>set("requireVoterId",e.target.checked)} style={{marginTop:3}}/>
+            <span>
+              <span className="arch" style={{fontWeight:700,fontSize:13.5,color:E.onInk}}>Require a Voter ID number to vote</span>
+              <span className="mono" style={{display:"block",fontSize:10.5,color:E.onInkMute,marginTop:3,lineHeight:1.5}}>When on, each voter must also enter the Voter ID number you assign them. Assign numbers in this election’s panel after saving.</span>
+            </span>
+          </label>
         </div>
         <div style={{padding:"0.9rem 1.3rem",borderTop:`1px solid ${E.inkLine}`,display:"flex",justifyContent:"flex-end",gap:8}}>
           <InkBtn onClick={onClose}>Cancel</InkBtn>
@@ -731,7 +807,7 @@ function ElectionEditor({el,onClose,onSave}){
   ),document.body);
 }
 
-function blankElection(){return{id:"el_"+uid(),name:"",date:new Date().toISOString().slice(0,10),status:"draft",seatsTotal:HOUSE_SEATS,votesPerVoter:VOTES_PER_VOTER,eligibility:[...DEFAULT_ELIGIBILITY],candidates:{},createdAt:Date.now()};}
+function blankElection(){return{id:"el_"+uid(),name:"",date:new Date().toISOString().slice(0,10),status:"draft",seatsTotal:HOUSE_SEATS,votesPerVoter:VOTES_PER_VOTER,eligibility:[...DEFAULT_ELIGIBILITY],requireVoterId:false,candidates:{},createdAt:Date.now()};}
 
 /* ── small UI atoms ──────────────────────────────────────────────────────── */
 const paperInp={width:"100%",background:"#fff",border:`1px solid ${E.paperLine}`,borderRadius:5,color:E.pInk,padding:"9px 11px",fontSize:15,outline:"none"};
