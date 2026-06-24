@@ -21,6 +21,12 @@
   @keyframes barIn{from{width:0}}
   @keyframes seal{from{opacity:0;transform:rotate(-18deg) scale(1.3)}to{opacity:1;transform:rotate(-12deg) scale(1)}}
   @keyframes blink{50%{opacity:0.35}}
+  @keyframes en-crawl{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+  @keyframes en-scan{0%{transform:translateY(-100%);opacity:0}8%{opacity:.8}92%{opacity:.8}100%{transform:translateY(100vh);opacity:0}}
+  @keyframes en-live{0%,100%{opacity:1}70%{opacity:.5}}
+  @keyframes en-rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes en-glow{0%,100%{opacity:.5}50%{opacity:1}}
+  @keyframes en-sheen{0%{background-position:200% 0}100%{background-position:-200% 0}}
   @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
   *:focus-visible{outline:2px solid #5b53d6;outline-offset:2px;}
 </style>
@@ -108,6 +114,7 @@ function App(){
   const [admin,setAdmin]=useState(null);         // logged-in Interior account
   const [authOpen,setAuthOpen]=useState(false);
   const [toast,setToast]=useState(null);
+  const [resultsId,setResultsId]=useState(null);  // which contest the results screen shows
   const note=(m,c)=>{setToast({m,c:c||E.indigo});setTimeout(()=>setToast(null),2800);};
 
   const loadAll=useCallback(async()=>{const r=await sgetAll();setRaw(r);setLoading(false);return r;},[]);
@@ -121,8 +128,8 @@ function App(){
   const voterIds=useMemo(()=>raw["el_voter_ids"]||{},[raw]);   // { citizenId: "ID" } — global, admin-assigned
 
   const elList=useMemo(()=>Object.values(elections).sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||0)-(a.createdAt||0)),[elections]);
-  const featured=useMemo(()=>elList.find(e=>e.status==="open")||elList.find(e=>e.status==="closed")||elList[0]||null,[elList]);
   const selected=useMemo(()=>selId?elections[selId]:null,[selId,elections]);
+  const resultsEl=useMemo(()=>resultsId?elections[resultsId]:null,[resultsId,elections]);
 
   /* live polling of ballots while the hall or a result board is up */
   const pollRef=useRef();
@@ -132,6 +139,16 @@ function App(){
     pollRef.current=setInterval(async()=>{const r=await sgetAll();setRaw(r);},7000);
     return()=>clearInterval(pollRef.current);
   },[elList,view]);
+
+  /* which contest the results screen shows: open → most recent certified → newest */
+  useEffect(()=>{
+    if(loading)return;
+    const ids=new Set(elList.map(e=>e.id));
+    if(!resultsId||!ids.has(resultsId)){
+      const pick=elList.find(e=>e.status==="open")||elList.find(e=>e.status==="closed")||elList[0]||null;
+      setResultsId(pick?pick.id:null);
+    }
+  },[loading,elList,resultsId]);
 
   /* ── admin write actions ── */
   const saveElections=async(next)=>{setRaw(r=>({...r,el_elections:next}));await sset("el_elections",next);};
@@ -151,26 +168,29 @@ function App(){
     await sset(key,ballot);
   };
 
+  const isResults=!(view==="vote"&&selected)&&!(view==="admin"&&admin);
   return(
     <div style={{minHeight:"100vh",position:"relative",background:E.ink}}>
       <Backdrop/>
-      <Header view={view} setView={setView} admin={admin} onAdmin={()=>{if(admin)setView("admin");else setAuthOpen(true);}} onLogout={()=>{setAdmin(null);setView("hall");}}/>
-
-      <main style={{position:"relative",zIndex:2,maxWidth:1120,margin:"0 auto",padding:"1.75rem 1.1rem 4rem"}}>
-        {loading?<Loading/>:
-         view==="admin"&&admin?
-           <AdminPanel admin={admin} elections={elections} elList={elList} ballotsByEl={ballotsByEl} citizens={citizens}
-             voterIds={voterIds} onSaveVoterIds={saveVoterIds}
-             onUpsert={upsertElection} onDelete={deleteElection} onClear={clearBallots} note={note} reload={loadAll}/>
-        :view==="vote"&&selected?
-           <VoteFlow el={selected} citizens={citizens} ballots={ballotsByEl[selected.id]||[]} voterIds={voterIds} onCast={castBallot}
-             onBack={()=>{setView("hall");setSelId(null);}} note={note}/>
-        :  <Hall elList={elList} featured={featured} ballotsByEl={ballotsByEl} citizens={citizens}
-             onVote={(id)=>{setSelId(id);setView("vote");}}/>
-        }
-      </main>
-
-      <Footer/>
+      {isResults
+        ? <ElectionNightBroadcast el={resultsEl} elList={elList} ballotsByEl={ballotsByEl} citizens={citizens} loading={loading}
+            onVote={(id)=>{setSelId(id);setView("vote");}}
+            onSwitch={setResultsId}
+            admin={admin}
+            onAdmin={()=>{if(admin)setView("admin");else setAuthOpen(true);}}
+            onLogout={()=>setAdmin(null)}/>
+        : <>
+            <Header view={view} setView={setView} admin={admin} onAdmin={()=>{if(admin)setView("admin");else setAuthOpen(true);}} onLogout={()=>{setAdmin(null);setView("hall");}}/>
+            <main style={{position:"relative",zIndex:2,maxWidth:1120,margin:"0 auto",padding:"1.75rem 1.1rem 4rem"}}>
+              {view==="admin"&&admin
+                ? <AdminPanel admin={admin} elections={elections} elList={elList} ballotsByEl={ballotsByEl} citizens={citizens}
+                    voterIds={voterIds} onSaveVoterIds={saveVoterIds}
+                    onUpsert={upsertElection} onDelete={deleteElection} onClear={clearBallots} note={note} reload={loadAll}/>
+                : <VoteFlow el={selected} citizens={citizens} ballots={ballotsByEl[selected.id]||[]} voterIds={voterIds} onCast={castBallot}
+                    onBack={()=>{setView("hall");setSelId(null);}} note={note}/>}
+            </main>
+            <Footer/>
+          </>}
 
       {authOpen&&<AuthModal accounts={accounts} onClose={()=>setAuthOpen(false)}
         onAuth={(acc)=>{setAdmin(acc);setAuthOpen(false);setView("admin");note("Returning Officer authenticated.",E.green);}}/>}
@@ -215,7 +235,7 @@ function Header({view,setView,admin,onAdmin,onLogout}){
           </div>
         </div>
         <nav style={{display:"flex",gap:6,alignItems:"center"}}>
-          <NavBtn active={view==="hall"} onClick={()=>setView("hall")}>The Count</NavBtn>
+          <NavBtn active={view==="hall"} onClick={()=>setView("hall")}>← Results</NavBtn>
           {admin
             ?<>
                <span className="mono" style={{fontSize:10,color:E.green}}>● {admin.displayName||admin.username}</span>
@@ -240,7 +260,6 @@ function Footer(){
     <span className="mono" style={{fontSize:9.5,letterSpacing:"2px",color:E.onInkMute}}>IMPERIAL ELECTORAL COMMISSION · CERTIFIED COUNT · GOTT MIT UNS</span>
   </footer>;
 }
-function Loading(){return <div className="mono" style={{textAlign:"center",padding:"4rem",color:E.onInkMute,letterSpacing:"2px"}}>OPENING THE COUNT…</div>;}
 function Toast({m,c}){return <div style={{position:"fixed",bottom:22,left:"50%",transform:"translateX(-50%)",zIndex:200,
   background:E.ink2,border:`1px solid ${c}`,borderLeft:`4px solid ${c}`,borderRadius:4,padding:"0.65rem 1.3rem",
   color:E.onInk,boxShadow:"0 12px 40px #000a"}} className="arch">{m}</div>;}
@@ -260,34 +279,324 @@ function useResults(el,ballots){
   },[el,ballots]);
 }
 
-/* ── THE COUNT (public hall) ─────────────────────────────────────────────── */
-function Hall({elList,featured,ballotsByEl,citizens,onVote}){
-  if(elList.length===0)return <EmptyHall/>;
+/* ════════════════════════════════════════════════════════════════════════════
+   ELECTION-NIGHT BROADCAST — a full-screen "decision desk" newscast that takes
+   over the screen on entry while polls are open. Live, animated, high-tech.
+   ════════════════════════════════════════════════════════════════════════════ */
+function useCountUp(value,dur=650){
+  const [disp,setDisp]=useState(value);
+  const fromRef=useRef(value);
+  useEffect(()=>{
+    const from=fromRef.current,to=value||0;
+    if(from===to)return;
+    const start=performance.now();let raf;
+    const tick=now=>{
+      const t=Math.min(1,(now-start)/dur);
+      const e=1-Math.pow(1-t,3);
+      setDisp(Math.round(from+(to-from)*e));
+      if(t<1)raf=requestAnimationFrame(tick);else fromRef.current=to;
+    };
+    raf=requestAnimationFrame(tick);
+    return()=>cancelAnimationFrame(raf);
+  },[value,dur]);
+  return disp;
+}
+function BroadcastClock(){
+  const [t,setT]=useState(()=>new Date());
+  useEffect(()=>{const id=setInterval(()=>setT(new Date()),1000);return()=>clearInterval(id);},[]);
+  const p=n=>String(n).padStart(2,"0");
+  return <span className="mono" style={{fontSize:13,letterSpacing:"2px",color:E.onInk}}>{p(t.getHours())+":"+p(t.getMinutes())+":"+p(t.getSeconds())}</span>;
+}
+function enHemicycle(n,rInner,rOuter){
+  if(n<=0)return{pts:[],seatR:5};
+  const rows=Math.max(3,Math.min(16,Math.round(Math.sqrt(n)*0.55)));
+  const radii=[];for(let i=0;i<rows;i++)radii.push(rows===1?(rInner+rOuter)/2:rInner+(rOuter-rInner)*i/(rows-1));
+  const sum=radii.reduce((a,b)=>a+b,0);
+  let counts=radii.map(r=>Math.max(1,Math.floor(n*r/sum)));
+  let used=counts.reduce((a,b)=>a+b,0),i=rows-1;
+  while(used<n){counts[i]++;used++;i=(i-1+rows)%rows;}
+  while(used>n){if(counts[i]>1){counts[i]--;used--;}i=(i-1+rows)%rows;}
+  const rowSpacing=(rOuter-rInner)/Math.max(1,rows-1);
+  let minArc=Infinity;for(let k=0;k<rows;k++){const a=Math.PI*radii[k]/counts[k];if(a<minArc)minArc=a;}
+  const seatR=Math.max(3,0.42*Math.min(rowSpacing,minArc));
+  const pts=[];
+  for(let k=0;k<rows;k++){const m=counts[k],r=radii[k];for(let j=0;j<m;j++){const t=(j+0.5)/m;pts.push({phi:Math.PI*(1-t),r});}}
+  pts.sort((a,b)=>b.phi-a.phi||a.r-b.r);
+  return{pts,seatR};
+}
+function EnPartyRow({p,idx,totalVotes,leader}){
+  const votes=useCountUp(p.votes);
+  const seats=useCountUp(p.seats);
+  const vp=pct(p.votes,totalVotes);
+  const isLeader=leader&&p.id===leader.id;
   return(
-    <div>
-      {featured&&<ResultBoard el={featured} ballots={ballotsByEl[featured.id]||[]} citizens={citizens} onVote={onVote} hero/>}
-      {elList.filter(e=>e.id!==featured?.id).length>0&&(
-        <>
-          <SectionLabel>Other contests on record</SectionLabel>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:"0.9rem"}}>
-            {elList.filter(e=>e.id!==featured?.id).map(e=>(
-              <MiniCard key={e.id} el={e} ballots={ballotsByEl[e.id]||[]} onVote={onVote}/>
-            ))}
-          </div>
-        </>
-      )}
-      <GeographyStub/>
+    <div style={{display:"grid",gridTemplateColumns:"22px 1fr 64px",alignItems:"center",gap:10,
+      padding:"8px 10px",borderRadius:6,background:isLeader?p.color+"14":"transparent",
+      border:`1px solid ${isLeader?p.color+"55":"transparent"}`}}>
+      <div className="arch" style={{fontWeight:900,fontSize:16,color:idx===0?p.color:E.onInkMute,textAlign:"center"}}>{idx+1}</div>
+      <div style={{minWidth:0}}>
+        <div style={{display:"flex",alignItems:"baseline",gap:7,flexWrap:"wrap"}}>
+          <span className="arch" style={{fontWeight:800,fontSize:15,color:E.onInk}}>{p.name}</span>
+          <span className="mono" style={{fontSize:9,padding:"1px 6px",borderRadius:3,background:p.color+"22",color:p.color,border:`1px solid ${p.color}55`}}>{p.abbr}</span>
+          <span className="mono" style={{fontSize:10,color:E.onInkMute}}>{votes.toLocaleString()} v · {vp.toFixed(1)}%</span>
+        </div>
+        <div style={{position:"relative",height:7,marginTop:6,borderRadius:4,background:E.ink3,overflow:"hidden"}}>
+          <div style={{position:"absolute",inset:0,width:vp+"%",background:`linear-gradient(90deg,${p.color}88,${p.color})`,transition:"width .8s cubic-bezier(.2,.7,.2,1)",boxShadow:`0 0 10px ${p.color}99`}}/>
+        </div>
+      </div>
+      <div style={{textAlign:"right"}}>
+        <div className="arch" style={{fontWeight:900,fontSize:24,color:p.color,lineHeight:1,textShadow:`0 0 14px ${p.color}66`}}>{seats}</div>
+        <div className="mono" style={{fontSize:8,letterSpacing:"1px",color:E.onInkMute}}>SEATS</div>
+      </div>
     </div>
   );
 }
-function EmptyHall(){
-  return <div style={{textAlign:"center",padding:"3.5rem 1rem"}}>
-    <Stamp size={130} style={{transform:"rotate(-9deg)",opacity:0.85,animation:"seal .5s ease"}}/>
-    <div className="arch" style={{fontWeight:900,fontSize:26,color:E.onInk,marginTop:"1rem"}}>No election is currently on the books.</div>
-    <p style={{color:E.onInkMute,maxWidth:430,margin:"0.6rem auto 0",lineHeight:1.6}}>When a Returning Officer schedules a contest, the live count will appear here and registered citizens may cast their two votes.</p>
-    <GeographyStub/>
-  </div>;
+function ElectionNightBroadcast({el,elList,ballotsByEl,citizens,loading,onVote,onSwitch,admin,onAdmin,onLogout}){
+  const ballots=el?(ballotsByEl[el.id]||[]):[];
+  const {rows,totalVotes,seatsTotal,ballotCount}=useResults(el,ballots);
+  const elig=eligibleCitizens(citizens,el).length;
+  const turnout=elig>0?pct(ballotCount,elig):0;
+  const major=Math.floor(seatsTotal/2)+1;
+  const status=el?el.status:null;
+  const isOpen=status==="open";
+  const isClosed=status==="closed";
+
+  const byParty=useMemo(()=>{
+    const m={};
+    rows.forEach(r=>{const p=partyById(r.party);if(!m[p.id])m[p.id]={...p,votes:0,seats:0};m[p.id].votes+=r.votes;m[p.id].seats+=r.seats;});
+    return Object.values(m).sort((a,b)=>b.seats-a.seats||b.votes-a.votes);
+  },[rows]);
+  const candRows=useMemo(()=>rows.map(r=>{const p=partyById(r.party);return{id:r.id,name:r.name,abbr:p.abbr,color:p.color,votes:r.votes,seats:r.seats};}),[rows]);
+  const leader=byParty[0]&&byParty[0].votes>0?byParty[0]:null;
+  const runnerUp=byParty[1]||null;
+  const hasMajority=!!(leader&&leader.seats>=major);
+  const leadMargin=leader&&runnerUp?leader.votes-runnerUp.votes:0;
+
+  const arc=useMemo(()=>{
+    const seatMap={};byParty.forEach(p=>{if(p.seats>0)seatMap[p.id]=p.seats;});
+    if(Object.values(seatMap).reduce((a,b)=>a+b,0)===0)return null;
+    const DOTS=seatsTotal<=280?seatsTotal:280;
+    const alloc=allocateSeats(seatMap,DOTS);
+    const seq=[];byParty.forEach(p=>{const k=alloc[p.id]||0;for(let i=0;i<k;i++)seq.push(p.color);});
+    const {pts,seatR}=enHemicycle(seq.length,118,262);
+    return {pts,seatR,seq};
+  },[byParty,seatsTotal]);
+
+  const ballotsCU=useCountUp(ballotCount);
+  const votesCU=useCountUp(totalVotes);
+  const leaderSeatsCU=useCountUp(leader?leader.seats:0);
+
+  let call={k:"",t:"",c:E.indigo};
+  if(isClosed){
+    if(hasMajority)call={k:"FINAL RESULT · MAJORITY",t:leader.name,sub:leader.abbr+" takes "+leader.seats+" of "+seatsTotal+" seats",c:E.green,win:true};
+    else if(leader)call={k:"FINAL RESULT · NO OVERALL MAJORITY",t:leader.abbr+" — largest party",sub:"hung house — "+Math.max(0,major-leader.seats)+" short of a majority",c:E.gold,win:true};
+    else call={k:"FINAL RESULT",t:"No votes were cast",sub:"",c:E.onInkMute};
+  } else if(status==="draft"){
+    call={k:"NOT YET OPEN",t:"Polls have not opened",sub:"Results appear live once the Returning Officer opens the count",c:E.indigo};
+  } else {
+    if(totalVotes===0)call={k:"POLLS OPEN",t:"Awaiting the first ballots",sub:"Registered citizens may cast their votes now",c:E.indigo};
+    else if(hasMajority)call={k:"PROJECTED MAJORITY",t:leader.name,sub:leader.abbr+" crosses the "+major+"-seat line",c:E.green,win:true};
+    else if(leader)call={k:"TOO CLOSE TO CALL",t:leader.abbr+" leads the count",sub:runnerUp?("ahead by "+leadMargin.toLocaleString()+" vote"+(leadMargin!==1?"s":"")+" — no majority yet"):"first returns in",c:E.gold};
+    else call={k:"COUNT IN PROGRESS",t:"Tallying the ballots",sub:"",c:E.indigo};
+  }
+
+  const ticker=byParty.map(p=>p.abbr+"  "+p.seats+" SEATS · "+pct(p.votes,totalVotes).toFixed(1)+"%")
+    .concat(["BALLOTS CAST  "+ballotCount,"TURNOUT  "+turnout.toFixed(1)+"%","REGISTER  "+elig,"HOUSE "+seatsTotal+" · MAJORITY "+major])
+    .join("        ◆        ")+"        ◆        ";
+
+  const W=600,cx=W/2,rOuter=262,cy=rOuter+24,H=cy+6;
+  const card={background:`linear-gradient(180deg,${E.ink2},${E.ink})`,border:`1px solid ${E.inkLine}`,borderRadius:10,boxShadow:"0 18px 50px #0008"};
+  const chip=(k,v,c)=>(
+    <div style={{flex:"1 1 130px",minWidth:120,background:E.ink2,border:`1px solid ${E.inkLine}`,borderRadius:8,padding:"10px 14px"}}>
+      <div className="arch" style={{fontWeight:900,fontSize:22,color:c||E.onInk,lineHeight:1}}>{v}</div>
+      <div className="mono" style={{fontSize:9,letterSpacing:"1.5px",color:E.onInkMute,textTransform:"uppercase",marginTop:3}}>{k}</div>
+    </div>
+  );
+  const sb=isOpen?{l:"LIVE",c:E.stamp,pulse:true}:isClosed?{l:"FINAL",c:E.gold,pulse:false}:status==="draft"?{l:"DRAFT",c:E.onInkMute,pulse:false}:{l:"RESULTS",c:E.indigo,pulse:false};
+  const ghostBtn={fontWeight:700,fontSize:11,letterSpacing:"1px",textTransform:"uppercase",background:"transparent",color:E.onInkMute,border:`1px solid ${E.inkLine}`,borderRadius:6,padding:"8px 12px",cursor:"pointer"};
+
+  return ReactDOM.createPortal(
+    <div style={{position:"fixed",inset:0,zIndex:60,overflowY:"auto",
+      background:`radial-gradient(ellipse 90% 55% at 50% -8%, ${E.indigo}26, transparent 60%), linear-gradient(180deg,#070912,${E.ink})`}}>
+      <div aria-hidden style={{position:"absolute",inset:0,pointerEvents:"none",zIndex:0,
+        backgroundImage:`linear-gradient(${E.inkLine}1c 1px,transparent 1px),linear-gradient(90deg,${E.inkLine}1c 1px,transparent 1px)`,
+        backgroundSize:"44px 44px",maskImage:"radial-gradient(ellipse 100% 80% at 50% 0%, #000 50%, transparent 100%)",WebkitMaskImage:"radial-gradient(ellipse 100% 80% at 50% 0%, #000 50%, transparent 100%)"}}/>
+      <div aria-hidden style={{position:"absolute",left:0,right:0,top:0,height:90,pointerEvents:"none",zIndex:0,
+        background:`linear-gradient(180deg,${E.indigo}22,transparent)`,animation:"en-scan 7s linear infinite"}}/>
+
+      <div style={{position:"relative",zIndex:1,maxWidth:1120,margin:"0 auto",padding:"1rem 1.1rem 2rem"}}>
+        {/* status strip */}
+        <div style={{display:"flex",alignItems:"center",gap:"0.9rem",flexWrap:"wrap",
+          padding:"0.75rem 0",borderBottom:`1px solid ${E.inkLine}`,position:"sticky",top:0,zIndex:5,
+          background:"linear-gradient(180deg,#070912f2,#070912cc)",backdropFilter:"blur(6px)"}}>
+          <a href="index.html" className="arch" style={{fontSize:10,fontWeight:700,letterSpacing:"1.2px",color:E.onInkMute,textDecoration:"none",border:`1px solid ${E.inkLine}`,borderRadius:5,padding:"7px 10px"}}>← Network</a>
+          <span style={{display:"inline-flex",alignItems:"center",gap:8,padding:"5px 12px",borderRadius:4,
+            border:`1px solid ${sb.c}`,background:sb.c+"1a"}}>
+            <span style={{width:9,height:9,borderRadius:"50%",background:sb.c,animation:sb.pulse?"en-live 1.4s infinite":"none"}}/>
+            <span className="arch" style={{fontWeight:900,fontSize:11,letterSpacing:"2px",color:sb.c}}>{sb.l}</span>
+          </span>
+          <Stamp size={40} style={{transform:"rotate(-9deg)",flexShrink:0}}/>
+          <div style={{minWidth:140}}>
+            <div className="arch" style={{fontWeight:900,fontSize:"clamp(14px,2.2vw,19px)",letterSpacing:"0.5px",color:E.onInk,lineHeight:1}}>IMPERIAL ELECTION NIGHT</div>
+            <div className="mono" style={{fontSize:9,letterSpacing:"2.5px",color:E.stamp,marginTop:3,textTransform:"uppercase"}}>Reichswahlamt · Decision Desk</div>
+          </div>
+          <div style={{flex:1}}/>
+          <BroadcastClock/>
+          {isOpen&&<button onClick={()=>onVote(el.id)} className="arch" style={{fontWeight:800,fontSize:11,letterSpacing:"1px",textTransform:"uppercase",
+            background:E.stamp,color:"#fff",border:"none",borderRadius:6,padding:"9px 16px",cursor:"pointer",boxShadow:"0 4px 16px "+E.stamp+"66"}}>Cast your ballot →</button>}
+          {admin
+            ?<>
+               <span className="mono" style={{fontSize:10,color:E.green,whiteSpace:"nowrap"}}>● {admin.displayName||admin.username}</span>
+               <button onClick={onAdmin} className="arch" style={ghostBtn}>Admin</button>
+               <button onClick={onLogout} className="arch" style={ghostBtn}>Sign out</button>
+             </>
+            :<button onClick={onAdmin} className="arch" style={{...ghostBtn,color:E.stamp,border:`1px solid ${E.stamp}`,background:E.stamp+"18"}}>Officer login</button>}
+        </div>
+
+        {loading
+          ?<div className="mono" style={{textAlign:"center",padding:"5rem 1rem",color:E.onInkMute,letterSpacing:"2px"}}>OPENING THE COUNT…</div>
+          :!el
+          ?<div style={{textAlign:"center",padding:"3.5rem 1rem 1rem"}}>
+             <Stamp size={120} style={{transform:"rotate(-9deg)",opacity:0.85,animation:"seal .5s ease"}}/>
+             <div className="arch" style={{fontWeight:900,fontSize:26,color:E.onInk,marginTop:"1rem"}}>No election is currently on the books.</div>
+             <p style={{color:E.onInkMute,maxWidth:440,margin:"0.6rem auto 0",lineHeight:1.6}}>When a Returning Officer schedules a contest, the live count appears here and registered citizens may cast their votes. Officers can sign in above to create one.</p>
+           </div>
+          :<>
+            {/* headline */}
+            <div style={{textAlign:"center",margin:"1.4rem 0 1rem",animation:"en-rise .5s ease both"}}>
+              <div className="mono" style={{fontSize:10.5,letterSpacing:"3px",color:E.stamp,textTransform:"uppercase"}}>{isClosed?"Certified Result":"Official Count"}{el.date?" · "+fmtDate(el.date):""}</div>
+              <h1 className="arch" style={{fontWeight:900,fontSize:"clamp(2rem,6vw,3.6rem)",color:E.onInk,lineHeight:1.02,marginTop:5,letterSpacing:"0.5px"}}>{el.name}</h1>
+            </div>
+
+            {/* contest switcher — other elections on record */}
+            {elList.length>1&&<div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center",marginBottom:"1.2rem"}}>
+              {elList.map(e=>{const act=e.id===el.id;const sc=e.status==="open"?E.green:e.status==="closed"?E.gold:E.onInkMute;return(
+                <button key={e.id} onClick={()=>onSwitch(e.id)} className="arch"
+                  style={{display:"inline-flex",alignItems:"center",gap:8,padding:"6px 12px",borderRadius:6,cursor:"pointer",
+                    border:`1px solid ${act?E.indigo:E.inkLine}`,background:act?E.indigo+"22":"transparent",
+                    color:act?E.onInk:E.onInkMute,fontSize:11,fontWeight:700,letterSpacing:"0.4px"}}>
+                  {e.name}
+                  <span className="mono" style={{fontSize:8,letterSpacing:"1px",color:sc}}>{e.status==="open"?"● LIVE":e.status==="closed"?"✓ FINAL":"DRAFT"}</span>
+                </button>
+              );})}
+            </div>}
+
+            {/* decision desk call */}
+            <div style={{position:"relative",overflow:"hidden",borderRadius:10,marginBottom:"1.2rem",
+              border:`1px solid ${call.c}66`,borderLeft:`6px solid ${call.c}`,
+              background:`linear-gradient(135deg,${call.c}1e, ${E.ink2} 60%)`,
+              padding:"1rem 1.3rem",animation:"en-rise .5s ease both",boxShadow:call.win?`0 0 40px ${call.c}44`:"none"}}>
+              {call.win&&<div aria-hidden style={{position:"absolute",inset:0,pointerEvents:"none",
+                background:`linear-gradient(110deg,transparent 30%,${call.c}33 50%,transparent 70%)`,
+                backgroundSize:"250% 100%",animation:"en-sheen 2.6s linear infinite"}}/>}
+              <div style={{position:"relative",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+                <div style={{width:14,height:14,borderRadius:"50%",background:call.c,flexShrink:0,boxShadow:`0 0 14px ${call.c}`,animation:isOpen?"en-glow 1.5s infinite":"none"}}/>
+                <div style={{flex:1,minWidth:200}}>
+                  <div className="mono" style={{fontSize:11,letterSpacing:"3px",color:call.c,textTransform:"uppercase"}}>{call.k}</div>
+                  <div className="arch" style={{fontWeight:900,fontSize:"clamp(1.3rem,3.4vw,2rem)",color:E.onInk,lineHeight:1.05,marginTop:2}}>{call.t}</div>
+                  {call.sub&&<div style={{fontSize:13.5,color:E.onInkMute,marginTop:3}}>{call.sub}</div>}
+                </div>
+                {leader&&<div style={{textAlign:"right",flexShrink:0}}>
+                  <div className="arch" style={{fontWeight:900,fontSize:"clamp(2.2rem,6vw,3.4rem)",color:call.c,lineHeight:1,textShadow:`0 0 22px ${call.c}66`}}>{leaderSeatsCU}</div>
+                  <div className="mono" style={{fontSize:9,letterSpacing:"1.5px",color:E.onInkMute}}>{leader.abbr} SEATS · NEED {major}</div>
+                </div>}
+              </div>
+            </div>
+
+            {/* seat projection + candidate returns */}
+            <div style={{display:"flex",flexWrap:"wrap",gap:"1.1rem",marginBottom:"1.2rem"}}>
+              <section style={{...card,flex:"1 1 440px",minWidth:300,padding:"1rem 1.2rem 0.6rem"}}>
+                <div className="arch" style={{fontWeight:800,fontSize:11,letterSpacing:"2.5px",textTransform:"uppercase",color:E.onInkMute,marginBottom:4}}>Seat Projection — {seatsTotal} seats</div>
+                {arc
+                  ?<svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto",display:"block"}} role="img" aria-label={"Seat projection, "+seatsTotal+" seats"}>
+                    {arc.pts.map((p,i)=>{const x=cx+p.r*Math.cos(p.phi),y=cy-p.r*Math.sin(p.phi);return <circle key={i} cx={x} cy={y} r={arc.seatR} fill={arc.seq[i]} stroke="#070912" strokeWidth={arc.seatR>5?1:0.5}/>;})}
+                    <line x1={cx} y1={cy} x2={cx} y2={cy-rOuter-2} stroke={E.gold} strokeWidth="2" strokeDasharray="3 5" opacity="0.85"/>
+                    <text x={cx} y={14} textAnchor="middle" style={{fontFamily:"'Space Mono',monospace",fontSize:11,letterSpacing:"2px",fill:E.gold}}>MAJORITY {major}</text>
+                    <text x={cx} y={cy-30} textAnchor="middle" style={{fontFamily:"'Archivo',sans-serif",fontWeight:900,fontSize:40,fill:leader?leader.color:E.onInk}}>{leaderSeatsCU}</text>
+                    <text x={cx} y={cy-12} textAnchor="middle" style={{fontFamily:"'Space Mono',monospace",fontSize:11,letterSpacing:"2px",fill:E.onInkMute}}>{leader?leader.abbr+(isClosed?" WINS":" LEADS"):"—"}</text>
+                  </svg>
+                  :<div style={{textAlign:"center",padding:"2.5rem 0",color:E.onInkMute}}>
+                    <div className="arch" style={{fontWeight:900,fontSize:20}}>{isClosed?"No seats apportioned":"Awaiting first returns"}</div>
+                    <div style={{fontSize:13,marginTop:4}}>Seats are apportioned as ballots are counted.</div>
+                  </div>}
+                <div style={{display:"flex",flexWrap:"wrap",gap:"4px 14px",padding:"6px 0 12px"}}>
+                  {byParty.filter(p=>p.seats>0).map(p=>(
+                    <span key={p.id} style={{display:"inline-flex",alignItems:"center",gap:6}}>
+                      <span style={{width:11,height:11,borderRadius:3,background:p.color,boxShadow:`0 0 8px ${p.color}88`}}/>
+                      <span className="mono" style={{fontSize:11,color:E.onInkMute}}>{p.abbr} <b style={{color:p.color}}>{p.seats}</b></span>
+                    </span>
+                  ))}
+                </div>
+              </section>
+
+              <section style={{...card,flex:"1 1 360px",minWidth:280,padding:"1rem 0.9rem"}}>
+                <div className="arch" style={{fontWeight:800,fontSize:11,letterSpacing:"2.5px",textTransform:"uppercase",color:E.onInkMute,marginBottom:8,paddingLeft:8}}>Candidate Returns</div>
+                {candRows.length===0
+                  ?<div style={{padding:"2rem",textAlign:"center",color:E.onInkMute,fontStyle:"italic"}}>No candidates registered.</div>
+                  :<div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    {candRows.slice(0,8).map((p,i)=><EnPartyRow key={p.id} p={p} idx={i} totalVotes={totalVotes} leader={candRows[0]&&candRows[0].votes>0?candRows[0]:null}/>)}
+                  </div>}
+              </section>
+            </div>
+
+            {/* battle for the house */}
+            <section style={{...card,padding:"1rem 1.2rem",marginBottom:"1.2rem"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:8,flexWrap:"wrap",gap:6}}>
+                <span className="arch" style={{fontWeight:800,fontSize:11,letterSpacing:"2.5px",textTransform:"uppercase",color:E.onInkMute}}>Battle for the House</span>
+                <span className="mono" style={{fontSize:10,color:E.onInkMute}}>MAJORITY = {major} OF {seatsTotal}</span>
+              </div>
+              <div style={{position:"relative",height:30,borderRadius:6,overflow:"hidden",background:E.ink3,border:`1px solid ${E.inkLine}`,display:"flex"}}>
+                {byParty.filter(p=>p.seats>0).map(p=>(
+                  <div key={p.id} title={p.name+" — "+p.seats} style={{width:pct(p.seats,seatsTotal)+"%",background:`linear-gradient(180deg,${p.color},${p.color}cc)`,transition:"width .8s cubic-bezier(.2,.7,.2,1)",borderRight:"1px solid #07091266"}}/>
+                ))}
+                <div style={{position:"absolute",left:"50%",top:-2,bottom:-2,width:2,background:E.gold,boxShadow:`0 0 8px ${E.gold}`}}/>
+              </div>
+              <div className="mono" style={{fontSize:10.5,color:E.onInkMute,marginTop:7}}>
+                {leader?<span style={{color:hasMajority?E.green:E.onInk}}>{leader.abbr} {leader.seats} / {major}{hasMajority?"  ✓ majority secured":"  — "+Math.max(0,major-leader.seats)+" short of a majority"}</span>:"Awaiting returns"}
+              </div>
+            </section>
+
+            {/* tallies */}
+            <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap",marginBottom:"1.2rem"}}>
+              {chip("Ballots cast",ballotsCU.toLocaleString(),E.indigo)}
+              {chip("Total votes",votesCU.toLocaleString(),E.onInk)}
+              {chip("Turnout",turnout.toFixed(1)+"%",E.green)}
+              {chip("On the register",elig.toLocaleString(),E.onInk)}
+            </div>
+
+            {/* call to action */}
+            {isOpen&&<div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap",alignItems:"center",justifyContent:"center",marginBottom:"0.4rem"}}>
+              <button onClick={()=>onVote(el.id)} className="arch" style={{fontWeight:900,fontSize:14,letterSpacing:"0.5px",
+                background:E.stamp,color:"#fff",border:"none",borderRadius:8,padding:"12px 26px",cursor:"pointer",boxShadow:"0 6px 22px "+E.stamp+"66"}}>Cast your ballot →</button>
+            </div>}
+            <div className="mono" style={{textAlign:"center",fontSize:10,letterSpacing:"1.5px",color:E.onInkMute,marginBottom:"1.4rem"}}>
+              {isOpen?"● Live count — updates automatically":isClosed?("Certified result"+(el.date?" · "+fmtDate(el.date):"")):"Awaiting the opening of the polls"}
+            </div>
+          </>}
+
+        {/* planned geography / ridings */}
+        <GeographyStub/>
+      </div>
+
+      {/* ticker crawl */}
+      {el&&<div style={{position:"sticky",bottom:0,zIndex:5,display:"flex",alignItems:"stretch",
+        borderTop:`1px solid ${E.inkLine}`,background:"#070912f2",backdropFilter:"blur(6px)"}}>
+        <div style={{flexShrink:0,display:"flex",alignItems:"center",gap:7,padding:"0 14px",background:isClosed?E.gold:E.stamp}}>
+          <span style={{width:8,height:8,borderRadius:"50%",background:"#fff",animation:isOpen?"en-live 1.4s infinite":"none"}}/>
+          <span className="arch" style={{fontWeight:900,fontSize:10,letterSpacing:"2px",color:"#fff"}}>{isClosed?"FINAL":"RESULTS"}</span>
+        </div>
+        <div style={{overflow:"hidden",flex:1}}>
+          <div style={{display:"inline-flex",whiteSpace:"nowrap",animation:"en-crawl 32s linear infinite",padding:"7px 0"}}>
+            <span className="mono" style={{fontSize:11.5,letterSpacing:"1.5px",color:E.onInkMute}}>{ticker}</span>
+            <span className="mono" style={{fontSize:11.5,letterSpacing:"1.5px",color:E.onInkMute}}>{ticker}</span>
+          </div>
+        </div>
+      </div>}
+    </div>,
+    document.body
+  );
 }
+
 function StatusPill({status}){
   const map={draft:["DRAFT",E.onInkMute],open:["● POLLS OPEN",E.green],closed:["RESULT CERTIFIED",E.gold]};
   const [l,c]=map[status]||map.draft;
@@ -295,93 +604,6 @@ function StatusPill({status}){
     animation:status==="open"?"blink 1.6s infinite":"none"}}>{l}</span>;
 }
 
-/* The signature: a live broadcast count board on cream ballot paper */
-function ResultBoard({el,ballots,citizens,onVote,hero}){
-  const {rows,totalVotes,seatsTotal,ballotCount}=useResults(el,ballots);
-  const elig=eligibleCitizens(citizens,el).length;
-  const turnout=elig>0?pct(ballotCount,elig):0;
-  return(
-    <section style={{background:E.paper,borderRadius:8,overflow:"hidden",boxShadow:"0 24px 60px #0009",border:`1px solid ${E.paperLine}`,marginBottom:"1.6rem"}}>
-      {/* ballot header */}
-      <div style={{padding:"1.3rem 1.4rem 1rem",borderBottom:`2px solid ${E.pInk}`,position:"relative"}}>
-        <div style={{display:"flex",justifyContent:"space-between",gap:"1rem",flexWrap:"wrap",alignItems:"flex-start"}}>
-          <div>
-            <div className="mono" style={{fontSize:10,letterSpacing:"2.5px",color:E.stamp,textTransform:"uppercase"}}>Official Count{el.date?" · "+fmtDate(el.date):""}</div>
-            <h1 className="arch" style={{fontWeight:900,fontSize:"clamp(1.5rem,5vw,2.5rem)",color:E.pInk,lineHeight:1.02,marginTop:4}}>{el.name}</h1>
-          </div>
-          <div style={{textAlign:"right"}}>
-            <StatusPill status={el.status}/>
-            {el.status==="open"&&<div style={{marginTop:10}}><PaperBtn onClick={()=>onVote(el.id)}>Cast your ballot →</PaperBtn></div>}
-          </div>
-        </div>
-      </div>
-
-      {/* the seat ribbon — 1000 seats apportioned */}
-      <div style={{padding:"1.1rem 1.4rem 0"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
-          <span className="mono" style={{fontSize:10,color:E.pMuted,letterSpacing:"1.5px"}}>SEAT APPORTIONMENT — {seatsTotal} SEATS</span>
-          <span className="mono" style={{fontSize:10,color:E.pMuted}}>MAJORITY {Math.floor(seatsTotal/2)+1}</span>
-        </div>
-        <div style={{position:"relative",height:30,marginTop:8,borderRadius:4,overflow:"hidden",background:E.paper2,border:`1px solid ${E.paperLine}`,display:"flex"}}>
-          {rows.filter(r=>r.seats>0).map(r=>{const p=partyById(r.party);return(
-            <div key={r.id} title={`${r.name} — ${r.seats} seats`} style={{width:pct(r.seats,seatsTotal)+"%",background:p.color,transition:"width .8s cubic-bezier(.2,.7,.2,1)",borderRight:"1px solid #0003"}}/>
-          );})}
-          {/* majority marker */}
-          <div style={{position:"absolute",left:"50%",top:-3,bottom:-3,width:2,background:E.pInk}}/>
-        </div>
-      </div>
-
-      {/* candidate rows */}
-      <div style={{padding:"1.1rem 1.4rem 1.3rem",display:"flex",flexDirection:"column",gap:"0.55rem"}}>
-        {rows.length===0&&<div style={{color:E.pMuted,fontStyle:"italic",padding:"0.5rem 0"}}>No candidates have been registered for this contest yet.</div>}
-        {rows.map((r,i)=>{const p=partyById(r.party);const vp=pct(r.votes,totalVotes);return(
-          <div key={r.id} style={{display:"grid",gridTemplateColumns:"26px 1fr 96px",alignItems:"center",gap:"0.7rem"}}>
-            <div className="arch" style={{fontWeight:900,fontSize:18,color:i===0&&r.votes>0?E.stamp:E.paperLine,textAlign:"center"}}>{i+1}</div>
-            <div>
-              <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
-                <span className="arch" style={{fontWeight:700,fontSize:16,color:E.pInk}}>{r.name}</span>
-                <span className="mono" style={{fontSize:10,padding:"1px 7px",borderRadius:3,background:p.color+"22",color:p.color==="#C9A84C"?"#8a6a20":p.color,border:`1px solid ${p.color}55`}}>{p.abbr}</span>
-              </div>
-              <div style={{position:"relative",height:9,marginTop:5,borderRadius:5,background:E.paper2,overflow:"hidden"}}>
-                <div style={{position:"absolute",inset:0,width:vp+"%",background:p.color,transition:"width .8s cubic-bezier(.2,.7,.2,1)"}}/>
-              </div>
-            </div>
-            <div style={{textAlign:"right"}}>
-              <div className="arch" style={{fontWeight:900,fontSize:21,color:E.pInk,lineHeight:1}}>{r.seats}</div>
-              <div className="mono" style={{fontSize:10,color:E.pMuted}}>{r.votes} v · {vp.toFixed(1)}%</div>
-            </div>
-          </div>
-        );})}
-      </div>
-
-      {/* footer tallies */}
-      <div style={{display:"flex",flexWrap:"wrap",gap:"1.4rem",padding:"0.85rem 1.4rem",borderTop:`1px solid ${E.paperLine}`,background:E.paper2}}>
-        <Tally k="Ballots cast" v={ballotCount}/>
-        <Tally k="Total votes" v={totalVotes}/>
-        <Tally k="Register" v={elig}/>
-        <Tally k="Turnout" v={turnout.toFixed(1)+"%"}/>
-        {el.status==="open"&&<span className="mono" style={{marginLeft:"auto",alignSelf:"center",fontSize:10,color:E.green,animation:"blink 1.6s infinite"}}>● LIVE — updating</span>}
-      </div>
-    </section>
-  );
-}
-function Tally({k,v}){return <div><div className="arch" style={{fontWeight:900,fontSize:20,color:E.pInk,lineHeight:1}}>{v}</div><div className="mono" style={{fontSize:9,letterSpacing:"1.5px",color:E.pMuted,textTransform:"uppercase",marginTop:2}}>{k}</div></div>;}
-function MiniCard({el,ballots,onVote}){
-  const {rows,seatsTotal}=useResults(el,ballots);
-  return <div style={{background:E.paper,borderRadius:6,border:`1px solid ${E.paperLine}`,padding:"0.9rem 1rem"}}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-      <span className="arch" style={{fontWeight:800,fontSize:15,color:E.pInk}}>{el.name}</span>
-      <StatusPill status={el.status}/>
-    </div>
-    <div className="mono" style={{fontSize:9.5,color:E.pMuted,marginTop:2}}>{fmtDate(el.date)} · {ballots.length} ballots</div>
-    <div style={{display:"flex",height:8,marginTop:9,borderRadius:4,overflow:"hidden",background:E.paper2}}>
-      {rows.filter(r=>r.seats>0).map(r=>{const p=partyById(r.party);return <div key={r.id} style={{width:pct(r.seats,seatsTotal)+"%",background:p.color}}/>;})}
-    </div>
-    <div style={{marginTop:10,display:"flex",gap:6}}>
-      <button onClick={()=>onVote(el.id)} className="arch" style={{fontSize:10,fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",color:el.status==="open"?E.stamp:E.pMuted,background:"none",border:`1px solid ${el.status==="open"?E.stamp:E.paperLine}`,borderRadius:3,padding:"4px 10px",cursor:"pointer"}}>{el.status==="open"?"Vote / view →":"View result →"}</button>
-    </div>
-  </div>;
-}
 function SectionLabel({children}){return <div className="arch" style={{fontWeight:800,fontSize:11,letterSpacing:"2.5px",textTransform:"uppercase",color:E.onInkMute,margin:"2rem 0 0.9rem",display:"flex",alignItems:"center",gap:10}}><span>{children}</span><span style={{flex:1,height:1,background:E.inkLine}}/></div>;}
 
 /* ── geography stub (planned) ────────────────────────────────────────────── */
