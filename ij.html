@@ -44,6 +44,9 @@ const C={
 
 // ── CASE PIPELINE ─────────────────────────────────────────────────────────────
 const PIPELINE_MAIN=["filed","active","hearing","deliberating","decided"];
+// Live = matters still before the court (Active Docket). Everything else is concluded (Archive).
+const LIVE_STATUSES=["filed","active","hearing","deliberating","appealed"];
+const ARCHIVE_STATUSES=["decided","dismissed","withdrawn","final_upheld","final_overturned","overruled"];
 const CASE_PIPELINE={
   filed:{
     label:"Filed",color:"#7a8aaa",
@@ -282,10 +285,26 @@ const COURTS=[
   {v:"regional",      l:"Regional Court",       short:"RC",color:"#6a8aaa",border:"#3a5a7a",bg:"#0c1418"},
 ];
 const APPOINTMENT_ROLES=[
-  {v:"president",  l:"President of the Courts",               court:"both",          style:"The Right Honourable"},
-  {v:"cc_justice", l:"Justice of the Constitutional Court",   court:"constitutional", style:"The Honourable"},
-  {v:"rc_justice", l:"Justice of the Regional Court",         court:"regional",       style:"The Honourable"},
+  // ── The Bench (judiciary) ──
+  {v:"president",  l:"President of the Courts",               court:"both",          style:"The Right Honourable", cat:"bench",       order:0},
+  {v:"cc_justice", l:"Justice of the Constitutional Court",   court:"constitutional", style:"The Honourable",       cat:"bench",       order:1},
+  {v:"rc_justice", l:"Justice of the Regional Court",         court:"regional",       style:"The Honourable",       cat:"bench",       order:2},
+  // ── Federal Prosecution Service ──
+  {v:"pg",  l:"Public Prosecutor General of the Empire", style:"The Right Honourable", cat:"prosecution", order:0},
+  {v:"dpg", l:"Deputy Prosecutor General",               style:"The Honourable",       cat:"prosecution", order:1},
+  {v:"apg", l:"Assistant Prosecutor General",            style:"The Honourable",       cat:"prosecution", order:2},
 ];
+const PROSECUTION_COLOR="#c05050";
+const PROSECUTION_ROLES=APPOINTMENT_ROLES.filter(r=>r.cat==="prosecution").map(r=>r.v);
+function apptRole(v){return APPOINTMENT_ROLES.find(r=>r.v===v)||APPOINTMENT_ROLES[1];}
+function apptColor(v){const r=apptRole(v);if(r.cat==="prosecution")return PROSECUTION_COLOR;const ct=COURTS.find(c=>c.v===r.court);return ct?ct.color:"#a8b8cc";}
+// Is this signed-in MOI account an appointed Federal Prosecutor? Returns the role value or null.
+function prosecutorRank(user,appointments){
+  if(!user) return null;
+  const u=(user.username||"").toLowerCase();
+  const appt=Object.values(appointments||{}).find(a=>PROSECUTION_ROLES.includes(a.role)&&(a.username||"").toLowerCase()===u);
+  return appt?appt.role:null;
+}
 const STATUTE_CATS=[
   {v:"constitutional",l:"Constitutional Law"},
   {v:"criminal",      l:"Criminal Law"},
@@ -462,40 +481,108 @@ function JusticeSelector({value,onChange,appointments,court}){
 }
 
 // ── PUBLIC DOCKET ─────────────────────────────────────────────────────────────
-function DocketTab({cases,judgments,statutes,appointments,onAction,notify}){
+function DocketStats({items}){
+  return <div style={{display:"flex",gap:"0.5rem",flexWrap:"wrap",marginBottom:"1.25rem"}}>
+    {items.filter(Boolean).map((it,i)=>(
+      <div key={i} style={{background:C.s1,border:`1px solid ${it.color}33`,borderLeft:`3px solid ${it.color}`,
+        borderRadius:"0 3px 3px 0",padding:"6px 16px",minWidth:96}}>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:20,fontWeight:700,color:it.color,lineHeight:1}}>{it.value}</div>
+        <div className="mono" style={{fontSize:8,color:C.textDD,letterSpacing:"0.12em",marginTop:3}}>{it.label}</div>
+      </div>
+    ))}
+  </div>;
+}
+
+function DocketTab({cases,judgments,statutes,appointments,user,accounts,isProsecutor,onRequireSignIn,onAction,notify}){
   const [sub,setSub]=useState("browse");
   const [courtFilter,setCourtFilter]=useState("all");
   const [statusFilter,setStatusFilter]=useState("all");
   const [search,setSearch]=useState("");
-  const list=Object.values(cases||{}).filter(c=>{
+
+  const allCases=Object.values(cases||{});
+  const liveAll=allCases.filter(c=>LIVE_STATUSES.includes(c.status));
+  const archiveAll=allCases.filter(c=>!LIVE_STATUSES.includes(c.status));
+  const cnt=(arr,st)=>arr.filter(c=>c.status===st).length;
+
+  function applyFilters(pool){
     const q=search.toLowerCase();
-    return(!q||c.number?.toLowerCase().includes(q)||c.title?.toLowerCase().includes(q)||c.parties?.toLowerCase().includes(q))
+    return pool.filter(c=>
+      (!q||c.number?.toLowerCase().includes(q)||c.title?.toLowerCase().includes(q)||c.parties?.toLowerCase().includes(q))
       &&(courtFilter==="all"||c.court===courtFilter)
-      &&(statusFilter==="all"||c.status===statusFilter);
-  }).sort((a,b)=>(b.filed||0)-(a.filed||0));
-  const statusOpts=[{v:"all",l:"All Status"},
-    ...["filed","active","hearing","deliberating","decided","dismissed","withdrawn","appealed","final_upheld","final_overturned"]
-      .map(v=>({v,l:(CASE_PIPELINE[v]||{label:v}).label}))];
+      &&(statusFilter==="all"||c.status===statusFilter)
+    ).sort((a,b)=>(b.filed||0)-(a.filed||0));
+  }
+  const liveList=applyFilters(liveAll);
+  const archiveList=applyFilters(archiveAll);
+
+  const liveStatusOpts=[{v:"all",l:"All Active"},...LIVE_STATUSES.map(v=>({v,l:(CASE_PIPELINE[v]||{label:v}).label}))];
+  const archiveStatusOpts=[{v:"all",l:"All Concluded"},...ARCHIVE_STATUSES.map(v=>({v,l:(CASE_PIPELINE[v]||{label:v}).label}))];
+
+  // Reset court/status filters when switching views so a filter from one view doesn't hide the other.
+  function go(v){ setSub(v); setStatusFilter("all"); setCourtFilter("all"); setSearch(""); }
+
+  const SUBS=[["browse","Active Docket"],["archive","Archive"],["file","File a Case"],["track","Track My Case"]];
+
   return <div className="fadeIn">
-    <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1.5rem"}}>
-      {[["browse","Case Docket"],["file","File a Case"],["track","Track My Case"]].map(([v,l])=>
-        <button key={v} onClick={()=>setSub(v)}
+    <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1.5rem",flexWrap:"wrap"}}>
+      {SUBS.map(([v,l])=>
+        <button key={v} onClick={()=>go(v)}
           style={{fontFamily:"'Cinzel',serif",fontSize:10,letterSpacing:"0.15em",textTransform:"uppercase",
-                   padding:"0.6rem 1.1rem",background:"transparent",border:"none",cursor:"pointer",
-                   borderBottom:`2px solid ${sub===v?C.accent:"transparent"}`,color:sub===v?C.accent:C.textD}}>{l}</button>)}
+                   padding:"0.6rem 1.1rem",background:"transparent",border:"none",cursor:"pointer",position:"relative",
+                   borderBottom:`2px solid ${sub===v?C.accent:"transparent"}`,color:sub===v?C.accent:C.textD}}>
+          {l}
+          {v==="browse"&&liveAll.length>0&&<span className="mono" style={{fontSize:8,marginLeft:6,color:C.textDD}}>{liveAll.length}</span>}
+        </button>)}
     </div>
-    {sub==="file"&&<PublicCaseForm onAction={onAction} notify={notify} statutes={statutes} cases={cases} onDone={()=>setSub("browse")}/>}
+
+    {sub==="file"&&(user
+      ?<PublicCaseForm onAction={onAction} notify={notify} statutes={statutes} cases={cases}
+         user={user} accounts={accounts} isProsecutor={isProsecutor} onDone={()=>go("browse")}/>
+      :<div style={{maxWidth:480,margin:"2rem auto",textAlign:"center"}}>
+         <div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,marginBottom:8}}>Sign in to file a case</div>
+         <div style={{fontSize:13,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.25rem"}}>
+           Filing with the Imperial Judiciary requires an Imperial Intranet (MOI) account. Signing in lets the court tie your filing to your identity and pre-fills your details.
+         </div>
+         <Btn onClick={onRequireSignIn}>Sign In</Btn>
+       </div>)}
     {sub==="track"&&<CaseTracker cases={cases} judgments={judgments} appointments={appointments}/>}
+
     {sub==="browse"&&<div>
+      <DocketStats items={[
+        {value:liveAll.length,label:"ACTIVE MATTERS",color:C.accent},
+        {value:cnt(liveAll,"hearing"),label:"BEFORE THE COURT",color:"#C9A84C"},
+        {value:cnt(liveAll,"deliberating"),label:"AWAITING JUDGMENT",color:"#9a6acc"},
+        {value:cnt(liveAll,"appealed"),label:"ON APPEAL",color:"#cc6a10"},
+        {value:archiveAll.length,label:"ARCHIVED",color:C.silverD},
+      ]}/>
       <div style={{display:"flex",gap:"0.75rem",marginBottom:"1.25rem",flexWrap:"wrap"}}>
         <div style={{flex:2,minWidth:180}}><Inp value={search} onChange={setSearch} placeholder="Search case number, title, parties..."/></div>
         <div style={{flex:1,minWidth:140}}><DD value={courtFilter} onChange={setCourtFilter} options={[{v:"all",l:"All Courts"},...COURTS.map(c=>({v:c.v,l:c.l}))]}/></div>
-        <div style={{flex:1,minWidth:160}}><DD value={statusFilter} onChange={setStatusFilter} options={statusOpts}/></div>
+        <div style={{flex:1,minWidth:160}}><DD value={statusFilter} onChange={setStatusFilter} options={liveStatusOpts}/></div>
       </div>
-      {list.length===0
-        ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No cases on record.</div>
+      {liveList.length===0
+        ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>
+           {liveAll.length===0?"No active matters before the court.":"No active cases match your filters."}
+         </div>
         :<div style={{display:"flex",flexDirection:"column",gap:"0.6rem"}}>
-          {list.map(c=><CaseCard key={c.id} caseData={c} judgments={judgments} cases={cases} appointments={appointments}/>)}
+          {liveList.map(c=><CaseCard key={c.id} caseData={c} judgments={judgments} cases={cases} appointments={appointments}/>)}
+        </div>}
+    </div>}
+
+    {sub==="archive"&&<div>
+      <Disclaimer type="info">The historical record — concluded matters that are no longer before the court: decided, dismissed, and withdrawn cases, and final judgments on appeal.</Disclaimer>
+      <div style={{display:"flex",gap:"0.75rem",margin:"1.25rem 0",flexWrap:"wrap"}}>
+        <div style={{flex:2,minWidth:180}}><Inp value={search} onChange={setSearch} placeholder="Search archived cases..."/></div>
+        <div style={{flex:1,minWidth:140}}><DD value={courtFilter} onChange={setCourtFilter} options={[{v:"all",l:"All Courts"},...COURTS.map(c=>({v:c.v,l:c.l}))]}/></div>
+        <div style={{flex:1,minWidth:160}}><DD value={statusFilter} onChange={setStatusFilter} options={archiveStatusOpts}/></div>
+      </div>
+      <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:"0.75rem"}}>{archiveList.length} CONCLUDED CASE{archiveList.length!==1?"S":""}</div>
+      {archiveList.length===0
+        ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>
+           {archiveAll.length===0?"No concluded cases yet.":"No archived cases match your filters."}
+         </div>
+        :<div style={{display:"flex",flexDirection:"column",gap:"0.6rem"}}>
+          {archiveList.map(c=><CaseCard key={c.id} caseData={c} judgments={judgments} cases={cases} appointments={appointments}/>)}
         </div>}
     </div>}
   </div>;
@@ -644,10 +731,37 @@ function DescSelect({options,value,onChange,cols=1}){
 }
 
 // ── PUBLIC CASE FILING ────────────────────────────────────────────────────────
-function PublicCaseForm({onAction,notify,statutes,cases,onDone}){
+// Party selector: pick a registered MOI citizen from a dropdown, or tick the box to type a non-citizen's name.
+function PartyPicker({value,onChange,accounts,blankLabel,placeholder}){
+  const [manual,setManual]=useState(false);
+  const opts=[{v:"",l:blankLabel||"— Select a registered citizen —"},
+    ...((accounts||[]).map(a=>({v:a.username,l:(a.displayName?a.displayName+" ":"")+"@"+a.username})))];
+  return <div>
+    {manual
+      ?<Inp value={value} onChange={onChange} placeholder={placeholder||"Full name of the party"}/>
+      :<DD value={value} onChange={onChange} options={opts}/>}
+    <div onClick={()=>{setManual(m=>!m);onChange("");}}
+      style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",marginTop:6}}>
+      <div style={{width:14,height:14,borderRadius:2,border:`2px solid ${manual?C.accent:C.border}`,
+        background:manual?C.accentD:"transparent",display:"flex",alignItems:"center",justifyContent:"center",
+        fontSize:9,color:C.accent,flexShrink:0}}>{manual?"✓":""}</div>
+      <span style={{fontSize:12,color:manual?C.text:C.textD}}>This party is not a registered citizen — enter their name manually</span>
+    </div>
+  </div>;
+}
+function YouField({user}){
+  return <div style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:2,padding:"8px 12px",
+    display:"flex",alignItems:"center",gap:8}}>
+    <span style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text}}>{user.displayName||user.username}</span>
+    <span className="mono" style={{fontSize:9,color:C.textDD}}>@{user.username}</span>
+    <span className="mono" style={{fontSize:8,color:C.accent,marginLeft:"auto",border:`1px solid ${C.accent}44`,borderRadius:2,padding:"1px 6px"}}>YOU</span>
+  </div>;
+}
+function PublicCaseForm({onAction,notify,statutes,cases,user,accounts,isProsecutor,onDone}){
+  const me=user?(user.username||""):"";
   const [step,setStep]=useState(1);
-  const [type,setType]=useState("criminal");
-  const [nameA,setNameA]=useState("");
+  const [type,setType]=useState(isProsecutor?"criminal":"civil");
+  const [nameA,setNameA]=useState(isProsecutor?"":me);
   const [nameB,setNameB]=useState("");
   const [subject,setSubject]=useState("");
   const [appealOfId,setAppealOfId]=useState("");
@@ -662,6 +776,7 @@ function PublicCaseForm({onAction,notify,statutes,cases,onDone}){
   const isCivil=type==="civil";
   const isConstitutional=type==="constitutional_challenge";
   const isAdmin=type==="administrative";
+  const FILER_IS_A=["civil","administrative","constitutional_challenge","treaty"];
   const filingCourt=(isAppeal||isConstitutional)?"constitutional":"regional";
   const canContest=["constitutional_challenge","civil","criminal"].includes(type);
   const appealCase=appealOfId?Object.values(cases||{}).find(x=>x.id===appealOfId):null;
@@ -701,7 +816,10 @@ function PublicCaseForm({onAction,notify,statutes,cases,onDone}){
     do{num=`${prefix}-${yr}-${String(Math.floor(Math.random()*900)+100).padStart(3,"0")}`;attempts++;}
     while(existing.has(num)&&attempts<50);return num;
   }
-  function handleTypeChange(v){setType(v);setNameA("");setNameB("");setSubject("");setAppealOfId("");}
+  function handleTypeChange(v){
+    if((v==="criminal"||v==="impeachment")&&!isProsecutor) return; // restricted to Federal Prosecutors
+    setType(v);setNameA(FILER_IS_A.includes(v)?me:"");setNameB("");setSubject("");setAppealOfId("");
+  }
 
   const step1Valid=!isAppeal||!!appealOfId;
   const step2Valid=isAppeal||(isTreaty?!!s:!!a);
@@ -743,7 +861,7 @@ function PublicCaseForm({onAction,notify,statutes,cases,onDone}){
         {" "}Use <strong>Track My Case</strong> with the reference number above to follow progress.
       </div>
     </div>
-    <Btn variant="ghost" onClick={()=>{setDone(null);setStep(1);setNameA("");setNameB("");setSubject("");setSummary("");setContestedId("");setAppealOfId("");setType("criminal");}}>File Another Case</Btn>
+    <Btn variant="ghost" onClick={()=>{setDone(null);setStep(1);const t=isProsecutor?"criminal":"civil";setType(t);setNameA(FILER_IS_A.includes(t)?me:"");setNameB("");setSubject("");setSummary("");setContestedId("");setAppealOfId("");}}>File Another Case</Btn>
   </div>;
 
   return <div style={{maxWidth:620}}>
@@ -753,13 +871,19 @@ function PublicCaseForm({onAction,notify,statutes,cases,onDone}){
     {step===1&&<div className="fadeIn">
       <div className="mono" style={{fontSize:9,letterSpacing:"0.2em",color:C.textD,marginBottom:"0.85rem"}}>STEP 1 — NATURE OF THE PROCEEDINGS</div>
       <div style={{display:"flex",flexDirection:"column",gap:"0.4rem"}}>
-        {CASE_TYPES.map(ct=>{const sel=type===ct.v;return <div key={ct.v} onClick={()=>handleTypeChange(ct.v)}
-          style={{padding:"0.75rem 1rem",cursor:"pointer",borderRadius:2,display:"flex",gap:10,alignItems:"flex-start",
-            background:sel?C.s2:C.s1,border:`1px solid ${sel?C.accent:C.border}`,transition:"all .12s"}}>
+        {CASE_TYPES.map(ct=>{
+          const sel=type===ct.v;
+          const restricted=(ct.v==="criminal"||ct.v==="impeachment")&&!isProsecutor;
+          return <div key={ct.v} onClick={()=>!restricted&&handleTypeChange(ct.v)}
+          style={{padding:"0.75rem 1rem",cursor:restricted?"not-allowed":"pointer",borderRadius:2,display:"flex",gap:10,alignItems:"flex-start",
+            background:sel?C.s2:C.s1,border:`1px solid ${sel?C.accent:C.border}`,transition:"all .12s",opacity:restricted?0.5:1}}>
           <div style={{width:14,height:14,borderRadius:"50%",border:`2px solid ${sel?C.accent:C.textDD}`,
             background:sel?C.accent:"transparent",flexShrink:0,marginTop:3}}/>
-          <div>
-            <div style={{fontFamily:"'Cinzel',serif",fontSize:12,color:sel?C.text:C.textD,fontWeight:sel?700:400,marginBottom:ct.desc?2:0}}>{ct.l}</div>
+          <div style={{flex:1}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:ct.desc?2:0}}>
+              <span style={{fontFamily:"'Cinzel',serif",fontSize:12,color:sel?C.text:C.textD,fontWeight:sel?700:400}}>{ct.l}</span>
+              {restricted&&<span className="mono" style={{fontSize:8,color:PROSECUTION_COLOR,border:`1px solid ${PROSECUTION_COLOR}55`,borderRadius:2,padding:"1px 6px"}}>FEDERAL PROSECUTORS ONLY</span>}
+            </div>
             {ct.desc&&<div style={{fontSize:12,color:C.textDD,lineHeight:1.5}}>{ct.desc}</div>}
           </div>
         </div>;})}
@@ -787,32 +911,26 @@ function PublicCaseForm({onAction,notify,statutes,cases,onDone}){
       <div className="mono" style={{fontSize:9,letterSpacing:"0.2em",color:C.textD,marginBottom:"0.85rem"}}>STEP 2 — PARTIES</div>
       <div style={{display:"flex",flexDirection:"column",gap:"0.85rem"}}>
         {isCrown&&<>
-          <Disclaimer type="info">The Crown is the prosecuting party in this type of case. Provide the username of the individual being prosecuted.</Disclaimer>
-          <div><FL>DEFENDANT USERNAME *</FL>
-            <Inp value={nameA} onChange={setNameA} placeholder="In-game username of the defendant"/>
+          <Disclaimer type="info">The Crown, represented by {user.displayName||user.username} as Federal Prosecutor, is the prosecuting party. Select the individual being prosecuted, or enter a non-citizen's name.</Disclaimer>
+          <div><FL>DEFENDANT *</FL>
+            <PartyPicker value={nameA} onChange={setNameA} accounts={accounts} placeholder="Full name of the defendant"/>
           </div>
         </>}
         {isCivil&&<>
-          <div><FL>YOUR USERNAME — PLAINTIFF *</FL>
-            <Inp value={nameA} onChange={setNameA} placeholder="Your in-game username"/>
-          </div>
+          <div><FL>PLAINTIFF (YOU) *</FL><YouField user={user}/></div>
           <div>
-            <FL>DEFENDANT USERNAME <span style={{fontStyle:"italic",color:C.textDD,fontSize:9,fontFamily:"'Crimson Text',serif",fontWeight:400,letterSpacing:0}}>(leave blank to file against The Crown)</span></FL>
-            <Inp value={nameB} onChange={setNameB} placeholder="Leave blank for The Crown"/>
+            <FL>DEFENDANT <span style={{fontStyle:"italic",color:C.textDD,fontSize:9,fontFamily:"'Crimson Text',serif",fontWeight:400,letterSpacing:0}}>(leave as The Crown to sue the government)</span></FL>
+            <PartyPicker value={nameB} onChange={setNameB} accounts={accounts} blankLabel="— The Crown —" placeholder="Full name of the defendant"/>
           </div>
         </>}
         {(isAdmin||isConstitutional)&&<div>
-          <FL>YOUR USERNAME — PETITIONER *</FL>
-          <Inp value={nameA} onChange={setNameA} placeholder="Your in-game username"/>
+          <FL>PETITIONER (YOU) *</FL><YouField user={user}/>
         </div>}
         {isTreaty&&<>
           <div><FL>SUBJECT MATTER *</FL>
             <Inp value={subject} onChange={setSubject} placeholder="e.g. the Lech Maritime Treaty 2024"/>
           </div>
-          <div>
-            <FL>YOUR USERNAME — FILING PARTY <span style={{fontStyle:"italic",color:C.textDD,fontSize:9,fontFamily:"'Crimson Text',serif",fontWeight:400,letterSpacing:0}}>(optional)</span></FL>
-            <Inp value={nameA} onChange={setNameA} placeholder="Your in-game username"/>
-          </div>
+          <div><FL>FILING PARTY (YOU)</FL><YouField user={user}/></div>
         </>}
       </div>
       {builtTitle&&<div style={{marginTop:"1.25rem",background:C.s1,border:`1px solid ${C.accent}44`,borderRadius:2,padding:"0.85rem",display:"flex",flexDirection:"column",gap:5}}>
@@ -1264,7 +1382,7 @@ function JudicialStatuteCard({statute:s,caseCount,mods,courtRepealRecord}){
 // ── LEGAL CODE TAB ────────────────────────────────────────────────────────────
 function LegalCodeTab({statutes,bills,cases,members,bundesherren}){
   const [section,setSection]=useState("acts");
-  const [statusFilter,setStatusFilter]=useState("all");
+  const [statusFilter,setStatusFilter]=useState("force");
   const [catFilter,setCatFilter]=useState("all");
   const [inForce,setInForce]=useState("force");
   const [search,setSearch]=useState("");
@@ -1293,7 +1411,8 @@ function LegalCodeTab({statutes,bills,cases,members,bundesherren}){
   const SKIP_TYPES=new Set(["motion","appoint_bt_pres","appoint_chancellor","appoint_bh_pres","nominate_minister","dissolve_government"]);
   const bkActs=useMemo(()=>{
     return Object.values(bills||{}).filter(b=>{
-      if(!["passed","grandfathered","decree","repealed","failed_bt","failed_bh","vetoed","pulled"].includes(b.status)) return false;
+      // Legal Code shows law only — never bills that failed, were vetoed, or pulled before becoming law.
+      if(!["passed","grandfathered","decree","repealed"].includes(b.status)) return false;
       if(SKIP_TYPES.has(b.type)) return false;
       const title=(b.title||"").trim();
       if(/^(nomination|appointment) of/i.test(title)) return false;
@@ -1309,13 +1428,12 @@ function LegalCodeTab({statutes,bills,cases,members,bundesherren}){
       const isRepealed=b.status==="repealed"||b._isCourtRepealed;
       const isPassed=b.status==="passed"||b.status==="grandfathered";
       const isDecree=b.status==="decree";
-      const isFailed=["failed_bt","failed_bh","vetoed","pulled"].includes(b.status);
+      if(statusFilter==="force")return (isPassed||isDecree)&&!isRepealed;
       if(statusFilter==="passed")return isPassed&&!isRepealed;
-      if(statusFilter==="decree")return isDecree;
+      if(statusFilter==="decree")return isDecree&&!isRepealed;
       if(statusFilter==="repealed")return isRepealed;
-      if(statusFilter==="failed")return isFailed;
-      if(statusFilter==="constitutional")return b.type==="constitutional_amendment";
-      // "all" — show everything
+      if(statusFilter==="constitutional")return b.type==="constitutional_amendment"&&!isRepealed;
+      // "all" — all law on the books (in force + repealed), but never failed/vetoed
       return true;
     }).filter(b=>{
       if(catFilter==="all") return true;
@@ -1339,12 +1457,11 @@ function LegalCodeTab({statutes,bills,cases,members,bundesherren}){
   },[statutes,search,inForce]);
 
   const STATUS_OPTS=[
-    {v:"all",l:"All"},
-    {v:"passed",l:"Passed — In Force"},
+    {v:"force",l:"In Force"},
     {v:"constitutional",l:"Constitutional"},
     {v:"decree",l:"Imperial Decrees"},
     {v:"repealed",l:"Repealed"},
-    {v:"failed",l:"Failed / Vetoed"},
+    {v:"all",l:"All Law"},
   ];
   const CAT_OPTS=[{v:"all",l:"All Types"},{v:"constitutional",l:"Constitutional Amendments"},...BK_LAW_CATEGORIES.map(c=>({v:c.v,l:c.l}))];
 
@@ -1414,49 +1531,96 @@ function LegalCodeTab({statutes,bills,cases,members,bundesherren}){
 }
 
 // ── THE BENCH (public) ────────────────────────────────────────────────────────
+function BenchHero({appt,color,subtitle}){
+  return <div style={{background:`linear-gradient(135deg,${C.s2},${C.s1})`,border:`1px solid ${color}44`,
+    borderTop:`3px solid ${color}`,borderRadius:"0 0 4px 4px",padding:"1.25rem 1.5rem",
+    display:"flex",alignItems:"center",gap:"1.5rem",flexWrap:"wrap"}}>
+    <div><div style={{fontFamily:"'Cinzel',serif",fontSize:17,fontWeight:700,color:C.text,marginBottom:appt.username?1:3}}>{appt.name}</div>
+      {appt.username&&<div className="mono" style={{fontSize:9,color:C.silverD,letterSpacing:"0.08em",fontStyle:"italic",marginBottom:3}}>{appt.username}</div>}
+      <div style={{fontSize:13,color,fontStyle:"italic"}}>{subtitle}</div>
+      {appt.since&&<div className="mono" style={{fontSize:9,color:C.textDD,marginTop:4}}>Appointed {appt.since}</div>}
+    </div><span style={{fontSize:22,color,marginLeft:"auto"}}>⚖</span>
+  </div>;
+}
 function AppointmentsTab({appointments}){
-  const list=Object.values(appointments||{}).sort((a,b)=>{const o={president:0,cc_justice:1,rc_justice:2};return(o[a.role]||3)-(o[b.role]||3)||(a.name||"").localeCompare(b.name||"");});
-  const president=list.find(a=>a.role==="president");
-  const cc=list.filter(a=>a.role==="cc_justice");const rc=list.filter(a=>a.role==="rc_justice");
+  const [view,setView]=useState("bench");
+  const all=Object.values(appointments||{});
+  const byOrder=(arr)=>arr.sort((a,b)=>(apptRole(a.role).order||0)-(apptRole(b.role).order||0)||(a.name||"").localeCompare(b.name||""));
+
+  const president=all.find(a=>a.role==="president");
+  const cc=byOrder(all.filter(a=>a.role==="cc_justice"));
+  const rc=byOrder(all.filter(a=>a.role==="rc_justice"));
+  const benchCount=all.filter(a=>apptRole(a.role).cat==="bench").length;
+
+  const pg=all.find(a=>a.role==="pg");
+  const dpg=byOrder(all.filter(a=>a.role==="dpg"));
+  const apg=byOrder(all.filter(a=>a.role==="apg"));
+  const proseCount=all.filter(a=>apptRole(a.role).cat==="prosecution").length;
+
+  const VIEWS=[["bench","The Bench",C.silver,benchCount],["prosecutors","Federal Prosecutors",PROSECUTION_COLOR,proseCount]];
+
   return <div className="fadeIn">
-    <STitle>The Bench</STitle>
-    {list.length===0&&<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No appointments on record.</div>}
-    {president&&<div style={{marginBottom:"1.5rem"}}>
-      <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.2em",marginBottom:8}}>PRESIDENT OF THE COURTS</div>
-      <div style={{background:`linear-gradient(135deg,${C.s2},${C.s1})`,border:`1px solid ${C.silver}44`,
-        borderTop:`3px solid ${C.silver}`,borderRadius:"0 0 4px 4px",padding:"1.25rem 1.5rem",
-        display:"flex",alignItems:"center",gap:"1.5rem",flexWrap:"wrap"}}>
-        <div><div style={{fontFamily:"'Cinzel',serif",fontSize:17,fontWeight:700,color:C.text,marginBottom:3}}>{president.name}</div>
-          <div style={{fontSize:13,color:C.silver,fontStyle:"italic"}}>The Right Honourable {" \u2014 "} President of the Courts</div>
-          {president.since&&<div className="mono" style={{fontSize:9,color:C.textDD,marginTop:4}}>Appointed {president.since}</div>}
-        </div><span style={{fontSize:22,color:C.silver,marginLeft:"auto"}}>⚖</span>
+    <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1.5rem",flexWrap:"wrap"}}>
+      {VIEWS.map(([v,l,col,n])=>
+        <button key={v} onClick={()=>setView(v)}
+          style={{fontFamily:"'Cinzel',serif",fontSize:11,fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",
+                   padding:"0.65rem 1.2rem",background:"transparent",border:"none",cursor:"pointer",
+                   borderBottom:`2px solid ${view===v?col:"transparent"}`,color:view===v?col:C.textD}}>
+          {l}<span className="mono" style={{fontSize:8,marginLeft:7,color:C.textDD}}>{n}</span>
+        </button>)}
+    </div>
+
+    {view==="bench"&&<div>
+      {benchCount===0&&<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No justices appointed to the bench.</div>}
+      {president&&<div style={{marginBottom:"1.5rem"}}>
+        <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.2em",marginBottom:8}}>PRESIDENT OF THE COURTS</div>
+        <BenchHero appt={president} color={C.silver} subtitle={"The Right Honourable, President of the Courts"}/>
+      </div>}
+      {cc.length>0&&<div style={{marginBottom:"1.5rem"}}>
+        <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.2em",marginBottom:8}}>CONSTITUTIONAL COURT</div>
+        <div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>{cc.map(a=><OfficerCard key={a.id} appointment={a}/>)}</div>
+      </div>}
+      {rc.length>0&&<div>
+        <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.2em",marginBottom:8}}>REGIONAL COURT</div>
+        <div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>{rc.map(a=><OfficerCard key={a.id} appointment={a}/>)}</div>
+      </div>}
+    </div>}
+
+    {view==="prosecutors"&&<div>
+      <div style={{fontSize:13,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.25rem"}}>
+        The Federal Prosecution Service of the Empire. Federal Prosecutors bring Criminal Prosecutions and Impeachment Proceedings on behalf of the Crown.
       </div>
-    </div>}
-    {cc.length>0&&<div style={{marginBottom:"1.5rem"}}>
-      <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.2em",marginBottom:8}}>CONSTITUTIONAL COURT</div>
-      <div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>{cc.map(a=><JusticeCard key={a.id} appointment={a}/>)}</div>
-    </div>}
-    {rc.length>0&&<div>
-      <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.2em",marginBottom:8}}>REGIONAL COURT</div>
-      <div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>{rc.map(a=><JusticeCard key={a.id} appointment={a}/>)}</div>
+      {proseCount===0&&<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No prosecutors appointed.</div>}
+      {pg&&<div style={{marginBottom:"1.5rem"}}>
+        <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.2em",marginBottom:8}}>PUBLIC PROSECUTOR GENERAL OF THE EMPIRE</div>
+        <BenchHero appt={pg} color={PROSECUTION_COLOR} subtitle={"The Right Honourable, Public Prosecutor General of the Empire"}/>
+      </div>}
+      {dpg.length>0&&<div style={{marginBottom:"1.5rem"}}>
+        <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.2em",marginBottom:8}}>DEPUTY PROSECUTOR GENERAL</div>
+        <div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>{dpg.map(a=><OfficerCard key={a.id} appointment={a}/>)}</div>
+      </div>}
+      {apg.length>0&&<div>
+        <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.2em",marginBottom:8}}>ASSISTANT PROSECUTORS GENERAL</div>
+        <div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>{apg.map(a=><OfficerCard key={a.id} appointment={a}/>)}</div>
+      </div>}
     </div>}
   </div>;
 }
-function JusticeCard({appointment:a}){
-  const role=APPOINTMENT_ROLES.find(r=>r.v===a.role)||APPOINTMENT_ROLES[1];
-  const ct=COURTS.find(c=>c.v===role.court)||{color:C.silver};
-  return <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${ct.color}`,
+function OfficerCard({appointment:a}){
+  const role=apptRole(a.role);const col=apptColor(a.role);
+  return <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${col}`,
     borderRadius:"0 3px 3px 0",padding:"0.75rem 1.25rem",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
     <div style={{flex:1}}>
-      <div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,marginBottom:2}}>{a.name}</div>
-      <div style={{fontSize:12,color:ct.color,fontStyle:"italic"}}>{role.style} {" \u2014 "} {role.l}</div>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,marginBottom:a.username?1:2}}>{a.name}</div>
+      {a.username&&<div className="mono" style={{fontSize:9,color:C.silverD,letterSpacing:"0.08em",fontStyle:"italic",marginBottom:3}}>{a.username}</div>}
+      <div style={{fontSize:12,color:col,fontStyle:"italic"}}>{role.style} {" \u2014 "} {role.l}</div>
     </div>
     {a.since&&<div className="mono" style={{fontSize:9,color:C.textDD}}>Since {a.since}</div>}
   </div>;
 }
 
 // ── PANEL AUTH ────────────────────────────────────────────────────────────────
-function PanelAuth({onAuth,onCancel}){
+function SignIn({onAuth,onClose}){
   const [username,setUsername]=useState("");const [password,setPassword]=useState("");
   const [err,setErr]=useState("");const [loading,setLoading]=useState(false);
   async function doAuth(){
@@ -1467,34 +1631,38 @@ function PanelAuth({onAuth,onCancel}){
       Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v)accounts[v.username]=v;});
       Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(!accounts[k])accounts[k]=v;});
       const user=Object.values(accounts).find(a=>a.username.toLowerCase()===username.trim().toLowerCase());
-      if(!user){setErr("ACCESS DENIED.");setLoading(false);return;}
+      if(!user){setErr("No such account.");setLoading(false);return;}
       const hash=await sha256(password);
-      if(hash!==user.passwordHash){setErr("ACCESS DENIED.");setLoading(false);return;}
-      const hasAccess=user.role==="emperor"||user.ijAccess==="judge"||user.ijAccess==="president";
-      if(!hasAccess){setErr("AUTHORISATION DENIED \u2014 Judicial access not granted.");setLoading(false);return;}
+      if(hash!==user.passwordHash){setErr("Incorrect password.");setLoading(false);return;}
       onAuth(user,raw);
     }catch(e){setErr("Connection error: "+e.message);}
     setLoading(false);
   }
-  return <div style={{maxWidth:420,margin:"0 auto"}}>
-    <STitle>Judicial Panel Authentication</STitle>
-    <div style={{background:C.s1,border:`1px solid ${C.border}`,borderTop:`3px solid ${C.silver}`,padding:"1.75rem"}}>
-      <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.8,marginBottom:"1.25rem",textAlign:"center"}}>
-        Restricted to judicial officers of the Empire. Authenticate using your Imperial Intranet credentials.
+  return <div onClick={e=>{if(e.target===e.currentTarget)onClose();}}
+    style={{position:"fixed",inset:0,zIndex:9998,background:"rgba(4,6,10,.9)",display:"flex",
+      alignItems:"center",justifyContent:"center",padding:"1rem"}}>
+    <div style={{maxWidth:400,width:"100%",background:C.s1,border:`1px solid ${C.border}`,borderTop:`3px solid ${C.silver}`,
+      borderRadius:"0 0 4px 4px",padding:"1.75rem",animation:"fadeIn .25s ease"}} onKeyDown={e=>{if(e.key==="Enter")doAuth();}}>
+      <div style={{textAlign:"center",marginBottom:"1.25rem"}}>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.4em",color:C.silver,marginBottom:6}}>EMPIRE OF LECH</div>
+        <div style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:18,letterSpacing:"0.08em",color:C.text}}>Sign In</div>
+        <div style={{fontSize:13,color:C.textD,fontStyle:"italic",marginTop:6,lineHeight:1.6}}>
+          Use your Imperial Intranet (MOI) credentials to file cases and access judicial functions.
+        </div>
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
         <div><FL>USERNAME</FL><Inp value={username} onChange={setUsername} placeholder="Username"/></div>
         <div><FL>PASSWORD</FL><Inp value={password} onChange={setPassword} type="password" placeholder="Password"/></div>
         {err&&<div className="mono" style={{fontSize:10,color:C.redL,background:"#1a0808",border:`1px solid ${C.redD}44`,padding:"7px 12px"}}>{err}</div>}
-        <Btn onClick={doAuth} disabled={loading||!username.trim()||!password.trim()}>{loading?"Authenticating...":"Authenticate"}</Btn>
-        <Btn variant="ghost" onClick={onCancel}>Cancel</Btn>
+        <Btn onClick={doAuth} disabled={loading||!username.trim()||!password.trim()}>{loading?"Authenticating...":"Sign In"}</Btn>
+        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
       </div>
     </div>
   </div>;
 }
 
 // ── JUDICIAL PANEL ────────────────────────────────────────────────────────────
-function JudicialPanel({user,cases,judgments,statutes,bills,appointments,onAction,notify,setProcessing}){
+function JudicialPanel({user,cases,judgments,statutes,bills,appointments,accounts,onAction,notify,setProcessing}){
   const isEmperor=user.role==="emperor";
   const isPresident=isEmperor||user.ijAccess==="president";
   const [sec,setSec]=useState("cases");
@@ -1515,7 +1683,7 @@ function JudicialPanel({user,cases,judgments,statutes,bills,appointments,onActio
     {sec==="cases"&&<CasePipeline cases={cases} appointments={appointments} onAction={onAction} notify={notify} setProcessing={setProcessing} isEmperor={isEmperor} isPresident={isPresident} onGotoJudgments={()=>setSec("judgments")}/>}
     {sec==="judgments"&&<JudgmentPanel cases={cases} judgments={judgments} statutes={statutes} bills={bills} appointments={appointments} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
     {sec==="statutes"&&<PanelStatutes statutes={statutes} cases={cases} onAction={onAction} notify={notify} setProcessing={setProcessing} isEmperor={isEmperor}/>}
-    {sec==="appointments"&&isPresident&&<PanelAppointments appointments={appointments} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+    {sec==="appointments"&&isPresident&&<PanelAppointments appointments={appointments} accounts={accounts} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
   </div>;
 }
 
@@ -2042,39 +2210,64 @@ function PanelStatutes({statutes,cases,onAction,notify,setProcessing,isEmperor})
 }
 
 // ── PANEL APPOINTMENTS ────────────────────────────────────────────────────────
-function PanelAppointments({appointments,onAction,notify,setProcessing}){
-  const [name,setName]=useState("");const [role,setRole]=useState("cc_justice");
+function PanelAppointments({appointments,accounts,onAction,notify,setProcessing}){
+  const [acctUser,setAcctUser]=useState("");const [role,setRole]=useState("cc_justice");
   const [since,setSince]=useState("");const [saving,setSaving]=useState(false);
-  const list=Object.values(appointments||{}).sort((a,b)=>{const o={president:0,cc_justice:1,rc_justice:2};return(o[a.role]||3)-(o[b.role]||3)||(a.name||"").localeCompare(b.name||"");});
+  const acctList=accounts||[];
+  const chosen=acctList.find(a=>a.username===acctUser);
+  const sortAppts=(arr)=>arr.sort((a,b)=>(apptRole(a.role).order||0)-(apptRole(b.role).order||0)||(a.name||"").localeCompare(b.name||""));
+  const benchAppts=sortAppts(Object.values(appointments||{}).filter(a=>apptRole(a.role).cat==="bench"));
+  const proseAppts=sortAppts(Object.values(appointments||{}).filter(a=>apptRole(a.role).cat==="prosecution"));
+
+  const acctOpts=[{v:"",l:"— Select an MOI account —"},...acctList.map(a=>({v:a.username,l:(a.displayName?a.displayName+" ":"")+"@"+a.username}))];
+  const roleOpts=APPOINTMENT_ROLES.map(r=>({v:r.v,l:(r.cat==="prosecution"?"⚖ Prosecution — ":"⚖ Bench — ")+r.l}));
+
+  function ApptRow({a}){
+    const col=apptColor(a.role);const r=apptRole(a.role);
+    return <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${col}`,
+      borderRadius:"0 3px 3px 0",padding:"0.65rem 1rem",marginBottom:4,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+      <span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text}}>{a.name}</span>
+      {a.username&&<span className="mono" style={{fontSize:9,color:C.textDD}}>@{a.username}</span>}
+      <span style={{fontSize:12,color:col,fontStyle:"italic",flex:1}}>{r.l}</span>
+      {a.since&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{a.since}</span>}
+      <ArmBtn small label="Remove" confirmLabel="Remove?" onConfirm={async()=>{
+        setProcessing("Removing...");await onAction("deleteAppointment",{id:a.id});
+        setProcessing(null);notify(a.name+" removed.",C.textD);
+      }}/>
+    </div>;
+  }
+
   return <div>
-    <STitle>Judicial Appointments</STitle>
-    <div style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:3,padding:"1.25rem",marginBottom:"1.25rem"}}>
-      <div className="mono" style={{fontSize:9,color:C.textD,letterSpacing:"0.15em",marginBottom:"0.75rem"}}>APPOINT JUSTICE</div>
+    <STitle>Appointments</STitle>
+    <div style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:3,padding:"1.25rem",marginBottom:"1.5rem"}}>
+      <div className="mono" style={{fontSize:9,color:C.textD,letterSpacing:"0.15em",marginBottom:"0.75rem"}}>NEW APPOINTMENT</div>
       <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
         <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
-          <div style={{flex:2,minWidth:180}}><FL>NAME *</FL><Inp value={name} onChange={setName} placeholder="Full name"/></div>
-          <div style={{flex:1,minWidth:200}}><FL>ROLE</FL><DD value={role} onChange={setRole} options={APPOINTMENT_ROLES.map(r=>({v:r.v,l:r.l}))}/></div>
+          <div style={{flex:2,minWidth:200}}><FL>APPOINTEE (MOI ACCOUNT) *</FL><DD value={acctUser} onChange={setAcctUser} options={acctOpts}/></div>
+          <div style={{flex:2,minWidth:220}}><FL>ROLE</FL><DD value={role} onChange={setRole} options={roleOpts}/></div>
           <div style={{flex:1,minWidth:120}}><FL>DATE OF APPOINTMENT</FL><Inp value={since} onChange={setSince} placeholder="e.g. 1 January 2026"/></div>
         </div>
-        <Btn small disabled={!name.trim()||saving} onClick={async()=>{
+        {apptRole(role).cat==="prosecution"&&<Disclaimer type="warning">Federal Prosecutors may file Criminal Prosecutions and Impeachment Proceedings. This appointment grants that authority to the selected account.</Disclaimer>}
+        <Btn small disabled={!acctUser||saving} onClick={async()=>{
+          if(!chosen)return;
+          const dispName=chosen.displayName||chosen.username;
           setSaving(true);setProcessing("Appointing...");
-          await onAction("createAppointment",{name:name.trim(),role,since:since.trim()});
-          setProcessing(null);setSaving(false);notify(name+" appointed.",C.accent);
-          setName("");setSince("");
+          await onAction("createAppointment",{name:dispName,username:chosen.username,role,since:since.trim()});
+          setProcessing(null);setSaving(false);notify(dispName+" appointed.",apptRole(role).cat==="prosecution"?PROSECUTION_COLOR:C.accent);
+          setAcctUser("");setSince("");
         }}>{saving?"Appointing...":"Appoint"}</Btn>
       </div>
     </div>
-    {list.map(a=>{const r=APPOINTMENT_ROLES.find(x=>x.v===a.role)||APPOINTMENT_ROLES[1];const ct=COURTS.find(c=>c.v===r.court)||{color:C.silver};
-      return <div key={a.id} style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${ct.color}`,
-        borderRadius:"0 3px 3px 0",padding:"0.65rem 1rem",marginBottom:4,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-        <span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{a.name}</span>
-        <span style={{fontSize:12,color:ct.color,fontStyle:"italic"}}>{r.l}</span>
-        {a.since&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{a.since}</span>}
-        <ArmBtn small label="Remove" confirmLabel="Remove appointment?" onConfirm={async()=>{
-          setProcessing("Removing...");await onAction("deleteAppointment",{id:a.id});
-          setProcessing(null);notify(a.name+" removed.",C.textD);
-        }}/>
-      </div>;})}
+
+    <div className="mono" style={{fontSize:9,color:C.silver,letterSpacing:"0.2em",marginBottom:"0.6rem"}}>⚖ THE BENCH</div>
+    {benchAppts.length===0
+      ?<div style={{fontSize:13,color:C.textDD,fontStyle:"italic",marginBottom:"1.25rem"}}>No justices appointed.</div>
+      :<div style={{marginBottom:"1.5rem"}}>{benchAppts.map(a=><ApptRow key={a.id} a={a}/>)}</div>}
+
+    <div className="mono" style={{fontSize:9,color:PROSECUTION_COLOR,letterSpacing:"0.2em",marginBottom:"0.6rem"}}>⚖ FEDERAL PROSECUTION SERVICE</div>
+    {proseAppts.length===0
+      ?<div style={{fontSize:13,color:C.textDD,fontStyle:"italic"}}>No prosecutors appointed.</div>
+      :<div>{proseAppts.map(a=><ApptRow key={a.id} a={a}/>)}</div>}
   </div>;
 }
 
@@ -2082,7 +2275,7 @@ function PanelAppointments({appointments,onAction,notify,setProcessing}){
 function App(){
   const [tab,setTab]=useState("docket");
   const [raw,setRaw]=useState({});const [loaded,setLoaded]=useState(false);
-  const [panelUser,setPanelUser]=useState(null);const [panelAuth,setPanelAuth]=useState(false);
+  const [user,setUser]=useState(null);const [authOpen,setAuthOpen]=useState(false);
   const [toast,setToast]=useState({msg:"",color:""});const [processing,setProcessing]=useState(null);
 
   const notify=useCallback((msg,color=C.accent)=>{
@@ -2105,6 +2298,14 @@ function App(){
   const judgments=useMemo(()=>raw["ij_judgments"]||{},[raw]);
   const statutes=useMemo(()=>raw["ij_statutes"]||{},[raw]);
   const appointments=useMemo(()=>raw["ij_appointments"]||{},[raw]);
+  const accounts=useMemo(()=>{
+    const out=[];const seen={};
+    Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v&&v.username&&!seen[v.username.toLowerCase()]){seen[v.username.toLowerCase()]=1;out.push(v);}});
+    Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(v&&v.username&&!seen[v.username.toLowerCase()]){seen[v.username.toLowerCase()]=1;out.push(v);}});
+    return out.sort((x,y)=>((x.displayName||x.username)||"").localeCompare((y.displayName||y.username)||""));
+  },[raw]);
+  const myProsecutorRank=useMemo(()=>prosecutorRank(user,appointments),[user,appointments]);
+  const canPanel=user&&(user.role==="emperor"||user.ijAccess==="judge"||user.ijAccess==="president");
   const members=useMemo(()=>raw["bk_members"]||{},[raw]);
   const bundesherren=useMemo(()=>raw["bk_bh"]||{},[raw]);
   const bills=useMemo(()=>{
@@ -2158,7 +2359,7 @@ function App(){
   },[raw,cases,judgments,statutes,appointments]);
 
   const TABS=[{v:"docket",l:"Case Docket",icon:"📋"},{v:"code",l:"Legal Code",icon:"📖"},{v:"bench",l:"The Bench",icon:"⚖"},{v:"panel",l:"Judicial Panel",icon:"⚙"}];
-  function handleTab(v){if(v==="panel"&&!panelUser){setPanelAuth(true);return;}setTab(v);setPanelAuth(false);}
+  function handleTab(v){setTab(v);}
 
   return <div style={{background:C.bg,minHeight:"100vh",color:C.text}}>
     <Toast msg={toast.msg} color={toast.color}/>
@@ -2173,15 +2374,26 @@ function App(){
             <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.5em",color:C.textDD,marginBottom:3,textTransform:"uppercase"}}>Empire of Lech</div>
             <div style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:18,letterSpacing:"0.12em",color:C.text}}>Imperial Judiciary</div>
           </div>
-          <div style={{width:80}}/>
+          <div style={{minWidth:80,display:"flex",justifyContent:"flex-end",alignItems:"center",gap:8,flexShrink:0}}>
+            {user?<>
+              <div style={{textAlign:"right",lineHeight:1.2}}>
+                <div style={{fontFamily:"'Cinzel',serif",fontSize:11,color:C.text}}>{user.displayName||user.username}</div>
+                {myProsecutorRank
+                  ?<div className="mono" style={{fontSize:7,color:PROSECUTION_COLOR,letterSpacing:"0.1em"}}>{apptRole(myProsecutorRank).l.toUpperCase()}</div>
+                  :canPanel?<div className="mono" style={{fontSize:7,color:C.silver,letterSpacing:"0.1em"}}>JUDICIAL OFFICER</div>
+                  :<div className="mono" style={{fontSize:7,color:C.textDD,letterSpacing:"0.1em"}}>SIGNED IN</div>}
+              </div>
+              <Btn small variant="ghost" onClick={()=>{setUser(null);if(tab==="panel")setTab("docket");notify("Signed out.",C.textD);}}>Sign Out</Btn>
+            </>:<Btn small onClick={()=>setAuthOpen(true)}>Sign In</Btn>}
+          </div>
         </div>
         <div style={{display:"flex",overflowX:"auto"}}>
           {TABS.map(t=><button key={t.v} onClick={()=>handleTab(t.v)}
             style={{fontFamily:"'Cinzel',serif",fontSize:10,fontWeight:700,letterSpacing:"0.15em",
                      textTransform:"uppercase",padding:"0.65rem 1rem",background:"transparent",
                      border:"none",whiteSpace:"nowrap",cursor:"pointer",flexShrink:0,
-                     borderBottom:`2px solid ${tab===t.v&&!panelAuth?C.accent:"transparent"}`,
-                     color:tab===t.v&&!panelAuth?C.accent:C.textD}}>
+                     borderBottom:`2px solid ${tab===t.v?C.accent:"transparent"}`,
+                     color:tab===t.v?C.accent:C.textD}}>
             {t.icon}{" "}{t.l}
           </button>)}
         </div>
@@ -2191,17 +2403,21 @@ function App(){
       {!loaded&&<div style={{textAlign:"center",padding:"4rem",color:C.textDD}}>
         <div className="mono" style={{fontSize:10,letterSpacing:"0.3em",animation:"pulse 1.5s infinite"}}>Loading...</div>
       </div>}
-      {loaded&&panelAuth&&!panelUser&&<PanelAuth
-        onAuth={(u,r)=>{setPanelUser(u);setRaw(prev=>({...prev,...r}));setPanelAuth(false);setTab("panel");notify("Authenticated.",C.accent);}}
-        onCancel={()=>setPanelAuth(false)}/>}
-      {loaded&&!panelAuth&&tab==="docket"&&<DocketTab cases={cases} judgments={judgments} statutes={statutes} appointments={appointments} onAction={onAction} notify={notify}/>}
-      {loaded&&!panelAuth&&tab==="code"&&<LegalCodeTab statutes={statutes} bills={bills} cases={cases} members={members} bundesherren={bundesherren}/>}
-      {loaded&&!panelAuth&&tab==="bench"&&<AppointmentsTab appointments={appointments}/>}
-      {loaded&&!panelAuth&&tab==="panel"&&panelUser&&<JudicialPanel user={panelUser} cases={cases}
-        judgments={judgments} statutes={statutes} bills={bills} appointments={appointments}
+      {authOpen&&<SignIn onClose={()=>setAuthOpen(false)}
+        onAuth={(u,r)=>{setUser(u);setRaw(prev=>({...prev,...r}));setAuthOpen(false);notify("Signed in as "+(u.displayName||u.username)+".",C.accent);}}/>}
+      {loaded&&tab==="docket"&&<DocketTab cases={cases} judgments={judgments} statutes={statutes} appointments={appointments}
+        user={user} accounts={accounts} isProsecutor={!!myProsecutorRank} onRequireSignIn={()=>setAuthOpen(true)}
+        onAction={onAction} notify={notify}/>}
+      {loaded&&tab==="code"&&<LegalCodeTab statutes={statutes} bills={bills} cases={cases} members={members} bundesherren={bundesherren}/>}
+      {loaded&&tab==="bench"&&<AppointmentsTab appointments={appointments}/>}
+      {loaded&&tab==="panel"&&canPanel&&<JudicialPanel user={user} cases={cases}
+        judgments={judgments} statutes={statutes} bills={bills} appointments={appointments} accounts={accounts}
         onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
-      {loaded&&!panelAuth&&tab==="panel"&&!panelUser&&<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>
-        Authentication required. Click Judicial Panel to log in.
+      {loaded&&tab==="panel"&&!canPanel&&<div style={{textAlign:"center",padding:"3rem",color:C.textDD}}>
+        <div style={{fontStyle:"italic",marginBottom:"1rem"}}>
+          {user?"Your account does not have judicial panel access. Contact the Ministry of the Interior to be granted judicial authority.":"Sign in with your Imperial Intranet account to access the Judicial Panel."}
+        </div>
+        {!user&&<Btn onClick={()=>setAuthOpen(true)}>Sign In</Btn>}
       </div>}
     </div>
     <div style={{borderTop:`1px solid ${C.border}`,padding:"0.75rem 1.25rem",marginTop:"3rem"}}>

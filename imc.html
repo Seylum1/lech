@@ -1,0 +1,1361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Imperial Maritime Commission — Empire of Lech</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.7/babel.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{background:#060c12;color:#dde8f0;font-family:'Crimson Text',Georgia,serif;min-height:100vh;}
+::-webkit-scrollbar{width:5px;}
+::-webkit-scrollbar-track{background:#060c12;}
+::-webkit-scrollbar-thumb{background:#1a3a5a;border-radius:2px;}
+input,select,textarea{font-family:'Crimson Text',Georgia,serif;}
+a{color:#4a9acc;text-decoration:none;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+@keyframes pulse{0%,100%{opacity:.6;}50%{opacity:1;}}
+@keyframes scanline{0%{transform:translateY(-100%);}100%{transform:translateY(100vh);}}
+@keyframes shimmer{0%{background-position:200% 0;}100%{background-position:-200% 0;}}
+.fadeIn{animation:fadeIn .3s ease both;}
+.mono{font-family:'Share Tech Mono',monospace;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback,useMemo}=React;
+
+// ── CONFIG ────────────────────────────────────────────────────────────────────
+const SCRIPT_URL="https://script.google.com/macros/s/AKfycbxLu8jQehAZJEvMEeCLoHc9S2C4FM8o9fQh8Pp4gMzDNwwIG0S9qLJ5-1gyGM1c_InUfQ/exec";
+
+// ── DESIGN TOKENS ─────────────────────────────────────────────────────────────
+const C={
+  bg:"#060c12",
+  s1:"#0c1824",
+  s2:"#101e2c",
+  s3:"#162434",
+  border:"#1e3a52",
+  borderL:"#2a5270",
+  text:"#dde8f0",
+  textD:"#7a9ab0",
+  textDD:"#3a5a70",
+  accent:"#2a8ab4",
+  accentL:"#4aaad4",
+  accentD:"#1a5a7a",
+  gold:"#C9A84C",
+  goldD:"#8a6820",
+  red:"#8b1a1a",
+  redL:"#c05050",
+  redD:"#6a0808",
+  green:"#2a7a4a",
+  greenL:"#5aaa7a",
+  navy:"#1a2a4a",
+  teal:"#1a7a8a",
+};
+
+// ── SHIP / PORT CONSTANTS ─────────────────────────────────────────────────────
+const SHIP_TYPES=[
+  {v:"cargo",     l:"Cargo Vessel",      icon:"📦"},
+  {v:"passenger", l:"Passenger Ship",    icon:"🚢"},
+  {v:"fishing",   l:"Fishing Vessel",    icon:"🎣"},
+  {v:"pleasure",  l:"Pleasure Craft",    icon:"⛵"},
+  {v:"research",  l:"Research Vessel",   icon:"🔭"},
+  {v:"ferry",     l:"Ferry",             icon:"⛴"},
+  {v:"tanker",    l:"Tanker",            icon:"🛢"},
+  {v:"other",     l:"Other",             icon:"🚤"},
+];
+const SHIP_STATUSES=[
+  {v:"active",         l:"Active",          color:C.greenL},
+  {v:"decommissioned", l:"Decommissioned",  color:C.textD},
+  {v:"seized",         l:"Seized",          color:C.redL},
+  {v:"under_repair",   l:"Under Repair",    color:C.gold},
+];
+const IMC_ROLES=[
+  {v:"",            l:"No Access"},
+  {v:"officer",     l:"IMC Officer",     desc:"View full ship & port registries"},
+  {v:"registrar",   l:"IMC Registrar",   desc:"Approve requests, manually register ships & ports"},
+  {v:"commissioner",l:"IMC Commissioner",desc:"Full access including account management"},
+];
+
+// ── BACKEND ───────────────────────────────────────────────────────────────────
+async function sha256(t){
+  const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
+function imcNum(){
+  const y=new Date().getFullYear();
+  const n=String(Math.floor(Math.random()*9000)+1000);
+  return `IMC-${y}-${n}`;
+}
+
+async function sgetAll(){
+  try{
+    const r=await fetch(SCRIPT_URL+"?action=getall");
+    const d=await r.json();
+    if(!d.success) return {};
+    const out={};
+    Object.entries(d.data||{}).forEach(([k,v])=>{if(v){try{out[k]=JSON.parse(v);}catch{}}});
+    return out;
+  }catch{return{};}
+}
+async function sset(k,v){
+  try{
+    await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
+      body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v)})});
+    return true;
+  }catch{return false;}
+}
+async function sdel(k){
+  try{await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
+    body:JSON.stringify({action:"del",key:k})});}catch{}
+}
+
+// ── SHARED COMPONENTS ─────────────────────────────────────────────────────────
+function Btn({children,onClick,variant="primary",disabled,small,style:extra={}}){
+  const base={fontFamily:"'Cinzel',serif",letterSpacing:"0.12em",fontWeight:700,
+    textTransform:"uppercase",fontSize:small?10:12,padding:small?"4px 14px":"7px 20px",
+    border:"1px solid",borderRadius:2,cursor:disabled?"not-allowed":"pointer",
+    opacity:disabled?.4:1,transition:"all .15s"};
+  const vars={
+    primary:{background:`linear-gradient(135deg,${C.accentD},${C.accent})`,borderColor:C.accentD,color:"#fff"},
+    danger: {background:"transparent",borderColor:C.redD,color:C.redL},
+    armed:  {background:`linear-gradient(135deg,${C.redD},${C.red})`,borderColor:C.redD,color:"#fff"},
+    ghost:  {background:"transparent",borderColor:C.border,color:C.textD},
+    gold:   {background:"linear-gradient(135deg,#2a1e00,#4a3800)",borderColor:"#4a3800",color:C.gold},
+    green:  {background:"linear-gradient(135deg,#0a2016,#1a4a28)",borderColor:"#1a4a28",color:C.greenL},
+  };
+  return<button onClick={disabled?undefined:onClick} style={{...base,...(vars[variant]||vars.primary),...extra}}>{children}</button>;
+}
+function ArmBtn({label,confirmLabel,onConfirm,variant="danger",small}){
+  const [armed,setArmed]=useState(false);
+  const t=useRef(null);
+  return armed
+    ?<Btn variant="armed" small={small} onClick={()=>{clearTimeout(t.current);setArmed(false);onConfirm();}}>
+       {confirmLabel||"Confirm?"}
+     </Btn>
+    :<Btn variant={variant} small={small} onClick={()=>{setArmed(true);clearTimeout(t.current);t.current=setTimeout(()=>setArmed(false),4000);}}>
+       {label}
+     </Btn>;
+}
+function Inp({value,onChange,placeholder,type="text",style:extra={},readOnly}){
+  return<input type={type} value={value} onChange={e=>!readOnly&&onChange(e.target.value)}
+    readOnly={readOnly} placeholder={placeholder}
+    style={{width:"100%",background:readOnly?C.s1:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
+             padding:"8px 12px",color:readOnly?C.textD:C.text,fontSize:14,outline:"none",...extra}}
+    onFocus={e=>{if(!readOnly)e.target.style.borderColor=C.accentL;}}
+    onBlur={e=>e.target.style.borderColor=C.border}/>;
+}
+function TA({value,onChange,placeholder,rows=4}){
+  return<textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows}
+    style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
+             padding:"8px 12px",color:C.text,fontSize:14,outline:"none",resize:"vertical",lineHeight:1.6}}
+    onFocus={e=>e.target.style.borderColor=C.accentL}
+    onBlur={e=>e.target.style.borderColor=C.border}/>;
+}
+function DD({value,onChange,options,style:extra={}}){
+  return<select value={value} onChange={e=>onChange(e.target.value)}
+    style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
+             padding:"8px 12px",color:C.text,fontSize:14,outline:"none",fontFamily:"'Crimson Text',serif",...extra}}>
+    {options.map(o=><option key={o.v||o} value={o.v||o}>{o.l||o}</option>)}
+  </select>;
+}
+function FL({children}){
+  return<div className="mono" style={{fontSize:9,color:C.textD,letterSpacing:"0.15em",marginBottom:4}}>{children}</div>;
+}
+function STitle({children,color,style:extra={}}){
+  return<div style={{fontFamily:"'Cinzel',serif",fontSize:11,fontWeight:700,letterSpacing:"0.35em",
+    textTransform:"uppercase",color:color||C.accentL,
+    paddingBottom:8,borderBottom:`1px solid ${C.border}`,marginBottom:"1.25rem",...extra}}>
+    {children}
+  </div>;
+}
+function Card({children,style:extra={}}){
+  return<div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:3,padding:"1.25rem",...extra}}>
+    {children}
+  </div>;
+}
+function Toast({msg,color}){
+  if(!msg) return null;
+  return<div style={{position:"fixed",top:14,right:14,zIndex:9999,background:C.s2,
+    border:`1px solid ${color}55`,borderLeft:`3px solid ${color}`,padding:"8px 16px",borderRadius:2,
+    fontFamily:"'Cinzel',serif",fontSize:11,letterSpacing:"0.1em",color,
+    animation:"fadeIn .2s ease",maxWidth:360}}>{msg}</div>;
+}
+function Overlay({label}){
+  if(!label) return null;
+  return<div style={{position:"fixed",inset:0,zIndex:99999,background:"rgba(4,10,18,.95)",
+    display:"flex",alignItems:"center",justifyContent:"center"}}>
+    <div style={{textAlign:"center"}}>
+      <div className="mono" style={{color:C.accentL,fontSize:11,letterSpacing:"0.3em",marginBottom:8,
+        animation:"pulse 1s infinite"}}>PROCESSING</div>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:18,letterSpacing:"0.15em",color:C.text}}>{label}</div>
+    </div>
+  </div>;
+}
+
+// ── ROLE / ACCESS HELPERS ─────────────────────────────────────────────────────
+const imcRoleRank=v=>v==="commissioner"?3:v==="registrar"?2:v==="officer"?1:0;
+const canViewIMC=u=>u&&imcRoleRank(u.imcRole)>=1;
+const canRegister=u=>u&&imcRoleRank(u.imcRole)>=2;
+const isCommissioner=u=>u&&imcRoleRank(u.imcRole)>=3;
+const isMOIAdmin=u=>u&&(u.role==="minister"||u.role==="emperor");
+
+// ── PORT BADGE ────────────────────────────────────────────────────────────────
+function PortTypeBadge({type,style:extra={}}){
+  const isPublic=type==="public";
+  return(
+    <span className="mono" style={{
+      fontSize:9,letterSpacing:"0.15em",padding:"2px 9px",
+      background:isPublic?"#081828":"#1a0e00",
+      border:`1px solid ${isPublic?"#2a6aaa":"#6a4800"}`,
+      color:isPublic?"#6aaae4":"#c89840",
+      borderRadius:2,...extra}}>
+      {isPublic?"⚓ PUBLIC PORT":"🔒 PRIVATE PORT"}
+    </span>
+  );
+}
+
+// ── SHIP STATUS BADGE ─────────────────────────────────────────────────────────
+function ShipStatusBadge({status}){
+  const st=SHIP_STATUSES.find(s=>s.v===status)||SHIP_STATUSES[0];
+  return(
+    <span className="mono" style={{fontSize:9,letterSpacing:"0.1em",padding:"2px 8px",
+      background:C.s1,border:`1px solid ${st.color}44`,color:st.color,borderRadius:2}}>
+      {st.l}
+    </span>
+  );
+}
+
+// ── LOGIN SCREEN ──────────────────────────────────────────────────────────────
+function LoginScreen({onLogin}){
+  const [username,setUsername]=useState("");
+  const [password,setPassword]=useState("");
+  const [err,setErr]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [scanPos,setScanPos]=useState(0);
+
+  useEffect(()=>{
+    const id=setInterval(()=>setScanPos(p=>(p+0.3)%100),30);
+    return()=>clearInterval(id);
+  },[]);
+
+  const doLogin=async()=>{
+    if(!username.trim()||!password.trim()){setErr("Credentials required.");return;}
+    setLoading(true);setErr("");
+    try{
+      const raw=await sgetAll();
+      const accounts={};
+      Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v)accounts[v.username]=v;});
+      Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(!accounts[k])accounts[k]=v;});
+      const user=Object.values(accounts).find(a=>a.username.toLowerCase()===username.trim().toLowerCase());
+      if(!user){setErr("ACCESS DENIED — Invalid credentials.");setLoading(false);return;}
+      const hash=await sha256(password);
+      if(hash!==user.passwordHash){setErr("ACCESS DENIED — Invalid credentials.");setLoading(false);return;}
+      if(!canViewIMC(user)&&!isMOIAdmin(user)){
+        setErr("ACCESS DENIED — No IMC clearance. Contact the Ministry of the Interior.");
+        setLoading(false);return;
+      }
+      onLogin(user,raw);
+    }catch(e){setErr("Connection error: "+e.message);}
+    setLoading(false);
+  };
+
+  return(
+    <div style={{minHeight:"100vh",background:"#030810",display:"flex",alignItems:"center",
+                  justifyContent:"center",position:"relative",overflow:"hidden"}}>
+      <div style={{position:"absolute",inset:0,
+        backgroundImage:"linear-gradient(#0d1a2a18 1px,transparent 1px),linear-gradient(90deg,#0d1a2a18 1px,transparent 1px)",
+        backgroundSize:"48px 48px"}}/>
+      <div style={{position:"absolute",left:0,right:0,height:2,
+        background:"linear-gradient(to right,transparent,#2a8ab422,transparent)",
+        top:`${scanPos}%`,transition:"top 0.03s linear",zIndex:1,pointerEvents:"none"}}/>
+      {/* corner brackets */}
+      {[{t:20,l:20},{t:20,r:20},{b:20,l:20},{b:20,r:20}].map((pos,i)=>(
+        <div key={i} style={{position:"absolute",width:32,height:32,...pos,zIndex:2,
+          borderTop:i<2?"2px solid #2a8ab444":"none",borderBottom:i>=2?"2px solid #2a8ab444":"none",
+          borderLeft:i%2===0?"2px solid #2a8ab444":"none",borderRight:i%2===1?"2px solid #2a8ab444":"none"}}/>
+      ))}
+      <div className="fadeIn" style={{position:"relative",zIndex:10,width:"100%",maxWidth:420,padding:"0 20px"}}>
+        <div style={{textAlign:"center",marginBottom:"2.5rem"}}>
+          {/* Logo placeholder — save imc_logo.png to this folder to display */}
+          <div style={{width:88,height:88,margin:"0 auto 16px",borderRadius:"50%",
+            background:"radial-gradient(circle,#1a2a3a,#0a1420)",
+            border:"2px solid #2a6aaa44",display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:36}}>⚓</div>
+          <div className="mono" style={{fontSize:9,letterSpacing:"0.5em",color:C.accentL,marginBottom:8,
+            animation:"pulse 3s infinite"}}>Empire of Lech · Secure Portal</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:22,
+            letterSpacing:"0.1em",color:C.text,lineHeight:1.25,marginBottom:4}}>
+            Imperial Maritime<br/>Commission
+          </div>
+          <div className="mono" style={{fontSize:9,letterSpacing:"0.25em",color:C.textDD,marginTop:8}}>
+            Authorised Access Only
+          </div>
+        </div>
+        <div style={{background:"#0a1420",border:"1px solid #1e3a5a",borderRadius:3,padding:"2rem"}}>
+          <div className="mono" style={{fontSize:9,letterSpacing:"0.25em",color:C.accentL,marginBottom:"1.5rem",
+            borderBottom:`1px solid ${C.border}`,paddingBottom:8}}>Authentication Required</div>
+          <div style={{display:"flex",flexDirection:"column",gap:"1rem"}}>
+            <div><FL>USERNAME</FL><Inp value={username} onChange={setUsername} placeholder="MOI username"/></div>
+            <div><FL>PASSWORD</FL><Inp value={password} onChange={setPassword} placeholder="Password" type="password"/></div>
+            {err&&<div className="mono" style={{fontSize:10,color:C.redL,background:"#1a0808",
+              border:`1px solid ${C.redD}44`,padding:"8px 12px",borderRadius:2}}>{err}</div>}
+            <Btn onClick={doLogin} disabled={loading||!username.trim()||!password.trim()}>
+              {loading?"AUTHENTICATING…":"AUTHENTICATE"}
+            </Btn>
+          </div>
+          <div className="mono" style={{fontSize:9,color:C.textDD,marginTop:"1.25rem",lineHeight:1.7,
+            borderTop:`1px solid ${C.border}`,paddingTop:"0.85rem"}}>
+            Credentials are shared with the MOI system. IMC access is assigned separately.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── PORT CARD ─────────────────────────────────────────────────────────────────
+function PortCard({port,canEdit,onAction,notify,setProcessing,ships}){
+  const [open,setOpen]=useState(false);
+  const [editMode,setEditMode]=useState(false);
+  const [name,setName]=useState(port.name);
+  const [location,setLocation]=useState(port.location||"");
+  const [operator,setOperator]=useState(port.operator||"");
+  const [capacity,setCapacity]=useState(String(port.capacity||""));
+  const [status,setStatus]=useState(port.status||"active");
+  const [notes,setNotes]=useState(port.notes||"");
+  const [saving,setSaving]=useState(false);
+
+  const dockedShips=Object.values(ships||{}).filter(s=>s.homePort===port.id&&s.status==="active");
+  const isPublic=port.type==="public";
+
+  return(
+    <div style={{background:C.s1,border:`1px solid ${open?C.borderL:C.border}`,
+      borderLeft:`4px solid ${isPublic?"#2a6aaa":"#7a5a10"}`,
+      borderRadius:"0 3px 3px 0",overflow:"hidden",marginBottom:"0.5rem"}}>
+      <div onClick={()=>{setOpen(o=>!o);setEditMode(false);}}
+        style={{display:"flex",alignItems:"center",gap:10,padding:"0.75rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
+        <PortTypeBadge type={port.type}/>
+        <span style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:600,color:C.text,flex:1,minWidth:120}}>
+          {port.name}
+        </span>
+        {port.location&&<span style={{fontSize:12,color:C.textD,fontStyle:"italic"}}>{port.location}</span>}
+        <span className="mono" style={{fontSize:9,color:port.status==="closed"?C.redL:C.greenL}}>
+          {port.status==="closed"?"CLOSED":"OPEN"}
+        </span>
+        <span className="mono" style={{fontSize:9,color:C.textDD}}>{dockedShips.length} ship{dockedShips.length!==1?"s":""}</span>
+        <span style={{fontSize:11,color:C.textDD}}>{open?"▲":"▼"}</span>
+      </div>
+      {open&&(
+        <div style={{borderTop:`1px solid ${C.border}`,padding:"1rem",background:C.s2}}>
+          {!editMode?(
+            <div>
+              <div style={{display:"flex",gap:"2rem",flexWrap:"wrap",marginBottom:"0.85rem"}}>
+                {port.operator&&<div>
+                  <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>OPERATOR</div>
+                  <div style={{fontSize:13,color:C.text}}>{port.operator}</div>
+                </div>}
+                {port.capacity&&<div>
+                  <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>BERTH CAPACITY</div>
+                  <div style={{fontSize:13,color:C.text}}>{port.capacity} berths</div>
+                </div>}
+                <div>
+                  <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>REGISTRATION ID</div>
+                  <div className="mono" style={{fontSize:11,color:C.accentL}}>{port.id.toUpperCase()}</div>
+                </div>
+                <div>
+                  <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>REGISTERED</div>
+                  <div style={{fontSize:12,color:C.textD}}>{port.registeredAt?new Date(port.registeredAt).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}):"—"}</div>
+                </div>
+              </div>
+              {port.notes&&<div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:2,
+                padding:"0.6rem 0.85rem",marginBottom:"0.75rem",fontSize:13,color:C.textD,lineHeight:1.7,fontStyle:"italic"}}>
+                {port.notes}
+              </div>}
+              {dockedShips.length>0&&(
+                <div style={{marginBottom:"0.75rem"}}>
+                  <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:6}}>REGISTERED VESSELS ({dockedShips.length})</div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                    {dockedShips.map(s=>(
+                      <span key={s.id} className="mono" style={{fontSize:9,background:C.s3,border:`1px solid ${C.border}`,
+                        padding:"2px 8px",borderRadius:2,color:C.textD}}>{s.name} · {s.registrationNumber}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {canEdit&&<div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                <Btn small variant="ghost" onClick={()=>setEditMode(true)}>✎ Edit</Btn>
+                <ArmBtn small label="Delete" confirmLabel="Delete port?" onConfirm={async()=>{
+                  setProcessing("Deleting port…");
+                  await onAction("deletePort",{portId:port.id});
+                  setProcessing(null);notify("Port deleted.",C.textD);
+                }}/>
+              </div>}
+            </div>
+          ):(
+            <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+              <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+                <div style={{flex:2,minWidth:160}}><FL>PORT NAME *</FL><Inp value={name} onChange={setName}/></div>
+                <div style={{flex:1,minWidth:120}}>
+                  <FL>STATUS</FL>
+                  <DD value={status} onChange={setStatus} options={[{v:"active",l:"Open"},{v:"closed",l:"Closed"}]}/>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+                <div style={{flex:2,minWidth:160}}><FL>LOCATION / REGION</FL><Inp value={location} onChange={setLocation} placeholder="e.g. Constituency Region II"/></div>
+                <div style={{flex:1,minWidth:140}}><FL>OPERATOR</FL><Inp value={operator} onChange={setOperator} placeholder="Port authority or owner"/></div>
+                <div style={{flex:1,minWidth:100}}><FL>BERTH CAPACITY</FL><Inp value={capacity} onChange={setCapacity} placeholder="No. of berths" type="number"/></div>
+              </div>
+              <div><FL>NOTES</FL><TA value={notes} onChange={setNotes} placeholder="Additional notes…" rows={2}/></div>
+              <div style={{display:"flex",gap:8}}>
+                <Btn small disabled={!name.trim()||saving} variant="gold" onClick={async()=>{
+                  setSaving(true);setProcessing("Saving port…");
+                  await onAction("updatePort",{portId:port.id,patch:{name:name.trim(),location:location.trim(),operator:operator.trim(),capacity:parseInt(capacity)||null,status,notes:notes.trim()}});
+                  setProcessing(null);setSaving(false);setEditMode(false);notify("Port updated.",C.gold);
+                }}>{saving?"Saving…":"Save"}</Btn>
+                <Btn small variant="ghost" onClick={()=>setEditMode(false)}>Cancel</Btn>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── SHIP CARD ─────────────────────────────────────────────────────────────────
+function ShipCard({ship,canEdit,onAction,notify,setProcessing,ports}){
+  const [open,setOpen]=useState(false);
+  const [editMode,setEditMode]=useState(false);
+  const [name,setName]=useState(ship.name);
+  const [type,setType]=useState(ship.type||"cargo");
+  const [homePort,setHomePort]=useState(ship.homePort||"");
+  const [owner,setOwner]=useState(ship.owner||"");
+  const [width,setWidth]=useState(ship.width!=null?String(ship.width):"");
+  const [length,setLength]=useState(ship.length!=null?String(ship.length):"");
+  const [blockSize,setBlockSize]=useState(String(ship.blockSize||""));
+  const [status,setStatus]=useState(ship.status||"active");
+  const [notes,setNotes]=useState(ship.notes||"");
+  const [saving,setSaving]=useState(false);
+
+  const st=SHIP_STATUSES.find(s=>s.v===ship.status)||SHIP_STATUSES[0];
+  const stype=SHIP_TYPES.find(t=>t.v===ship.type)||SHIP_TYPES[0];
+  const homePortObj=ports?.[ship.homePort];
+
+  return(
+    <div style={{background:C.s1,border:`1px solid ${open?C.borderL:C.border}`,
+      borderLeft:`4px solid ${st.color}`,borderRadius:"0 3px 3px 0",overflow:"hidden",marginBottom:"0.5rem"}}>
+      <div onClick={()=>{setOpen(o=>!o);setEditMode(false);}}
+        style={{display:"flex",alignItems:"center",gap:10,padding:"0.75rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
+        <span style={{fontSize:16}}>{stype.icon}</span>
+        <div style={{flex:1,minWidth:140}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:14,fontWeight:700,color:C.text}}>{ship.name}</div>
+          <div className="mono" style={{fontSize:9,color:C.textDD,marginTop:1}}>{ship.registrationNumber}</div>
+        </div>
+        <ShipStatusBadge status={ship.status}/>
+        <span className="mono" style={{fontSize:9,color:C.textD}}>{stype.l}</span>
+        {homePortObj&&(
+          <span className="mono" style={{fontSize:9,color:homePortObj.type==="public"?"#6aaae4":"#c89840"}}>
+            {homePortObj.type==="public"?"⚓":"🔒"} {homePortObj.name}
+          </span>
+        )}
+        <span style={{fontSize:11,color:C.textDD}}>{open?"▲":"▼"}</span>
+      </div>
+      {open&&(
+        <div style={{borderTop:`1px solid ${C.border}`,padding:"1rem",background:C.s2}}>
+          {!editMode?(
+            <div>
+              <div style={{display:"flex",gap:"2rem",flexWrap:"wrap",marginBottom:"0.85rem"}}>
+                {ship.owner&&<div>
+                  <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>OWNER</div>
+                  <div style={{fontSize:13,color:C.text}}>{ship.owner}</div>
+                </div>}
+                <div>
+                  <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>HOME PORT</div>
+                  <div style={{fontSize:13,color:C.text}}>{homePortObj?.name||<span style={{color:C.textDD,fontStyle:"italic"}}>Unassigned</span>}</div>
+                  {homePortObj&&<PortTypeBadge type={homePortObj.type} style={{marginTop:3}}/>}
+                </div>
+                <div>
+                  <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>BLOCK SIZE</div>
+                  <div style={{fontFamily:"'Cinzel',serif",fontSize:16,fontWeight:700,color:C.accentL}}>{ship.blockSize!=null?ship.blockSize+" blk":"—"}</div>
+                </div>
+                {(ship.width||ship.length)&&<div>
+                  <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>DIMENSIONS</div>
+                  <div style={{fontSize:13,color:C.text}}>
+                    {ship.length?<span>{ship.length}m L</span>:null}
+                    {ship.length&&ship.width?<span style={{color:C.textDD}}> × </span>:null}
+                    {ship.width?<span>{ship.width}m W</span>:null}
+                  </div>
+                </div>}
+                <div>
+                  <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>REGISTERED</div>
+                  <div style={{fontSize:12,color:C.textD}}>{ship.registeredAt?new Date(ship.registeredAt).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}):"—"}</div>
+                </div>
+              </div>
+              {ship.notes&&<div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:2,
+                padding:"0.6rem 0.85rem",marginBottom:"0.75rem",fontSize:13,color:C.textD,lineHeight:1.7,fontStyle:"italic"}}>
+                {ship.notes}
+              </div>}
+              {ship.requestedBy&&<div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:"0.75rem"}}>
+                ORIGINALLY REQUESTED BY {ship.requestedBy.toUpperCase()}
+              </div>}
+              {canEdit&&<div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                <Btn small variant="ghost" onClick={()=>setEditMode(true)}>✎ Edit</Btn>
+                <ArmBtn small label="Delete" confirmLabel="Delete record?" onConfirm={async()=>{
+                  setProcessing("Deleting ship record…");
+                  await onAction("deleteShip",{shipId:ship.id});
+                  setProcessing(null);notify("Record deleted.",C.textD);
+                }}/>
+              </div>}
+            </div>
+          ):(
+            <ShipEditForm
+              {...{name,setName,type,setType,homePort,setHomePort,owner,setOwner,
+                   width,setWidth,length,setLength,blockSize,setBlockSize,status,setStatus,notes,setNotes}}
+              ports={ports} saving={saving}
+              onSave={async()=>{
+                setSaving(true);setProcessing("Saving ship record…");
+                await onAction("updateShip",{shipId:ship.id,patch:{
+                  name:name.trim(),type,homePort,owner:owner.trim(),
+                  width:width.trim()?parseFloat(width):null,length:length.trim()?parseFloat(length):null,
+                  blockSize:blockSize.trim()?parseInt(blockSize):null,
+                  status,notes:notes.trim(),
+                }});
+                setProcessing(null);setSaving(false);setEditMode(false);notify("Ship record updated.",C.gold);
+              }}
+              onCancel={()=>setEditMode(false)}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ShipEditForm({name,setName,type,setType,homePort,setHomePort,owner,setOwner,
+  width,setWidth,length,setLength,blockSize,setBlockSize,status,setStatus,notes,setNotes,
+  ports,saving,onSave,onCancel}){
+  const portList=Object.values(ports||{}).filter(p=>p.status!=="closed").sort((a,b)=>{
+    if(a.type===b.type) return a.name.localeCompare(b.name);
+    return a.type==="public"?-1:1;
+  });
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+      <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+        <div style={{flex:2,minWidth:180}}><FL>VESSEL NAME *</FL><Inp value={name} onChange={setName} placeholder="Full registered name"/></div>
+        <div style={{flex:1,minWidth:140}}>
+          <FL>VESSEL TYPE *</FL>
+          <DD value={type} onChange={setType} options={SHIP_TYPES.map(t=>({v:t.v,l:t.icon+" "+t.l}))}/>
+        </div>
+        <div style={{flex:1,minWidth:120}}>
+          <FL>STATUS</FL>
+          <DD value={status} onChange={setStatus} options={SHIP_STATUSES.map(s=>({v:s.v,l:s.l}))}/>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+        <div style={{flex:2,minWidth:200}}>
+          <FL>HOME PORT *</FL>
+          <select value={homePort} onChange={e=>setHomePort(e.target.value)}
+            style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
+                     padding:"8px 12px",color:C.text,fontSize:14,outline:"none",fontFamily:"'Crimson Text',serif"}}>
+            <option value="">— Select Home Port —</option>
+            <optgroup label="Public Ports">
+              {portList.filter(p=>p.type==="public").map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+            </optgroup>
+            <optgroup label="Private Ports">
+              {portList.filter(p=>p.type==="private").map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+            </optgroup>
+          </select>
+        </div>
+        <div style={{flex:1,minWidth:160}}><FL>REGISTERED OWNER</FL><Inp value={owner} onChange={setOwner} placeholder="Owner name or entity"/></div>
+      </div>
+      <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:100}}><FL>LENGTH (m, optional)</FL><Inp value={length} onChange={setLength} placeholder="e.g. 120" type="number"/></div>
+        <div style={{flex:1,minWidth:100}}><FL>WIDTH (m, optional)</FL><Inp value={width} onChange={setWidth} placeholder="e.g. 20" type="number"/></div>
+        <div style={{flex:1,minWidth:120}}>
+          <FL>BLOCK SIZE (blk) *</FL>
+          <Inp value={blockSize} onChange={setBlockSize} placeholder="Imperial mandate" type="number"/>
+        </div>
+      </div>
+      <div><FL>NOTES / REMARKS</FL><TA value={notes} onChange={setNotes} placeholder="Additional notes…" rows={2}/></div>
+      <div style={{display:"flex",gap:8}}>
+        <Btn small variant="gold" disabled={!name.trim()||!homePort||!blockSize.trim()||saving} onClick={onSave}>{saving?"Saving…":"Save"}</Btn>
+        <Btn small variant="ghost" onClick={onCancel}>Cancel</Btn>
+      </div>
+    </div>
+  );
+}
+
+// ── SHIP REGISTRY TAB ─────────────────────────────────────────────────────────
+function ShipRegistryTab({ships,ports,currentUser,onAction,notify,setProcessing}){
+  const [search,setSearch]=useState("");
+  const [filterType,setFilterType]=useState("all");
+  const [filterStatus,setFilterStatus]=useState("active");
+  const [filterPort,setFilterPort]=useState("all");
+  const [creating,setCreating]=useState(false);
+
+  const list=Object.values(ships||{}).filter(s=>{
+    const q=search.toLowerCase();
+    const matchQ=!q||s.name?.toLowerCase().includes(q)||s.registrationNumber?.toLowerCase().includes(q)||s.owner?.toLowerCase().includes(q);
+    const matchT=filterType==="all"||s.type===filterType;
+    const matchSt=filterStatus==="all"||s.status===filterStatus;
+    const matchP=filterPort==="all"||s.homePort===filterPort;
+    return matchQ&&matchT&&matchSt&&matchP;
+  }).sort((a,b)=>a.name.localeCompare(b.name));
+
+  const portList=Object.values(ports||{}).sort((a,b)=>{
+    if(a.type===b.type) return a.name.localeCompare(b.name);
+    return a.type==="public"?-1:1;
+  });
+
+  const stats={
+    total:Object.values(ships||{}).length,
+    active:Object.values(ships||{}).filter(s=>s.status==="active").length,
+    ports:Object.values(ports||{}).filter(p=>p.status!=="closed").length,
+  };
+
+  return(
+    <div className="fadeIn">
+      <div style={{display:"flex",gap:"0.5rem",flexWrap:"wrap",marginBottom:"1.25rem"}}>
+        {[
+          {value:stats.total,label:"TOTAL VESSELS",color:C.accentL},
+          {value:stats.active,label:"ACTIVE",color:C.greenL},
+          {value:stats.ports,label:"OPEN PORTS",color:"#6aaae4"},
+        ].map((item,i)=>(
+          <div key={i} style={{background:C.s1,border:`1px solid ${item.color}33`,borderLeft:`3px solid ${item.color}`,
+            borderRadius:"0 3px 3px 0",padding:"6px 16px"}}>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:20,fontWeight:700,color:item.color,lineHeight:1}}>{item.value}</div>
+            <div className="mono" style={{fontSize:8,color:C.textDD,letterSpacing:"0.12em"}}>{item.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{display:"flex",gap:"0.75rem",marginBottom:"1.25rem",flexWrap:"wrap",alignItems:"flex-end"}}>
+        <div style={{flex:2,minWidth:200}}><FL>SEARCH</FL><Inp value={search} onChange={setSearch} placeholder="Name, registration number, owner…"/></div>
+        <div style={{flex:1,minWidth:130}}>
+          <FL>VESSEL TYPE</FL>
+          <DD value={filterType} onChange={setFilterType} options={[{v:"all",l:"All Types"},...SHIP_TYPES.map(t=>({v:t.v,l:t.l}))]}/>
+        </div>
+        <div style={{flex:1,minWidth:120}}>
+          <FL>STATUS</FL>
+          <DD value={filterStatus} onChange={setFilterStatus} options={[{v:"all",l:"All Status"},...SHIP_STATUSES.map(s=>({v:s.v,l:s.l}))]}/>
+        </div>
+        <div style={{flex:1,minWidth:160}}>
+          <FL>HOME PORT</FL>
+          <DD value={filterPort} onChange={setFilterPort} options={[{v:"all",l:"All Ports"},...portList.map(p=>({v:p.id,l:p.name}))]}/>
+        </div>
+        {canRegister(currentUser)&&!creating&&(
+          <Btn small onClick={()=>setCreating(true)}>+ Register Vessel</Btn>
+        )}
+      </div>
+
+      {creating&&<CreateShipForm ports={ports} currentUser={currentUser} onAction={onAction} notify={notify} setProcessing={setProcessing} onClose={()=>setCreating(false)}/>}
+
+      {list.length===0?(
+        <div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No vessels match the current filters.</div>
+      ):(
+        list.map(s=><ShipCard key={s.id} ship={s} canEdit={canRegister(currentUser)} ports={ports} onAction={onAction} notify={notify} setProcessing={setProcessing}/>)
+      )}
+    </div>
+  );
+}
+
+function CreateShipForm({ports,currentUser,onAction,notify,setProcessing,onClose}){
+  const [name,setName]=useState("");
+  const [type,setType]=useState("cargo");
+  const [homePort,setHomePort]=useState("");
+  const [owner,setOwner]=useState("");
+  const [width,setWidth]=useState("");
+  const [length,setLength]=useState("");
+  const [blockSize,setBlockSize]=useState("");
+  const [notes,setNotes]=useState("");
+  const [saving,setSaving]=useState(false);
+
+  return(
+    <div style={{background:C.s2,border:`1px solid ${C.accentD}`,borderRadius:3,padding:"1.25rem",marginBottom:"1.25rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:11,letterSpacing:"0.25em",color:C.accentL,
+        marginBottom:"1rem",display:"flex",justifyContent:"space-between"}}>
+        REGISTER NEW VESSEL
+        <button onClick={onClose} style={{background:"transparent",border:"none",color:C.textD,cursor:"pointer",fontSize:14}}>✕</button>
+      </div>
+      <ShipEditForm
+        name={name} setName={setName} type={type} setType={setType}
+        homePort={homePort} setHomePort={setHomePort} owner={owner} setOwner={setOwner}
+        width={width} setWidth={setWidth} length={length} setLength={setLength}
+        blockSize={blockSize} setBlockSize={setBlockSize}
+        status="active" setStatus={()=>{}} notes={notes} setNotes={setNotes}
+        ports={ports} saving={saving}
+        onSave={async()=>{
+          setSaving(true);setProcessing("Registering vessel…");
+          await onAction("createShip",{ship:{
+            name:name.trim(),type,homePort,owner:owner.trim(),
+            width:width.trim()?parseFloat(width):null,length:length.trim()?parseFloat(length):null,
+            blockSize:blockSize.trim()?parseInt(blockSize):null,
+            status:"active",notes:notes.trim(),
+            registeredBy:currentUser.username,
+          }});
+          setProcessing(null);setSaving(false);notify("Vessel registered.",C.accentL);onClose();
+        }}
+        onCancel={onClose}
+      />
+    </div>
+  );
+}
+
+// ── PORT REGISTRY TAB ─────────────────────────────────────────────────────────
+function PortRegistryTab({ports,ships,currentUser,onAction,notify,setProcessing}){
+  const [search,setSearch]=useState("");
+  const [filterType,setFilterType]=useState("all");
+  const [creating,setCreating]=useState(false);
+  const [newType,setNewType]=useState("public");
+
+  const list=Object.values(ports||{}).filter(p=>{
+    const q=search.toLowerCase();
+    const matchQ=!q||p.name?.toLowerCase().includes(q)||p.location?.toLowerCase().includes(q)||p.operator?.toLowerCase().includes(q);
+    const matchT=filterType==="all"||p.type===filterType;
+    return matchQ&&matchT;
+  }).sort((a,b)=>{
+    if(a.type===b.type) return a.name.localeCompare(b.name);
+    return a.type==="public"?-1:1;
+  });
+
+  const pubCount=Object.values(ports||{}).filter(p=>p.type==="public").length;
+  const privCount=Object.values(ports||{}).filter(p=>p.type==="private").length;
+
+  return(
+    <div className="fadeIn">
+      <div style={{display:"flex",gap:"0.5rem",flexWrap:"wrap",marginBottom:"1.25rem"}}>
+        {[
+          {value:pubCount,label:"PUBLIC PORTS",color:"#6aaae4"},
+          {value:privCount,label:"PRIVATE PORTS",color:"#c89840"},
+          {value:pubCount+privCount,label:"TOTAL",color:C.textD},
+        ].map((item,i)=>(
+          <div key={i} style={{background:C.s1,border:`1px solid ${item.color}33`,borderLeft:`3px solid ${item.color}`,
+            borderRadius:"0 3px 3px 0",padding:"6px 16px"}}>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:20,fontWeight:700,color:item.color,lineHeight:1}}>{item.value}</div>
+            <div className="mono" style={{fontSize:8,color:C.textDD,letterSpacing:"0.12em"}}>{item.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{background:"#08101a",border:"1px solid #1a3a5a",borderLeft:"3px solid #2a6aaa",
+        borderRadius:"0 3px 3px 0",padding:"0.6rem 1rem",marginBottom:"1.25rem",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+        <PortTypeBadge type="public"/>
+        <span style={{fontSize:13,color:C.textD}}>Public ports are operated by the Imperial government and open to all registered vessels.</span>
+        <PortTypeBadge type="private" style={{marginLeft:"auto"}}/>
+        <span style={{fontSize:13,color:C.textD}}>Private ports are owned by individuals or companies and may impose restrictions.</span>
+      </div>
+
+      <div style={{display:"flex",gap:"0.75rem",marginBottom:"1.25rem",flexWrap:"wrap",alignItems:"flex-end"}}>
+        <div style={{flex:2,minWidth:200}}><FL>SEARCH</FL><Inp value={search} onChange={setSearch} placeholder="Port name, location, operator…"/></div>
+        <div style={{flex:1,minWidth:160}}>
+          <FL>PORT TYPE</FL>
+          <DD value={filterType} onChange={setFilterType} options={[{v:"all",l:"All Ports"},{v:"public",l:"⚓ Public Only"},{v:"private",l:"🔒 Private Only"}]}/>
+        </div>
+        {canRegister(currentUser)&&!creating&&(
+          <Btn small onClick={()=>setCreating(true)}>+ Register Port</Btn>
+        )}
+      </div>
+
+      {creating&&<CreatePortForm currentUser={currentUser} onAction={onAction} notify={notify} setProcessing={setProcessing} onClose={()=>setCreating(false)}/>}
+
+      {list.length===0?(
+        <div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No ports match the current filters.</div>
+      ):(
+        list.map(p=><PortCard key={p.id} port={p} canEdit={canRegister(currentUser)} ships={ships} onAction={onAction} notify={notify} setProcessing={setProcessing}/>)
+      )}
+    </div>
+  );
+}
+
+function CreatePortForm({currentUser,onAction,notify,setProcessing,onClose}){
+  const [name,setName]=useState("");
+  const [type,setType]=useState("public");
+  const [location,setLocation]=useState("");
+  const [operator,setOperator]=useState("");
+  const [capacity,setCapacity]=useState("");
+  const [notes,setNotes]=useState("");
+  const [saving,setSaving]=useState(false);
+
+  return(
+    <div style={{background:C.s2,border:`1px solid ${C.accentD}`,borderRadius:3,padding:"1.25rem",marginBottom:"1.25rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:11,letterSpacing:"0.25em",color:C.accentL,
+        marginBottom:"1rem",display:"flex",justifyContent:"space-between"}}>
+        REGISTER NEW PORT
+        <button onClick={onClose} style={{background:"transparent",border:"none",color:C.textD,cursor:"pointer",fontSize:14}}>✕</button>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:2,minWidth:200}}><FL>PORT NAME *</FL><Inp value={name} onChange={setName} placeholder="Full port name"/></div>
+          <div style={{flex:1,minWidth:160}}>
+            <FL>PORT TYPE *</FL>
+            <DD value={type} onChange={setType} options={[{v:"public",l:"⚓ Public Port"},{v:"private",l:"🔒 Private Port"}]}/>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:2,minWidth:180}}><FL>LOCATION / REGION</FL><Inp value={location} onChange={setLocation} placeholder="e.g. Constituency Region I"/></div>
+          <div style={{flex:1,minWidth:140}}><FL>OPERATOR</FL><Inp value={operator} onChange={setOperator} placeholder="Port authority or owner"/></div>
+          <div style={{flex:1,minWidth:100}}><FL>BERTH CAPACITY</FL><Inp value={capacity} onChange={setCapacity} placeholder="No. of berths" type="number"/></div>
+        </div>
+        <div><FL>NOTES</FL><TA value={notes} onChange={setNotes} placeholder="Additional notes…" rows={2}/></div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn disabled={!name.trim()||saving} onClick={async()=>{
+            setSaving(true);setProcessing("Registering port…");
+            await onAction("createPort",{port:{
+              name:name.trim(),type,location:location.trim(),operator:operator.trim(),
+              capacity:capacity.trim()?parseInt(capacity):null,status:"active",notes:notes.trim(),
+              registeredBy:currentUser.username,
+            }});
+            setProcessing(null);setSaving(false);notify("Port registered.",C.accentL);onClose();
+          }}>{saving?"Registering…":"Register Port"}</Btn>
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── REQUEST FORMS (citizen-facing) ─────────────────────────────────────────────
+function RequestTab({ports,currentUser,onAction,notify,setProcessing,shipReqs,portReqs,canManage}){
+  const [openForm,setOpenForm]=useState(null); // null | "ship" | "port"
+
+  const myShipReqs=Object.values(shipReqs||{}).filter(r=>r.requestedBy===currentUser.username)
+    .sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const myPortReqs=Object.values(portReqs||{}).filter(r=>r.requestedBy===currentUser.username)
+    .sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+
+  const totalPending=myShipReqs.filter(r=>r.status==="pending").length+myPortReqs.filter(r=>r.status==="pending").length;
+
+  return(
+    <div className="fadeIn">
+      <STitle>Registration Requests</STitle>
+
+      {/* CTA buttons */}
+      <div style={{display:"flex",gap:"1rem",marginBottom:"1.75rem",flexWrap:"wrap"}}>
+        <div onClick={()=>setOpenForm(openForm==="ship"?null:"ship")}
+          style={{flex:1,minWidth:200,cursor:"pointer",background:openForm==="ship"?"#0e1e30":C.s1,
+            border:`2px solid ${openForm==="ship"?C.accentL:C.border}`,borderRadius:4,
+            padding:"1.1rem 1.25rem",transition:"all .15s",userSelect:"none"}}>
+          <div style={{fontSize:22,marginBottom:6}}>🚢</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:700,letterSpacing:"0.1em",color:openForm==="ship"?C.accentL:C.text,marginBottom:3}}>
+            Register a Vessel
+          </div>
+          <div style={{fontSize:12,color:C.textD,lineHeight:1.6}}>
+            Submit your ship for Imperial registration. A registrar will review and approve your application.
+          </div>
+        </div>
+        <div onClick={()=>setOpenForm(openForm==="port"?null:"port")}
+          style={{flex:1,minWidth:200,cursor:"pointer",background:openForm==="port"?"#1a1000":C.s1,
+            border:`2px solid ${openForm==="port"?"#c89840":C.border}`,borderRadius:4,
+            padding:"1.1rem 1.25rem",transition:"all .15s",userSelect:"none"}}>
+          <div style={{fontSize:22,marginBottom:6}}>⚓</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:700,letterSpacing:"0.1em",color:openForm==="port"?"#c89840":C.text,marginBottom:3}}>
+            Register a Port
+          </div>
+          <div style={{fontSize:12,color:C.textD,lineHeight:1.6}}>
+            Apply to register a public or private port. Public port applications require Imperial approval.
+          </div>
+        </div>
+      </div>
+
+      {openForm==="ship"&&(
+        <ShipRequestForm ports={ports} currentUser={currentUser} onAction={onAction} notify={notify} setProcessing={setProcessing} onClose={()=>setOpenForm(null)}/>
+      )}
+      {openForm==="port"&&(
+        <PortRequestForm currentUser={currentUser} onAction={onAction} notify={notify} setProcessing={setProcessing} onClose={()=>setOpenForm(null)}/>
+      )}
+
+      {/* Request history */}
+      {(myShipReqs.length>0||myPortReqs.length>0)&&(
+        <div>
+          <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.15em",marginBottom:"0.85rem",
+            display:"flex",alignItems:"center",gap:10}}>
+            YOUR REQUESTS
+            {totalPending>0&&<span style={{background:"#2a1e00",border:"1px solid #6a4a0044",color:C.gold,
+              padding:"1px 8px",borderRadius:2,fontSize:9}}>{totalPending} PENDING</span>}
+          </div>
+          {myShipReqs.map(r=>(
+            <div key={r.id}>
+              <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.1em",marginBottom:3,marginTop:6}}>🚢 VESSEL</div>
+              <RequestCard req={r} type="ship" ports={ports} canManage={canManage} onAction={onAction} notify={notify} setProcessing={setProcessing}/>
+            </div>
+          ))}
+          {myPortReqs.map(r=>(
+            <div key={r.id}>
+              <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.1em",marginBottom:3,marginTop:6}}>⚓ PORT</div>
+              <RequestCard req={r} type="port" ports={ports} canManage={canManage} onAction={onAction} notify={notify} setProcessing={setProcessing}/>
+            </div>
+          ))}
+        </div>
+      )}
+      {myShipReqs.length===0&&myPortReqs.length===0&&!openForm&&(
+        <div style={{textAlign:"center",padding:"2.5rem",color:C.textDD,fontStyle:"italic"}}>
+          No registration requests on file. Use the options above to submit one.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ShipRequestForm({ports,currentUser,onAction,notify,setProcessing,onClose}){
+  const [name,setName]=useState("");
+  const [type,setType]=useState("cargo");
+  const [homePort,setHomePort]=useState("");
+  const [owner,setOwner]=useState(currentUser.displayName||currentUser.username);
+  const [width,setWidth]=useState("");
+  const [length,setLength]=useState("");
+  const [blockSize,setBlockSize]=useState("");
+  const [notes,setNotes]=useState("");
+  const [saving,setSaving]=useState(false);
+
+  return(
+    <div style={{background:C.s2,border:`1px solid ${C.accentD}`,borderRadius:3,padding:"1.25rem",marginBottom:"1.25rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:11,letterSpacing:"0.25em",color:C.accentL,
+        marginBottom:"1rem",display:"flex",justifyContent:"space-between"}}>
+        SHIP REGISTRATION REQUEST
+        <button onClick={onClose} style={{background:"transparent",border:"none",color:C.textD,cursor:"pointer",fontSize:14}}>✕</button>
+      </div>
+      <ShipEditForm
+        name={name} setName={setName} type={type} setType={setType}
+        homePort={homePort} setHomePort={setHomePort} owner={owner} setOwner={setOwner}
+        width={width} setWidth={setWidth} length={length} setLength={setLength}
+        blockSize={blockSize} setBlockSize={setBlockSize}
+        status="active" setStatus={()=>{}} notes={notes} setNotes={setNotes}
+        ports={ports} saving={saving}
+        onSave={async()=>{
+          setSaving(true);setProcessing("Submitting request…");
+          await onAction("submitShipRequest",{req:{
+            name:name.trim(),type,homePort,owner:owner.trim(),
+            width:width.trim()?parseFloat(width):null,length:length.trim()?parseFloat(length):null,
+            blockSize:blockSize.trim()?parseInt(blockSize):null,
+            notes:notes.trim(),requestedBy:currentUser.username,
+          }});
+          setProcessing(null);setSaving(false);
+          notify("Request submitted — awaiting registrar review.",C.accentL);onClose();
+        }}
+        onCancel={onClose}
+      />
+    </div>
+  );
+}
+
+function PortRequestForm({currentUser,onAction,notify,setProcessing,onClose}){
+  const [name,setName]=useState("");
+  const [type,setType]=useState("private");
+  const [location,setLocation]=useState("");
+  const [operator,setOperator]=useState(currentUser.displayName||currentUser.username);
+  const [capacity,setCapacity]=useState("");
+  const [notes,setNotes]=useState("");
+  const [saving,setSaving]=useState(false);
+
+  return(
+    <div style={{background:C.s2,border:`1px solid ${C.accentD}`,borderRadius:3,padding:"1.25rem",marginBottom:"1.25rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:11,letterSpacing:"0.25em",color:C.accentL,
+        marginBottom:"1rem",display:"flex",justifyContent:"space-between"}}>
+        PORT REGISTRATION REQUEST
+        <button onClick={onClose} style={{background:"transparent",border:"none",color:C.textD,cursor:"pointer",fontSize:14}}>✕</button>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:2,minWidth:180}}><FL>PORT NAME *</FL><Inp value={name} onChange={setName} placeholder="Full port name"/></div>
+          <div style={{flex:1,minWidth:160}}>
+            <FL>PORT TYPE *</FL>
+            <DD value={type} onChange={setType} options={[{v:"public",l:"⚓ Public Port"},{v:"private",l:"🔒 Private Port"}]}/>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+          <div style={{flex:2,minWidth:160}}><FL>LOCATION / REGION</FL><Inp value={location} onChange={setLocation} placeholder="Where is this port located?"/></div>
+          <div style={{flex:1,minWidth:140}}><FL>OPERATOR / OWNER</FL><Inp value={operator} onChange={setOperator}/></div>
+          <div style={{flex:1,minWidth:100}}><FL>BERTH CAPACITY</FL><Inp value={capacity} onChange={setCapacity} placeholder="No. of berths" type="number"/></div>
+        </div>
+        <div><FL>DESCRIPTION / PURPOSE</FL><TA value={notes} onChange={setNotes} placeholder="Describe the port and its intended use…" rows={3}/></div>
+        <div style={{display:"flex",gap:8}}>
+          <Btn disabled={!name.trim()||saving} onClick={async()=>{
+            setSaving(true);setProcessing("Submitting request…");
+            await onAction("submitPortRequest",{req:{
+              name:name.trim(),type,location:location.trim(),operator:operator.trim(),
+              capacity:capacity.trim()?parseInt(capacity):null,notes:notes.trim(),
+              requestedBy:currentUser.username,
+            }});
+            setProcessing(null);setSaving(false);
+            notify("Port request submitted — awaiting registrar review.",C.accentL);onClose();
+          }}>{saving?"Submitting…":"Submit Request"}</Btn>
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RequestCard({req,type,ports,canManage,onAction,notify,setProcessing}){
+  const [open,setOpen]=useState(false);
+  const [denyReason,setDenyReason]=useState("");
+  const [denyOpen,setDenyOpen]=useState(false);
+  const [saving,setSaving]=useState(false);
+
+  const statusColor=req.status==="pending"?C.gold:req.status==="approved"?C.greenL:C.redL;
+  const homePortObj=type==="ship"?ports?.[req.homePort]:null;
+
+  return(
+    <div style={{background:C.s1,border:`1px solid ${C.border}`,
+      borderLeft:`4px solid ${statusColor}`,borderRadius:"0 3px 3px 0",marginBottom:"0.5rem",overflow:"hidden"}}>
+      <div onClick={()=>setOpen(o=>!o)}
+        style={{display:"flex",alignItems:"center",gap:10,padding:"0.65rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
+        <span className="mono" style={{fontSize:9,padding:"2px 8px",background:C.s3,
+          border:`1px solid ${statusColor}44`,color:statusColor}}>
+          {req.status?.toUpperCase()}
+        </span>
+        <span style={{fontFamily:"'Cinzel',serif",fontSize:13,fontWeight:600,color:C.text,flex:1}}>{req.name}</span>
+        <span className="mono" style={{fontSize:9,color:C.textDD}}>
+          {new Date(req.createdAt||0).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}
+        </span>
+        <span className="mono" style={{fontSize:9,color:C.textDD}}>by {req.requestedBy}</span>
+        <span style={{fontSize:11,color:C.textDD}}>{open?"▲":"▼"}</span>
+      </div>
+      {open&&(
+        <div style={{borderTop:`1px solid ${C.border}`,padding:"1rem",background:C.s2}}>
+          <div style={{display:"flex",gap:"2rem",flexWrap:"wrap",marginBottom:"0.85rem"}}>
+            {type==="ship"&&<>
+              {req.type&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>TYPE</div>
+                <div style={{fontSize:13}}>{SHIP_TYPES.find(t=>t.v===req.type)?.l||req.type}</div></div>}
+              {homePortObj&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>HOME PORT</div>
+                <div style={{fontSize:13}}>{homePortObj.name} <PortTypeBadge type={homePortObj.type}/></div></div>}
+              {req.blockSize!=null&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>BLOCK SIZE</div>
+                <div style={{fontFamily:"'Cinzel',serif",fontSize:15,color:C.accentL,fontWeight:700}}>{req.blockSize} blk</div></div>}
+              {(req.length||req.width)&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>DIMENSIONS</div>
+                <div style={{fontSize:13}}>{req.length?req.length+"m L":""}{req.length&&req.width?" × ":""}{req.width?req.width+"m W":""}</div></div>}
+            </>}
+            {type==="port"&&<>
+              <div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>PORT TYPE</div>
+                <PortTypeBadge type={req.type}/></div>
+              {req.location&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>LOCATION</div>
+                <div style={{fontSize:13}}>{req.location}</div></div>}
+              {req.capacity&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>CAPACITY</div>
+                <div style={{fontSize:13}}>{req.capacity} berths</div></div>}
+            </>}
+            {req.owner&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>OWNER</div>
+              <div style={{fontSize:13}}>{req.owner}</div></div>}
+          </div>
+          {req.notes&&<div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:2,
+            padding:"0.6rem 0.85rem",marginBottom:"0.85rem",fontSize:13,color:C.textD,lineHeight:1.7,fontStyle:"italic"}}>
+            {req.notes}
+          </div>}
+          {req.status==="denied"&&req.denyReason&&(
+            <div style={{background:"#1a0808",border:"1px solid #6a1a1a44",borderLeft:"3px solid #c05050",
+              borderRadius:"0 3px 3px 0",padding:"0.6rem 0.85rem",marginBottom:"0.85rem"}}>
+              <div className="mono" style={{fontSize:9,color:C.redL,marginBottom:4}}>DENIAL REASON</div>
+              <div style={{fontSize:13,color:C.textD}}>{req.denyReason}</div>
+            </div>
+          )}
+          {canManage&&req.status==="pending"&&(
+            <div style={{borderTop:`1px solid ${C.border}`,paddingTop:"0.75rem",display:"flex",flexDirection:"column",gap:8}}>
+              {!denyOpen?(
+                <div style={{display:"flex",gap:8}}>
+                  <Btn small variant="green" disabled={saving} onClick={async()=>{
+                    setSaving(true);setProcessing("Approving request…");
+                    await onAction("approveRequest",{reqId:req.id,reqType:type});
+                    setProcessing(null);setSaving(false);notify("Request approved — vessel/port registered.",C.greenL);
+                  }}>✓ Approve & Register</Btn>
+                  <Btn small variant="danger" onClick={()=>setDenyOpen(true)}>✕ Deny</Btn>
+                </div>
+              ):(
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  <div><FL>REASON FOR DENIAL</FL><Inp value={denyReason} onChange={setDenyReason} placeholder="Explain why this request is denied…"/></div>
+                  <div style={{display:"flex",gap:8}}>
+                    <Btn small variant="danger" disabled={saving} onClick={async()=>{
+                      setSaving(true);setProcessing("Denying request…");
+                      await onAction("denyRequest",{reqId:req.id,reqType:type,denyReason:denyReason.trim()});
+                      setProcessing(null);setSaving(false);setDenyOpen(false);notify("Request denied.",C.redL);
+                    }}>Confirm Denial</Btn>
+                    <Btn small variant="ghost" onClick={()=>setDenyOpen(false)}>Cancel</Btn>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── REGISTRAR QUEUE ───────────────────────────────────────────────────────────
+function RegistrarTab({shipReqs,portReqs,ports,ships,currentUser,onAction,notify,setProcessing}){
+  const [mode,setMode]=useState("pending");
+
+  const pending=[
+    ...Object.values(shipReqs||{}).filter(r=>r.status==="pending").map(r=>({...r,_type:"ship"})),
+    ...Object.values(portReqs||{}).filter(r=>r.status==="pending").map(r=>({...r,_type:"port"})),
+  ].sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+
+  const processed=[
+    ...Object.values(shipReqs||{}).filter(r=>r.status!=="pending").map(r=>({...r,_type:"ship"})),
+    ...Object.values(portReqs||{}).filter(r=>r.status!=="pending").map(r=>({...r,_type:"port"})),
+  ].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+
+  return(
+    <div className="fadeIn">
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"1.25rem",flexWrap:"wrap",gap:8}}>
+        <STitle style={{marginBottom:0}}>Registrar Queue</STitle>
+        {pending.length>0&&<div className="mono" style={{fontSize:10,color:C.gold,
+          border:"1px solid #6a4a0044",padding:"3px 12px",borderRadius:2,background:"#1a1200"}}>
+          {pending.length} PENDING REVIEW
+        </div>}
+      </div>
+
+      <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1.25rem"}}>
+        {[["pending","Pending Review"],["processed","Processed"]].map(([v,l])=>(
+          <button key={v} onClick={()=>setMode(v)}
+            style={{fontFamily:"'Cinzel',serif",fontSize:11,fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",
+              padding:"0.6rem 1.1rem",background:"transparent",border:"none",cursor:"pointer",
+              borderBottom:`2px solid ${mode===v?C.accentL:"transparent"}`,color:mode===v?C.accentL:C.textD}}>
+            {l} {v==="pending"&&pending.length>0?`(${pending.length})`:""}
+          </button>
+        ))}
+      </div>
+
+      {mode==="pending"&&(
+        pending.length===0
+          ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No pending requests — all clear.</div>
+          :pending.map(r=>(
+            <div key={r.id}>
+              <div className="mono" style={{fontSize:9,color:r._type==="ship"?C.accentL:"#c89840",
+                letterSpacing:"0.15em",marginBottom:4,marginTop:4}}>
+                {r._type==="ship"?"⚓ SHIP REQUEST":"🏗 PORT REQUEST"}
+              </div>
+              <RequestCard req={r} type={r._type} ports={ports} canManage={canRegister(currentUser)} onAction={onAction} notify={notify} setProcessing={setProcessing}/>
+            </div>
+          ))
+      )}
+
+      {mode==="processed"&&(
+        processed.length===0
+          ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No processed requests yet.</div>
+          :processed.map(r=>(
+            <div key={r.id}>
+              <div className="mono" style={{fontSize:9,color:r._type==="ship"?C.accentL:"#c89840",
+                letterSpacing:"0.15em",marginBottom:4,marginTop:4}}>
+                {r._type==="ship"?"⚓ SHIP REQUEST":"🏗 PORT REQUEST"}
+              </div>
+              <RequestCard req={r} type={r._type} ports={ports} canManage={false} onAction={onAction} notify={notify} setProcessing={setProcessing}/>
+            </div>
+          ))
+      )}
+    </div>
+  );
+}
+
+
+// ── APP ───────────────────────────────────────────────────────────────────────
+function App(){
+  const [user,setUser]=useState(null);
+  const [raw,setRaw]=useState({});
+  const [tab,setTab]=useState("ships");
+  const [toast,setToast]=useState({msg:"",color:C.accentL});
+  const [processing,setProcessing]=useState(null);
+
+  const notify=useCallback((msg,color=C.accentL)=>{
+    setToast({msg,color});
+    setTimeout(()=>setToast(t=>t.msg===msg?{msg:"",color}:t),4000);
+  },[]);
+
+  // ── Derived state ────────────────────────────────────────────────────────────
+  const ships=useMemo(()=>raw["imc_ships"]||{},[raw]);
+  const ports=useMemo(()=>raw["imc_ports"]||{},[raw]);
+  const shipReqs=useMemo(()=>raw["imc_ship_reqs"]||{},[raw]);
+  const portReqs=useMemo(()=>raw["imc_port_reqs"]||{},[raw]);
+
+  const handleLogin=(u,rawData)=>{setUser(u);setRaw(rawData);};
+
+  // ── Actions ──────────────────────────────────────────────────────────────────
+  const onAction=useCallback(async(type,payload)=>{
+    // ── Ships ────────────────────────────────────────────────────────────────
+    if(type==="createShip"){
+      const id="ship_"+uid();
+      const reg=imcNum();
+      const newShip={...payload.ship,id,registrationNumber:reg,registeredAt:Date.now()};
+      const next={...ships,[id]:newShip};
+      setRaw(r=>({...r,imc_ships:next}));
+      await sset("imc_ships",next);
+    }
+    else if(type==="updateShip"){
+      const next={...ships,[payload.shipId]:{...ships[payload.shipId],...payload.patch}};
+      setRaw(r=>({...r,imc_ships:next}));
+      await sset("imc_ships",next);
+    }
+    else if(type==="deleteShip"){
+      const next={...ships}; delete next[payload.shipId];
+      setRaw(r=>({...r,imc_ships:next}));
+      await sset("imc_ships",next);
+    }
+    // ── Ports ────────────────────────────────────────────────────────────────
+    else if(type==="createPort"){
+      const id="port_"+uid();
+      const newPort={...payload.port,id,registeredAt:Date.now()};
+      const next={...ports,[id]:newPort};
+      setRaw(r=>({...r,imc_ports:next}));
+      await sset("imc_ports",next);
+    }
+    else if(type==="updatePort"){
+      const next={...ports,[payload.portId]:{...ports[payload.portId],...payload.patch}};
+      setRaw(r=>({...r,imc_ports:next}));
+      await sset("imc_ports",next);
+    }
+    else if(type==="deletePort"){
+      const next={...ports}; delete next[payload.portId];
+      setRaw(r=>({...r,imc_ports:next}));
+      await sset("imc_ports",next);
+    }
+    // ── Ship requests ─────────────────────────────────────────────────────────
+    else if(type==="submitShipRequest"){
+      const id="sreq_"+uid();
+      const newReq={...payload.req,id,status:"pending",createdAt:Date.now()};
+      const next={...shipReqs,[id]:newReq};
+      setRaw(r=>({...r,imc_ship_reqs:next}));
+      await sset("imc_ship_reqs",next);
+    }
+    else if(type==="approveRequest"){
+      const {reqId,reqType}=payload;
+      if(reqType==="ship"){
+        const req=shipReqs[reqId]; if(!req) return;
+        const id="ship_"+uid();
+        const reg=imcNum();
+        const newShip={name:req.name,type:req.type,homePort:req.homePort,owner:req.owner,
+          width:req.width,length:req.length,blockSize:req.blockSize,notes:req.notes,
+          status:"active",requestedBy:req.requestedBy,
+          id,registrationNumber:reg,registeredAt:Date.now()};
+        const nextShips={...ships,[id]:newShip};
+        const nextReqs={...shipReqs,[reqId]:{...req,status:"approved",approvedAt:Date.now()}};
+        setRaw(r=>({...r,imc_ships:nextShips,imc_ship_reqs:nextReqs}));
+        await sset("imc_ships",nextShips);
+        await sset("imc_ship_reqs",nextReqs);
+      } else {
+        const req=portReqs[reqId]; if(!req) return;
+        const id="port_"+uid();
+        const newPort={name:req.name,type:req.type,location:req.location,operator:req.operator,
+          capacity:req.capacity,notes:req.notes,status:"active",requestedBy:req.requestedBy,
+          id,registeredAt:Date.now()};
+        const nextPorts={...ports,[id]:newPort};
+        const nextReqs={...portReqs,[reqId]:{...req,status:"approved",approvedAt:Date.now()}};
+        setRaw(r=>({...r,imc_ports:nextPorts,imc_port_reqs:nextReqs}));
+        await sset("imc_ports",nextPorts);
+        await sset("imc_port_reqs",nextReqs);
+      }
+    }
+    else if(type==="denyRequest"){
+      const {reqId,reqType,denyReason}=payload;
+      if(reqType==="ship"){
+        const next={...shipReqs,[reqId]:{...shipReqs[reqId],status:"denied",denyReason,deniedAt:Date.now()}};
+        setRaw(r=>({...r,imc_ship_reqs:next}));
+        await sset("imc_ship_reqs",next);
+      } else {
+        const next={...portReqs,[reqId]:{...portReqs[reqId],status:"denied",denyReason,deniedAt:Date.now()}};
+        setRaw(r=>({...r,imc_port_reqs:next}));
+        await sset("imc_port_reqs",next);
+      }
+    }
+  },[ships,ports,shipReqs,portReqs]);
+
+  if(!user) return<LoginScreen onLogin={handleLogin}/>;
+
+  const canReg=canRegister(user)||isMOIAdmin(user);
+
+  const TABS=[
+    {v:"ships",    l:"Ship Registry",   icon:"🚢"},
+    {v:"ports",    l:"Port Registry",   icon:"⚓"},
+    {v:"requests", l:"My Requests",     icon:"📋"},
+    ...(canReg?[{v:"queue",l:"Registrar Queue",icon:"📥"}]:[]),
+  ];
+
+  const pendingCount=Object.values(shipReqs||{}).filter(r=>r.status==="pending").length
+    +Object.values(portReqs||{}).filter(r=>r.status==="pending").length;
+
+  return(
+    <div style={{background:C.bg,minHeight:"100vh",color:C.text}}>
+      <Toast msg={toast.msg} color={toast.color}/>
+      <Overlay label={processing}/>
+
+      {/* Header */}
+      <div style={{background:C.s1,borderBottom:`1px solid ${C.border}`,padding:"0.85rem 1.25rem"}}>
+        <div style={{maxWidth:1100,margin:"0 auto",display:"flex",alignItems:"center",gap:"1.5rem",flexWrap:"wrap"}}>
+          <a href="moi.html" style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",
+            color:C.textD,textDecoration:"none",border:`1px solid ${C.border}`,borderRadius:2,
+            padding:"3px 10px",flexShrink:0}}>{"← Ministry of Interior"}</a>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <div style={{width:36,height:36,borderRadius:"50%",background:C.s2,
+              border:"1px solid #2a6aaa44",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>⚓</div>
+            <div>
+              <div style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:14,letterSpacing:"0.15em",color:C.text,lineHeight:1}}>
+                Imperial Maritime Commission
+              </div>
+              <div className="mono" style={{fontSize:8,letterSpacing:"0.2em",color:C.textDD,marginTop:2}}>
+                Empire of Lech · Ship & Port Registry
+              </div>
+            </div>
+          </div>
+          <div style={{flex:1}}/>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span className="mono" style={{fontSize:9,padding:"2px 9px",
+              background:user.imcRole?C.s3:"transparent",
+              border:`1px solid ${user.imcRole?C.accentD:C.border}`,
+              borderRadius:2,color:user.imcRole?C.accentL:C.textDD}}>
+              {(IMC_ROLES.find(r=>r.v===(user.imcRole||""))?.l||"No IMC Role").toUpperCase()}
+            </span>
+            <span className="mono" style={{fontSize:10,color:C.textD}}>
+              {user.username}{user.displayName&&<span style={{color:C.textDD,marginLeft:6,fontStyle:"italic",fontFamily:"'Crimson Text',serif"}}>({user.displayName})</span>}
+            </span>
+            <Btn small variant="ghost" onClick={()=>setUser(null)}>LOGOUT</Btn>
+          </div>
+        </div>
+      </div>
+
+      {/* Nav */}
+      <div style={{background:C.s2,borderBottom:`1px solid ${C.border}`}}>
+        <div style={{maxWidth:1100,margin:"0 auto",display:"flex",overflowX:"auto"}}>
+          {TABS.map(t=>(
+            <button key={t.v} onClick={()=>setTab(t.v)}
+              style={{fontFamily:"'Cinzel',serif",fontSize:11,fontWeight:700,
+                       letterSpacing:"0.2em",textTransform:"uppercase",padding:"0.75rem 1.25rem",
+                       background:"transparent",border:"none",whiteSpace:"nowrap",cursor:"pointer",position:"relative",
+                       borderBottom:`2px solid ${tab===t.v?C.accentL:"transparent"}`,
+                       color:tab===t.v?C.accentL:C.textD,flexShrink:0}}>
+              {t.icon} {t.l}
+              {t.v==="queue"&&pendingCount>0&&(
+                <span style={{position:"absolute",top:8,right:6,background:C.gold,color:"#000",
+                  borderRadius:"50%",width:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:9,fontFamily:"'Share Tech Mono',monospace",fontWeight:700,lineHeight:1}}>{pendingCount}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div style={{maxWidth:1100,margin:"0 auto",padding:"1.5rem 1.25rem"}}>
+        {tab==="ships"&&<ShipRegistryTab ships={ships} ports={ports} currentUser={user} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+        {tab==="ports"&&<PortRegistryTab ports={ports} ships={ships} currentUser={user} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+        {tab==="requests"&&<RequestTab ports={ports} currentUser={user} onAction={onAction} notify={notify} setProcessing={setProcessing} shipReqs={shipReqs} portReqs={portReqs} canManage={canReg}/>}
+        {tab==="queue"&&canReg&&<RegistrarTab shipReqs={shipReqs} portReqs={portReqs} ports={ports} ships={ships} currentUser={user} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+      </div>
+
+      {/* Footer */}
+      <div style={{borderTop:`1px solid ${C.border}`,padding:"0.75rem 1.25rem",marginTop:"3rem"}}>
+        <div className="mono" style={{maxWidth:1100,margin:"0 auto",fontSize:9,color:C.textDD,
+          letterSpacing:"0.15em",textAlign:"center"}}>
+          Imperial Maritime Commission · Empire of Lech · All registrations are a matter of public record
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+</script>
+</body>
+</html>

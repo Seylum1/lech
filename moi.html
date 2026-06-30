@@ -60,6 +60,7 @@ const roleRank=(v)=>ROLES.find(r=>r.v===v)?.rank||0;
 const hasRole=(user,role)=>roleRank(user?.role)>=roleRank(role);
 const canSeeLSS=(u)=>u&&(u.role==="lss_agent"||u.role==="lss_director"||u.role==="minister"||u.role==="emperor"||u.agentAssigned);
 const canSeeLFP=(u)=>u&&(u.role==="lfp_officer"||u.role==="lfp_director"||u.role==="minister"||u.role==="emperor"||u.officerAssigned);
+const canSeeIMC=(u)=>u&&(!!u.imcRole||u.role==="minister"||u.role==="emperor");
 
 const MINISTRIES=["Chancellery","Colonies","Interior","Finance","War","Infrastructure","Health","Foreign Affairs","External Contractor","Civilian"];
 
@@ -1495,6 +1496,7 @@ function AccountRow({acc,currentUser,onUpdate,notify,setProcessing,canSetMiniste
   const [ijAccess,setIjAccess]=useState(acc.ijAccess||"");
   const [mofRole,setMofRole]=useState(acc.mofRole||"");
   const [pressRole,setPressRole]=useState(acc.pressRole||"");
+  const [imcRole,setImcRole]=useState(acc.imcRole||"");
   const [clearance,setClearance]=useState(String(acc.clearance||0));
   const [newPw,setNewPw]=useState("");
   const [saving,setSaving]=useState(false);
@@ -1594,6 +1596,17 @@ function AccountRow({acc,currentUser,onUpdate,notify,setProcessing,canSetMiniste
                 <option value="editor">Editor-in-Chief</option>
               </select>
             </div>
+            <div style={{flex:1,minWidth:200}}>
+              <FL>MARITIME COMMISSION (IMC)</FL>
+              <select value={imcRole} onChange={e=>setImcRole(e.target.value)}
+                style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
+                         padding:"8px 12px",color:C.text,fontSize:14,outline:"none",fontFamily:"'Crimson Text',serif"}}>
+                <option value="">No Access</option>
+                <option value="officer">IMC Officer</option>
+                <option value="registrar">IMC Registrar</option>
+                <option value="commissioner">IMC Commissioner</option>
+              </select>
+            </div>
           </div>
           <div style={{display:"flex",gap:8,alignItems:"flex-end",flexWrap:"wrap"}}>
             <div style={{flex:1,minWidth:180}}>
@@ -1602,7 +1615,7 @@ function AccountRow({acc,currentUser,onUpdate,notify,setProcessing,canSetMiniste
             </div>
             <Btn small variant="gold" disabled={saving} onClick={async()=>{
               setSaving(true); setProcessing("Saving account…");
-              const patch={role,ministry,isContractor,agentAssigned,officerAssigned,mowAccess:!!mowRole,mowRole,canSetAlert:canSetAlert&&!!mowRole,mfaAccess,ijAccess,mofRole,mofAccess:!!mofRole,pressRole,pressAccess:!!pressRole,clearance:parseInt(clearance)};
+              const patch={role,ministry,isContractor,agentAssigned,officerAssigned,mowAccess:!!mowRole,mowRole,canSetAlert:canSetAlert&&!!mowRole,mfaAccess,ijAccess,mofRole,mofAccess:!!mofRole,pressRole,pressAccess:!!pressRole,imcRole,clearance:parseInt(clearance)};
               if(newPw.trim()) patch.passwordHash=await sha256(newPw.trim());
               await onUpdate(acc.username,patch);
               setProcessing(null); setSaving(false); setNewPw("");
@@ -1669,11 +1682,71 @@ function CreateAccountForm({onUpdate,notify,setProcessing,onClose,canSetMinister
   );
 }
 
+// ── MAIN MENU ─────────────────────────────────────────────────────────────────
+function MainMenu({user,destinations,onSelect}){
+  return(
+    <div className="fadeIn" style={{maxWidth:1100,margin:"0 auto",padding:"2.5rem 1.25rem 1rem"}}>
+      <div style={{textAlign:"center",marginBottom:"2.5rem"}}>
+        <div className="mono" style={{fontSize:9,letterSpacing:"0.4em",color:C.accentD,marginBottom:10}}>
+          DIRECTORATE SELECTION
+        </div>
+        <div style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:26,letterSpacing:"0.12em",
+          color:C.text,lineHeight:1.2}}>
+          Welcome, {user.displayName||user.username}
+        </div>
+        <div style={{fontSize:14,color:C.textD,fontStyle:"italic",marginTop:8}}>
+          Select a directorate or service to continue.
+        </div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:"1rem"}}>
+        {destinations.map(d=>{
+          const inner=(
+            <>
+              <div style={{display:"flex",alignItems:"flex-start",gap:14}}>
+                <div style={{width:52,height:52,flexShrink:0,borderRadius:4,
+                  background:`linear-gradient(135deg,${C.s3},${C.s2})`,
+                  border:`1px solid ${d.color}55`,display:"flex",alignItems:"center",
+                  justifyContent:"center",fontSize:26}}>{d.icon}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                    <span style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:15,
+                      letterSpacing:"0.08em",color:C.text}}>{d.title}</span>
+                    {d.external&&<span className="mono" style={{fontSize:7,letterSpacing:"0.15em",
+                      color:d.color,border:`1px solid ${d.color}55`,borderRadius:2,padding:"1px 5px"}}>↗ PORTAL</span>}
+                  </div>
+                  <div className="mono" style={{fontSize:8,letterSpacing:"0.18em",color:d.color,marginTop:3}}>
+                    {d.tag}
+                  </div>
+                </div>
+              </div>
+              <div style={{fontSize:13,color:C.textD,lineHeight:1.6,marginTop:14}}>{d.desc}</div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+                marginTop:16,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+                <span className="mono" style={{fontSize:8,letterSpacing:"0.15em",color:C.textDD}}>{d.access}</span>
+                <span style={{fontSize:13,color:d.color,fontFamily:"'Cinzel',serif",letterSpacing:"0.1em"}}>ENTER →</span>
+              </div>
+            </>
+          );
+          const cardStyle={background:C.s1,border:`1px solid ${C.border}`,borderTop:`3px solid ${d.color}`,
+            borderRadius:"0 0 4px 4px",padding:"1.25rem",cursor:"pointer",transition:"all .15s",
+            display:"block",textDecoration:"none",color:"inherit"};
+          const hover=e=>{e.currentTarget.style.borderColor=d.color;e.currentTarget.style.background=C.s2;e.currentTarget.style.transform="translateY(-2px)";};
+          const unhover=e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.borderTopColor=d.color;e.currentTarget.style.background=C.s1;e.currentTarget.style.transform="none";};
+          return d.external
+            ?<a key={d.key} href={d.href} style={cardStyle} onMouseEnter={hover} onMouseLeave={unhover}>{inner}</a>
+            :<div key={d.key} onClick={()=>onSelect(d.key)} style={cardStyle} onMouseEnter={hover} onMouseLeave={unhover}>{inner}</div>;
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── APP ───────────────────────────────────────────────────────────────────────
 function App(){
   const [user,setUser]=useState(null);
   const [raw,setRaw]=useState({});
-  const [tab,setTab]=useState("clearances");
+  const [section,setSection]=useState(null);
   const [toast,setToast]=useState({msg:"",color:C.accent});
   const [processing,setProcessing]=useState(null);
   const [loading,setLoading]=useState(false);
@@ -1698,7 +1771,7 @@ function App(){
 
   const handleLogin=(u,rawData)=>{
     setUser(u); setRaw(rawData);
-    setTab(canSeeLSS(u)?"clearances":"clearances");
+    setSection(null);
   };
 
   const refresh=useCallback(async()=>{
@@ -1820,16 +1893,39 @@ function App(){
 
   const isLSS=canSeeLSS(user);
   const isLFP=canSeeLFP(user);
+  const isIMC=canSeeIMC(user);
   const isMinister=hasRole(user,"minister");
   const isEmperor=user.role==="emperor";
 
-  const TABS=[
-    {v:"clearances",    l:"Clearances",   icon:"🔐"},
-    ...(isLSS?         [{v:"lss",         l:"LSS",          icon:"🕵"}]:[]),
-    ...(isLFP?         [{v:"lfp",         l:"LFP",          icon:"⚖"}]:[]),
-    ...(isMinister?    [{v:"minister",    l:"Minister",      icon:"🎖"}]:[]),
-    ...(isEmperor?     [{v:"emperor",     l:"Emperor",       icon:"👑"}]:[]),
+  const DESTINATIONS=[
+    {key:"clearances",title:"Human Resources",tag:"PERSONNEL MANAGEMENT",icon:"🗂",color:"#3a9a6a",
+     desc:"Clearance tracker and personnel directory. Review and manage staff security classifications.",
+     access:"ALL PERSONNEL"},
+    ...(isLSS?[{key:"lss",title:"Lech Security Service",tag:"INTERNAL INTELLIGENCE",icon:"🕵",color:"#4a88ff",
+     desc:"Classified operations, intelligence documents, and field personnel for internal security.",
+     access:"LSS CLEARANCE"}]:[]),
+    ...(isLFP?[{key:"lfp",title:"Lech Federal Police",tag:"LAW ENFORCEMENT",icon:"⚖",color:"#cc7a10",
+     desc:"Police operations, arrest records, and case management for federal law enforcement.",
+     access:"LFP CLEARANCE"}]:[]),
+    ...(isIMC?[{key:"imc",title:"Imperial Maritime Commission",tag:"SHIP & PORT REGISTRY",icon:"⚓",color:"#2a8ab4",
+     desc:"Vessel and port registration, home-port assignment, and maritime registry administration.",
+     access:"IMC CLEARANCE",external:true,href:"imc.html"}]:[]),
+    ...(isMinister?[{key:"minister",title:"Minister's Office",tag:"DIRECTORATE ADMINISTRATION",icon:"🎖",color:"#8a6acc",
+     desc:"Account management, permission assignment, and ministry-wide oversight.",
+     access:"MINISTER"}]:[]),
+    ...(isEmperor?[{key:"emperor",title:"Imperial Authority",tag:"SUPREME ADMINISTRATION",icon:"👑",color:C.gold,
+     desc:"Full account and role control, including appointment of ministers.",
+     access:"EMPEROR"}]:[]),
   ];
+
+  const SECTION_META={
+    clearances:{title:"Human Resources",color:"#3a9a6a"},
+    lss:{title:"Lech Security Service",color:"#4a88ff"},
+    lfp:{title:"Lech Federal Police",color:"#cc7a10"},
+    minister:{title:"Minister's Office",color:"#8a6acc"},
+    emperor:{title:"Imperial Authority",color:C.gold},
+  };
+  const meta=section?SECTION_META[section]:null;
 
   return(
     <div style={{background:C.bg,minHeight:"100vh",color:C.text}}>
@@ -1842,7 +1938,7 @@ function App(){
           <a href="index.html" style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",
             color:C.textD,textDecoration:"none",border:`1px solid ${C.border}`,borderRadius:2,
             padding:"3px 10px",flexShrink:0}}>{"← Network"}</a>
-          <div>
+          <div onClick={()=>setSection(null)} style={{cursor:"pointer"}} title="Return to main menu">
             <div style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:15,
               letterSpacing:"0.15em",color:C.text,lineHeight:1}}>Ministry of the Interior</div>
             <div className="mono" style={{fontSize:8,letterSpacing:"0.2em",color:C.textDD,marginTop:2}}>
@@ -1872,30 +1968,38 @@ function App(){
         </div>
       </div>
 
-      {/* Nav */}
-      <div style={{background:C.s2,borderBottom:`1px solid ${C.border}`}}>
-        <div style={{maxWidth:1100,margin:"0 auto",display:"flex",overflowX:"auto"}}>
-          {TABS.map(t=>(
-            <button key={t.v} onClick={()=>setTab(t.v)}
-              style={{fontFamily:"'Cinzel',serif",fontSize:11,fontWeight:700,
-                       letterSpacing:"0.2em",textTransform:"uppercase",padding:"0.75rem 1.25rem",
-                       background:"transparent",border:"none",whiteSpace:"nowrap",cursor:"pointer",
-                       borderBottom:`2px solid ${tab===t.v?C.accent:"transparent"}`,
-                       color:tab===t.v?C.accent:C.textD,flexShrink:0}}>
-              {t.icon} {t.l}
+      {/* Breadcrumb bar — only inside a section */}
+      {section&&meta&&(
+        <div style={{background:C.s2,borderBottom:`1px solid ${C.border}`}}>
+          <div style={{maxWidth:1100,margin:"0 auto",display:"flex",alignItems:"center",gap:14,
+            padding:"0.6rem 1.25rem"}}>
+            <button onClick={()=>setSection(null)}
+              style={{fontFamily:"'Cinzel',serif",fontSize:10,fontWeight:700,letterSpacing:"0.15em",
+                textTransform:"uppercase",background:"transparent",border:`1px solid ${C.border}`,
+                borderRadius:2,color:C.textD,cursor:"pointer",padding:"5px 12px"}}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor=meta.color;e.currentTarget.style.color=meta.color;}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textD;}}>
+              ← Main Menu
             </button>
-          ))}
+            <span style={{color:C.textDD}}>/</span>
+            <span style={{fontFamily:"'Cinzel',serif",fontSize:12,fontWeight:700,letterSpacing:"0.18em",
+              textTransform:"uppercase",color:meta.color}}>{meta.title}</span>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Content */}
-      <div style={{maxWidth:1100,margin:"0 auto",padding:"1.5rem 1.25rem"}}>
-        {tab==="clearances"&&<ClearanceTracker accounts={accounts} currentUser={user} onUpdate={onUpdateAccount} notify={notify} setProcessing={setProcessing}/>}
-        {tab==="lss"&&isLSS&&<LSSSection currentUser={user} accounts={accounts} lssOps={lssOps} lssDocs={lssDocs} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
-        {tab==="lfp"&&isLFP&&<LFPSection currentUser={user} accounts={accounts} lfpOps={lfpOps} arrests={arrests} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
-        {tab==="minister"&&isMinister&&<MinisterPanel currentUser={user} accounts={accounts} onUpdate={onUpdateAccount} notify={notify} setProcessing={setProcessing}/>}
-        {tab==="emperor"&&isEmperor&&<EmperorPanel currentUser={user} accounts={accounts} onUpdate={onUpdateAccount} notify={notify} setProcessing={setProcessing}/>}
-      </div>
+      {!section?(
+        <MainMenu user={user} destinations={DESTINATIONS} onSelect={setSection}/>
+      ):(
+        <div style={{maxWidth:1100,margin:"0 auto",padding:"1.5rem 1.25rem"}}>
+          {section==="clearances"&&<ClearanceTracker accounts={accounts} currentUser={user} onUpdate={onUpdateAccount} notify={notify} setProcessing={setProcessing}/>}
+          {section==="lss"&&isLSS&&<LSSSection currentUser={user} accounts={accounts} lssOps={lssOps} lssDocs={lssDocs} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+          {section==="lfp"&&isLFP&&<LFPSection currentUser={user} accounts={accounts} lfpOps={lfpOps} arrests={arrests} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+          {section==="minister"&&isMinister&&<MinisterPanel currentUser={user} accounts={accounts} onUpdate={onUpdateAccount} notify={notify} setProcessing={setProcessing}/>}
+          {section==="emperor"&&isEmperor&&<EmperorPanel currentUser={user} accounts={accounts} onUpdate={onUpdateAccount} notify={notify} setProcessing={setProcessing}/>}
+        </div>
+      )}
 
       {/* Footer */}
       <div style={{borderTop:`1px solid ${C.border}`,padding:"0.75rem 1.25rem",marginTop:"3rem"}}>

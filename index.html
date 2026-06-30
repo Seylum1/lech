@@ -506,8 +506,8 @@ function loadForeignPolicy(){
 
     html+='<div style="display:flex;gap:0.75rem;flex-wrap:wrap;">';
     html+=pill("TRAVEL ADVISORY",al.label,pillsLabelColor,al.color,pillsBg,al.border||pillsBorder);
+    if(c.visaOnArrival!==undefined&&!isHostile) html+=pill("ENTRY (LECH CITIZENS)",c.visaOnArrival?"Visa on Arrival":"Visa Not Required",pillsLabelColor,"#6aaa4a",pillsBg,pillsBorder);
     if(c.visaPolicy) html+=pill("VISA POLICY",c.visaPolicy,pillsLabelColor,"#e8d8c8",pillsBg,pillsBorder);
-    if(c.visaOnArrival!==undefined&&!isHostile) html+=pill("VISA POLICY",c.visaOnArrival?"Visa on Arrival":"Visa Not Required",pillsLabelColor,"#6aaa4a",pillsBg,pillsBorder);
     if(isHostile) html+=pill("INDIVIDUAL RESTRICTIONS","Members proscribed under Imperial law",pillsLabelColor,"#e07070",pillsBg,pillsBorder);
     else if(rCount>0) html+=pill("RESTRICTIONS",rCount+" individual restriction"+(rCount!==1?"s":"")+" in effect",pillsLabelColor,"#cc6a10",pillsBg,pillsBorder);
     else html+=pill("RESTRICTIONS","None",pillsLabelColor,"#e8d8c8",pillsBg,pillsBorder);
@@ -563,13 +563,14 @@ function loadForeignPolicy(){
     if(states.length===0&&militants.length===0){
       html+='<div style="font-family:\'Crimson Text\',serif;font-size:0.95rem;color:#5a3a30;font-style:italic;text-align:center;padding:2rem 0;">No foreign policy records published.</div>';
     } else {
+      var advOf=function(c,dft){return c.advisoryLevel!==undefined?{level:c.advisoryLevel,text:c.advisoryText}:(advisories[c.id]||{level:dft});};
       if(states.length>0){
         html+='<div class="fp-section-title">Bilateral Relations</div>';
-        states.forEach(function(c){html+=renderCountry(c,advisories[c.id]||{level:1},restrictions);});
+        states.forEach(function(c){html+=renderCountry(c,advOf(c,1),restrictions);});
       }
       if(militants.length>0){
         html+='<div class="fp-section-title">Designated Militant Groups</div>';
-        militants.forEach(function(c){html+=renderCountry(c,advisories[c.id]||{level:4},restrictions);});
+        militants.forEach(function(c){html+=renderCountry(c,advOf(c,4),restrictions);});
       }
     }
 
@@ -599,5 +600,348 @@ function loadForeignPolicy(){
 
   loadData();
 }
+</script>
+
+<!-- ════════════════════ CITIZEN PORTAL ════════════════════ -->
+<style>
+.cp-fab{position:fixed;top:18px;right:18px;z-index:900;font-family:'Cinzel',serif;font-size:0.62rem;
+  letter-spacing:0.18em;text-transform:uppercase;padding:0.55rem 1.1rem;
+  background:linear-gradient(135deg,#1a1010,#241616);border:1px solid #5a4000;color:#C9A84C;
+  cursor:pointer;border-radius:2px;transition:all .2s;}
+.cp-fab:hover{background:#2a1e00;box-shadow:0 0 18px #C9A84C33;}
+.cp-modal{display:none;position:fixed;inset:0;z-index:1100;background:rgba(6,4,4,.9);
+  align-items:center;justify-content:center;padding:1rem;}
+.cp-modal.open{display:flex;}
+.cp-login-box{background:#0a0808;border:1px solid #3a1a1a;border-radius:4px;max-width:380px;width:100%;
+  padding:2rem;box-shadow:0 24px 80px #000a;animation:fadeUp .4s ease both;}
+.cp-inp{width:100%;background:#201414;border:1px solid #3a1a1a;border-radius:2px;padding:0.6rem 0.8rem;
+  color:#e8d8c8;font-size:0.95rem;font-family:'Crimson Text',serif;outline:none;transition:border-color .2s;}
+.cp-inp:focus{border-color:#C9A84C;}
+.cp-btn{width:100%;font-family:'Cinzel',serif;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;
+  font-size:0.7rem;padding:0.7rem;background:linear-gradient(135deg,#3a2a00,#5a4000);border:1px solid #5a4000;
+  color:#C9A84C;cursor:pointer;border-radius:2px;transition:all .2s;}
+.cp-btn:hover{background:linear-gradient(135deg,#4a3600,#6a4c00);}
+.cp-hub{display:none;position:fixed;inset:0;z-index:1050;background:#0a0808;overflow-y:auto;}
+.cp-hub.open{display:block;}
+.ch-head{position:sticky;top:0;z-index:2;background:linear-gradient(135deg,#140e0e,#1a1010);
+  border-bottom:1px solid #3a1a1a;padding:1rem 2rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap;}
+.ch-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem;max-width:1000px;margin:0 auto;
+  padding:1.5rem 2rem 4rem;animation:fadeUp .4s ease both;}
+@media(max-width:760px){.ch-grid{grid-template-columns:1fr;padding:1rem;}.ch-head{padding:0.85rem 1rem;}}
+.ch-panel{background:#140e0e;border:1px solid #3a1a1a;border-top:3px solid var(--pa,#3a1a1a);
+  border-radius:0 0 4px 4px;padding:1.25rem;}
+.ch-panel.full{grid-column:1/-1;}
+.ch-title{font-family:'Cinzel',serif;font-size:0.62rem;letter-spacing:0.28em;text-transform:uppercase;
+  color:var(--pa,#C9A84C);margin-bottom:1rem;padding-bottom:0.5rem;border-bottom:1px solid #3a1a1a;
+  display:flex;align-items:center;gap:8px;}
+.ch-row{padding:0.6rem 0;border-bottom:1px solid #2a1414;}
+.ch-row:last-child{border-bottom:none;}
+.ch-empty{color:#5a3a30;font-style:italic;font-size:0.9rem;text-align:center;padding:1.25rem 0;}
+.ch-badge{display:inline-block;font-family:'Cinzel',serif;font-size:0.55rem;letter-spacing:0.1em;
+  text-transform:uppercase;padding:3px 9px;border:1px solid;border-radius:2px;margin:2px;}
+.ch-k{font-family:'Share Tech Mono',monospace;font-size:0.6rem;color:#5a3a30;letter-spacing:0.08em;}
+.ch-v{font-size:0.95rem;color:#e8d8c8;}
+.ch-link{font-family:'Cinzel',serif;font-size:0.55rem;letter-spacing:0.15em;text-transform:uppercase;
+  color:#C9A84C;text-decoration:none;border:1px solid #5a4000;border-radius:2px;padding:3px 9px;}
+</style>
+
+<button class="cp-fab" onclick="cpOpen()">⬡ Citizen Portal</button>
+
+<div id="cp-login" class="cp-modal" onclick="if(event.target===this)cpClose()">
+  <div class="cp-login-box">
+    <div style="text-align:center;margin-bottom:1.5rem;">
+      <div style="font-family:'Cinzel',serif;font-size:0.55rem;letter-spacing:0.4em;color:#C9A84C;margin-bottom:0.6rem;">EMPIRE OF LECH</div>
+      <div style="font-family:'Cinzel',serif;font-weight:700;font-size:1.35rem;letter-spacing:0.06em;color:#e8d8c8;">Citizen Portal</div>
+      <div style="font-size:0.82rem;color:#9a8070;font-style:italic;margin-top:0.4rem;">Your complete record across the Imperial Network</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:0.8rem;">
+      <input id="ch-user" class="cp-inp" placeholder="Username" autocomplete="username" onkeydown="if(event.key==='Enter')chLogin()"/>
+      <input id="ch-pass" class="cp-inp" type="password" placeholder="Password" autocomplete="current-password" onkeydown="if(event.key==='Enter')chLogin()"/>
+      <div id="ch-err" style="display:none;font-family:'Share Tech Mono',monospace;font-size:0.7rem;color:#c05050;background:#1a0808;border:1px solid #6a1010;padding:0.5rem 0.7rem;border-radius:2px;"></div>
+      <button id="ch-go" class="cp-btn" onclick="chLogin()">Sign In</button>
+    </div>
+    <div style="font-family:'Share Tech Mono',monospace;font-size:0.6rem;color:#5a3a30;margin-top:1.25rem;text-align:center;line-height:1.6;">Uses your Ministry of the Interior credentials.</div>
+  </div>
+</div>
+
+<div id="cp-hub" class="cp-hub"></div>
+
+<script>
+(function(){
+  var MOI_URL="https://script.google.com/macros/s/AKfycbxLu8jQehAZJEvMEeCLoHc9S2C4FM8o9fQh8Pp4gMzDNwwIG0S9qLJ5-1gyGM1c_InUfQ/exec";
+  var BK_URL="https://script.google.com/macros/s/AKfycbz37c5Okp9c7PkXv38x2lq7Is3RifkJPee5ASb2KQfA7EJgsN0NwrigmiRr1a_G0E6d4Q/exec";
+
+  // ── Lookup tables (mirrored from the source portals) ──
+  var CLEARANCE=[
+    {code:"UNCLASSIFIED",short:"UC",color:"#2a9a4a"},
+    {code:"RELIABILITY SCREENING",short:"RS",color:"#5a9a7a"},
+    {code:"CONFIDENTIAL",short:"C",color:"#2a6acc"},
+    {code:"SECRET",short:"S",color:"#cc7a10"},
+    {code:"TOP SECRET",short:"TS",color:"#cc2222"},
+    {code:"TS/SCI",short:"SCI",color:"#9a22cc"}
+  ];
+  function CL(l){return CLEARANCE[Math.max(0,Math.min(5,l||0))];}
+  var ROLE_LABELS={citizen:"Civilian",lss_agent:"LSS Agent",lfp_officer:"LFP Officer",
+    lss_director:"LSS Director",lfp_director:"LFP Director",minister:"Minister of the Interior",emperor:"Emperor"};
+  var BRANCHES={ILA:{l:"Imperial Lech Army",color:"#6a8a4a"},ILN:{l:"Imperial Lech Navy",color:"#4a6a9a"},ILSOC:{l:"Imperial Special Operations Command",color:"#9a7a3a"}};
+  var ARMY_RANKS={"OR-1":"Private","OR-2":"Corporal","OR-3":"Specialist","OR-4":"Sergeant","OR-5":"Staff Sergeant","OR-6":"Sergeant First Class","OR-7":"Master Sergeant","OR-8":"Sergeant Major","OR-9":"Command Sergeant Major","OF-1":"Lieutenant","OF-2":"Captain","OF-3":"Major","OF-4":"Lieutenant-Colonel","OF-5":"Colonel","OF-6":"Brigadier-General","OF-7":"Division-General","OF-8":"Corps-General","OF-9":"General","OF-10":"Marshal of the Empire"};
+  var NAVY_RANKS={"OR-1":"Seaman","OR-2":"Able Seaman","OR-3":"Leading Seaman","OR-4":"Petty Officer","OR-5":"Chief Petty Officer","OR-6":"Boatswain","OR-7":"Senior Boatswain","OR-8":"Chief Boatswain","OR-9":"Senior Chief Boatswain","OF-1":"Sub-Lieutenant","OF-2":"Lieutenant","OF-3":"Lieutenant-Commander","OF-4":"Commander","OF-5":"Captain","OF-6":"Flotilla-Admiral","OF-7":"Counter-Admiral","OF-8":"Vice-Admiral","OF-9":"Admiral","OF-10":"Grand Admiral"};
+  var SOC_RANKS={"OR-1":"Private","OR-2":"Corporal","OR-4":"Sergeant","OR-5":"Staff Sergeant","OR-7":"Master Sergeant","OR-9":"Command Sergeant Major","OF-2":"Captain","OF-3":"Major","OF-5":"Colonel","OF-6":"Brigadier-General","OF-10":"Commander ILSOC"};
+  function rankTitle(branch,grade){var t=(branch==="ILN"?NAVY_RANKS:branch==="ILSOC"?SOC_RANKS:ARMY_RANKS);return t[grade]||grade||"";}
+  var MEDAL_LABELS={IIC:"Imperial Iron Cross",OBE:"Order of the Black Eagle",ICV:"Imperial Cross of Valor",IDSM:"Imperial Defense Service Medal",MSMM:"Military Service Medal of Merit",MOH:"Medal of Honor",DSA:"Defense Service Award",LEM:"Law Enforcement Service Medal",PSM:"Public Services Medal",EMCM:"Exemplary Military Conduct Medal",ICOGO:"Imperial Civil Order of the Golden Oak",ORE:"Order of the Red Eagle",IOM_G:"Imperial Order of Merit (Gold)",IOM_S:"Imperial Order of Merit (Silver)",IOM_B:"Imperial Order of Merit (Bronze)",DCSM:"Distinguished Civil Service Medal",GSM:"Good Samaritan Medal",MC:"Medal of Counselors",MH:"Medal of Health",CEM:"Civil Engineering Medal",NIM:"National Intelligence Medal",ESM:"Exemplary Service Medal",KESJM:"King Edward Silver Jubilee Medal",FECM:"First Edward Campaigns Medal"};
+  var VISA_TYPES={tourist:"Tourist / Short-Stay",business:"Business",student:"Student",work:"Work Permit",diplomatic:"Diplomatic",transit:"Transit",residence:"Permanent Residence",other:"Other"};
+  var CITIZENSHIP_STATUS={citizen:{l:"Citizen",color:"#2a9a4a"},naturalised:{l:"Naturalised",color:"#4a8a5a"},resident:{l:"Permanent Resident",color:"#4a7aaa"},revoked:{l:"Revoked",color:"#cc2222"},renounced:{l:"Renounced",color:"#7a7a7a"}};
+  function fmtCur(n){if(n==null||n==="")return "—";var abs=Math.abs(Number(n));var s=abs>=1000000?(abs/1000000).toFixed(2)+"M":abs>=1000?(abs/1000).toFixed(1)+"K":Number(abs).toLocaleString();return "$"+(Number(n)<0?"-":"")+s;}
+
+  var ME={u:"",n:""};
+  function esc(s){return (s==null?"":(""+s)).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];});}
+  function eqMe(s){s=(s==null?"":(""+s)).trim().toLowerCase();return !!s&&(s===ME.u||s===ME.n);}
+  function eqUser(s){s=(s==null?"":(""+s)).trim().toLowerCase();return !!s&&s===ME.u;}
+  function hasMe(s){s=(s==null?"":(""+s)).toLowerCase();return (!!ME.n&&s.indexOf(ME.n)>=0)||(!!ME.u&&s.indexOf(ME.u)>=0);}
+  function pretty(s){return (s==null?"":(""+s)).replace(/_/g," ").replace(/\b\w/g,function(c){return c.toUpperCase();});}
+  function dateStr(d){if(!d)return "";if(typeof d==="number")return new Date(d).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});return d;}
+
+  function fetchAll(url){
+    return fetch(url+"?action=getall").then(function(r){return r.json();}).then(function(d){
+      if(!d.success)throw new Error("backend");
+      var o={};Object.keys(d.data||{}).forEach(function(k){var v=d.data[k];if(v){try{o[k]=JSON.parse(v);}catch(e){}}});
+      return o;
+    });
+  }
+  function sha256(t){return crypto.subtle.digest("SHA-256",new TextEncoder().encode(t)).then(function(b){return Array.prototype.map.call(new Uint8Array(b),function(x){return x.toString(16).padStart(2,"0");}).join("");});}
+
+  function chErr(m){var e=document.getElementById("ch-err");e.textContent=m;e.style.display="block";}
+  function chBusy(b){var g=document.getElementById("ch-go");g.textContent=b?"Signing in…":"Sign In";g.disabled=b;}
+
+  window.cpOpen=function(){document.getElementById("cp-login").classList.add("open");setTimeout(function(){var u=document.getElementById("ch-user");if(u)u.focus();},50);};
+  window.cpClose=function(){document.getElementById("cp-login").classList.remove("open");};
+  window.chLogout=function(){var h=document.getElementById("cp-hub");h.classList.remove("open");h.innerHTML="";};
+
+  window.chLogin=function(){
+    var u=document.getElementById("ch-user").value.trim();
+    var p=document.getElementById("ch-pass").value;
+    document.getElementById("ch-err").style.display="none";
+    if(!u||!p){chErr("Enter your credentials.");return;}
+    chBusy(true);
+    fetchAll(MOI_URL).then(function(raw){
+      var accounts={};
+      Object.keys(raw).forEach(function(k){if(k.indexOf("mi_acc_")===0&&raw[k])accounts[raw[k].username]=raw[k];});
+      var ma=raw["mi_accounts"]||{};Object.keys(ma).forEach(function(k){if(!accounts[k])accounts[k]=ma[k];});
+      var acc=null;Object.keys(accounts).forEach(function(k){var a=accounts[k];if(a&&a.username&&a.username.toLowerCase()===u.toLowerCase())acc=a;});
+      if(!acc){chBusy(false);chErr("No such account.");return;}
+      sha256(p).then(function(h){
+        if(h!==acc.passwordHash){chBusy(false);chErr("Incorrect password.");return;}
+        fetchAll(BK_URL).then(function(bk){finish(acc,raw,bk);}).catch(function(){finish(acc,raw,{});});
+      });
+    }).catch(function(){chBusy(false);chErr("Connection error — try again.");});
+  };
+
+  function finish(acc,raw,bk){
+    chBusy(false);
+    document.getElementById("ch-pass").value="";
+    cpClose();
+    renderHub(acc,raw,bk);
+  }
+
+  function row(inner){return '<div class="ch-row">'+inner+'</div>';}
+  function kv(k,v){return '<div class="ch-k">'+esc(k)+'</div><div class="ch-v">'+v+'</div>';}
+
+  function renderHub(acc,raw,bk){
+    ME={u:(acc.username||"").toLowerCase(),n:((acc.displayName||acc.username)||"").toLowerCase()};
+    var personnel=raw.mow_personnel||{}, honours=raw.ih_honours||{}, ships=raw.imc_ships||{},
+        ports=raw.imc_ports||{}, shipReqs=raw.imc_ship_reqs||{}, cases=raw.ij_cases||{},
+        businesses=raw.mof_businesses||{}, debts=raw.mof_debts||{},
+        citizens=raw.mfa_citizens||{}, visas=raw.mfa_visas||{};
+
+    var myService=Object.keys(personnel).map(function(k){return personnel[k];}).filter(function(p){return p&&eqMe(p.name);});
+    var milMedals=[];myService.forEach(function(p){(p.medals||[]).forEach(function(m){milMedals.push({code:m.type,citation:m.citation,awarded:m.awarded,kind:"Military"});});});
+    var civMedals=Object.keys(honours).map(function(k){return honours[k];}).filter(function(h){return h&&eqMe(h.recipient);}).map(function(h){return {code:h.medal,citation:h.citation,awarded:h.awarded,kind:"Civil"};});
+    var allHonours=milMedals.concat(civMedals);
+    var myShips=Object.keys(ships).map(function(k){return ships[k];}).filter(function(s){return s&&(eqMe(s.registeredBy)||eqMe(s.requestedBy)||hasMe(s.owner));});
+    var myShipReqs=Object.keys(shipReqs).map(function(k){return shipReqs[k];}).filter(function(r){return r&&eqMe(r.requestedBy)&&r.status==="pending";});
+    var myCases=Object.keys(cases).map(function(k){return cases[k];}).filter(function(c){return c&&(hasMe(c.parties)||hasMe(c.title));});
+    var myBills=Object.keys(bk).filter(function(k){return k.indexOf("bk_bill_")===0;}).map(function(k){return bk[k];}).filter(function(b){return b&&(eqMe(b.submitter)||hasMe(b.submitter));});
+    var myBusinesses=Object.keys(businesses).map(function(k){return businesses[k];}).filter(function(b){return b&&(b.owners||[]).some(function(o){return o&&(eqUser(o.username)||eqMe(o.rpName));});});
+    var myDebts=Object.keys(debts).map(function(k){return debts[k];}).filter(function(d){return d&&hasMe(d.counterparty);});
+    var myCitizenship=Object.keys(citizens).map(function(k){return citizens[k];}).filter(function(c){return c&&eqUser(c.username);});
+    var myVisas=Object.keys(visas).map(function(k){return visas[k];}).filter(function(v){return v&&eqUser(v.username);});
+
+    var cl=CL(acc.clearance||0);
+    var html="";
+
+    // Header
+    html+='<div class="ch-head">';
+    html+='<div style="flex:1;min-width:0;">';
+    html+='<div style="font-family:\'Cinzel\',serif;font-size:0.55rem;letter-spacing:0.35em;color:#C9A84C;margin-bottom:3px;">CITIZEN PORTAL</div>';
+    html+='<div style="font-family:\'Cinzel\',serif;font-weight:700;font-size:1.15rem;letter-spacing:0.05em;color:#e8d8c8;">'+esc(acc.displayName||acc.username)+'</div>';
+    html+='</div>';
+    html+='<span class="ch-badge" style="color:'+cl.color+';border-color:'+cl.color+'66;background:'+cl.color+'11;">'+cl.short+' · '+esc(cl.code)+'</span>';
+    html+='<button class="cp-btn" style="width:auto;padding:0.5rem 1.2rem;" onclick="chLogout()">Close</button>';
+    html+='</div>';
+
+    html+='<div class="ch-grid">';
+
+    // ── Identity & Access (full) ──
+    html+='<div class="ch-panel full" style="--pa:#C9A84C">';
+    html+='<div class="ch-title">⬡ Identity &amp; Standing</div>';
+    html+='<div style="display:flex;gap:2.5rem;flex-wrap:wrap;margin-bottom:1rem;">';
+    html+='<div>'+kv("POSITION",esc(ROLE_LABELS[acc.role]||pretty(acc.role)||"Civilian"))+'</div>';
+    html+='<div>'+kv("MINISTRY / DEPARTMENT",esc(acc.ministry||"—"))+'</div>';
+    html+='<div>'+kv("SECURITY CLEARANCE",'<span style="color:'+cl.color+'">'+esc(cl.code)+'</span>')+'</div>';
+    html+='<div>'+kv("USERNAME",esc(acc.username))+'</div>';
+    html+='</div>';
+    var badges=[];
+    if(acc.role==="lss_agent"||acc.role==="lss_director"||acc.agentAssigned)badges.push(["Lech Security Service","#4a88ff",acc.role==="lss_director"?"Director":"Agent"]);
+    if(acc.role==="lfp_officer"||acc.role==="lfp_director"||acc.officerAssigned)badges.push(["Lech Federal Police","#cc7a10",acc.role==="lfp_director"?"Director":"Officer"]);
+    if(acc.imcRole)badges.push(["Maritime Commission","#2a8ab4",pretty(acc.imcRole)]);
+    if(acc.mowRole)badges.push(["War Office","#6f7a8c",pretty(acc.mowRole)]);
+    if(acc.ijAccess)badges.push(["Judiciary","#5a78b8",pretty(acc.ijAccess)]);
+    if(acc.mofRole)badges.push(["Treasury","#b8902f",pretty(acc.mofRole)]);
+    if(acc.pressRole)badges.push(["Imperial Press","#8a7250",pretty(acc.pressRole)]);
+    if(acc.mfaAccess)badges.push(["Foreign Affairs","#4a93a8","Panel Access"]);
+    html+='<div class="ch-k" style="margin-bottom:6px;">SYSTEM ACCESS &amp; CREDENTIALS</div>';
+    if(badges.length){
+      html+='<div>';badges.forEach(function(b){html+='<span class="ch-badge" style="color:'+b[1]+';border-color:'+b[1]+'66;background:'+b[1]+'11;">'+esc(b[0])+' · '+esc(b[2])+'</span>';});html+='</div>';
+    } else html+='<div class="ch-v" style="color:#9a8070;font-style:italic;">Standard civilian access. No special directorate credentials.</div>';
+    html+='</div>';
+
+    // ── Military Service ──
+    html+='<div class="ch-panel" style="--pa:#6a8a4a">';
+    html+='<div class="ch-title">⚔ Military Service <a class="ch-link" href="mow.html" style="margin-left:auto;">War Office →</a></div>';
+    if(myService.length){
+      myService.forEach(function(p){
+        var br=BRANCHES[p.branch]||{l:p.branch||"—",color:"#6a8a4a"};
+        var rt=rankTitle(p.branch,p.grade);
+        html+=row(
+          '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">'+
+          '<span class="ch-v" style="font-family:\'Cinzel\',serif;color:'+br.color+';">'+esc(rt)+'</span>'+
+          (p.status?'<span class="ch-k">'+esc(pretty(p.status))+'</span>':'')+'</div>'+
+          '<div class="ch-k" style="margin-top:4px;">'+esc(br.l)+(p.force==="reserve"?" · Reserve Force":" · Regular Force")+(p.posting?" · "+esc(p.posting):"")+(p.isAdc?" · Aide-de-Camp":"")+'</div>'
+        );
+      });
+    } else html+='<div class="ch-empty">No military service record on file.</div>';
+    html+='</div>';
+
+    // ── Honours & Awards ──
+    html+='<div class="ch-panel" style="--pa:#b23a3a">';
+    html+='<div class="ch-title">🎖 Honours &amp; Awards <a class="ch-link" href="ih.html" style="margin-left:auto;">Household →</a></div>';
+    if(allHonours.length){
+      allHonours.forEach(function(m){
+        html+=row(
+          '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">'+
+          '<span class="ch-v" style="font-family:\'Cinzel\',serif;color:#C9A84C;">'+esc(MEDAL_LABELS[m.code]||m.code||"Award")+'</span>'+
+          '<span class="ch-badge" style="color:'+(m.kind==="Military"?"#6a8a4a":"#b23a3a")+';border-color:'+(m.kind==="Military"?"#6a8a4a":"#b23a3a")+'66;">'+m.kind+'</span></div>'+
+          ((m.citation||m.awarded)?'<div class="ch-k" style="margin-top:4px;font-style:italic;color:#9a8070;">'+esc(m.citation||"")+(m.awarded?" · "+esc(dateStr(m.awarded)):"")+'</div>':'')
+        );
+      });
+    } else html+='<div class="ch-empty">No honours or awards recorded.</div>';
+    html+='</div>';
+
+    // ── Maritime Registry ──
+    html+='<div class="ch-panel" style="--pa:#2a8ab4">';
+    html+='<div class="ch-title">⚓ Maritime Registry <a class="ch-link" href="imc.html" style="margin-left:auto;">IMC →</a></div>';
+    if(myShips.length||myShipReqs.length){
+      myShips.forEach(function(s){
+        var port=ports[s.homePort];
+        html+=row(
+          '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">'+
+          '<span class="ch-v" style="font-family:\'Cinzel\',serif;">'+esc(s.name)+'</span>'+
+          '<span class="ch-k">'+esc(s.registrationNumber||"")+'</span></div>'+
+          '<div class="ch-k" style="margin-top:4px;">'+esc(pretty(s.type||"Vessel"))+(s.blockSize!=null?" · "+esc(s.blockSize)+" blk":"")+(port?" · ⚓ "+esc(port.name):"")+'</div>'
+        );
+      });
+      myShipReqs.forEach(function(r){
+        html+=row('<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;"><span class="ch-v" style="font-family:\'Cinzel\',serif;">'+esc(r.name)+'</span><span class="ch-badge" style="color:#C9A84C;border-color:#C9A84C66;">Pending Approval</span></div>');
+      });
+    } else html+='<div class="ch-empty">No registered vessels or pending requests.</div>';
+    html+='</div>';
+
+    // ── Finance ──
+    html+='<div class="ch-panel" style="--pa:#b8902f">';
+    html+='<div class="ch-title">🪙 Finance &amp; Enterprise <a class="ch-link" href="mof.html" style="margin-left:auto;">Treasury →</a></div>';
+    if(myBusinesses.length||myDebts.length){
+      myBusinesses.forEach(function(b){
+        var mine=(b.owners||[]).filter(function(o){return o&&(eqUser(o.username)||eqMe(o.rpName));})[0];
+        html+=row(
+          '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">'+
+          '<span class="ch-v" style="font-family:\'Cinzel\',serif;">'+esc(b.legalName||"Enterprise")+'</span>'+
+          (b.licenseStatus?'<span class="ch-k">'+esc(pretty(b.licenseStatus))+'</span>':'')+'</div>'+
+          '<div class="ch-k" style="margin-top:4px;">'+esc(b.registrationNo||"")+(b.entityType?" · "+esc(pretty(b.entityType)):"")+(mine&&mine.pct?" · "+esc(mine.pct)+"% owner":"")+'</div>'
+        );
+      });
+      myDebts.forEach(function(d){
+        var borrows=d.direction==="borrow";
+        html+=row(
+          '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">'+
+          '<span class="ch-v" style="font-family:\'Cinzel\',serif;color:'+(borrows?"#5aaa7a":"#c05050")+';">'+(borrows?"Crown owes you":"You owe the Crown")+'</span>'+
+          '<span class="ch-v" style="font-family:\'Cinzel\',serif;color:'+(borrows?"#5aaa7a":"#c05050")+';">'+esc(fmtCur(d.principal))+'</span></div>'+
+          '<div class="ch-k" style="margin-top:4px;">'+(d.type?esc(pretty(d.type))+" · ":"")+(d.status?esc(pretty(d.status)):"")+(d.interestRate?" · "+esc(d.interestRate)+"% interest":"")+'</div>'
+        );
+      });
+    } else html+='<div class="ch-empty">No registered enterprises or Crown debts.</div>';
+    html+='</div>';
+
+    // ── Foreign Affairs ──
+    html+='<div class="ch-panel" style="--pa:#4a93a8">';
+    html+='<div class="ch-title">🌐 Citizenship &amp; Travel <a class="ch-link" href="mfa.html" style="margin-left:auto;">Foreign Affairs →</a></div>';
+    if(myCitizenship.length||myVisas.length){
+      myCitizenship.forEach(function(c){
+        var st=CITIZENSHIP_STATUS[c.status]||{l:pretty(c.status||"Citizen"),color:"#4a93a8"};
+        html+=row(
+          '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">'+
+          '<span class="ch-v" style="font-family:\'Cinzel\',serif;color:'+st.color+';">'+esc(st.l)+'</span>'+
+          (c.since?'<span class="ch-k">Since '+esc(dateStr(c.since))+'</span>':'')+'</div>'+
+          (c.nationality?'<div class="ch-k" style="margin-top:4px;">Nationality of record · '+esc(c.nationality)+'</div>':'')
+        );
+      });
+      myVisas.forEach(function(v){
+        html+=row(
+          '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">'+
+          '<span class="ch-v" style="font-family:\'Cinzel\',serif;">'+esc(VISA_TYPES[v.type]||pretty(v.type)||"Visa")+' Visa</span>'+
+          (v.status?'<span class="ch-k">'+esc(pretty(v.status))+'</span>':'')+'</div>'+
+          '<div class="ch-k" style="margin-top:4px;">'+(v.ref?esc(v.ref):"")+(v.nationality?" · "+esc(v.nationality):"")+'</div>'
+        );
+      });
+    } else html+='<div class="ch-empty">No citizenship record or visa applications on file.</div>';
+    html+='</div>';
+
+    // ── Justice ──
+    html+='<div class="ch-panel" style="--pa:#5a78b8">';
+    html+='<div class="ch-title">⚖ Judicial Record <a class="ch-link" href="ij.html" style="margin-left:auto;">Courts →</a></div>';
+    if(myCases.length){
+      myCases.forEach(function(c){
+        html+=row(
+          '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">'+
+          '<span class="ch-v" style="font-family:\'Cinzel\',serif;">'+esc(c.title||c.parties||"Case")+'</span>'+
+          (c.status?'<span class="ch-k">'+esc(pretty(c.status))+'</span>':'')+'</div>'+
+          ((c.number||c.parties)?'<div class="ch-k" style="margin-top:4px;">'+esc(c.number||"")+(c.number&&c.parties?" · ":"")+esc(c.parties||"")+'</div>':'')
+        );
+      });
+    } else html+='<div class="ch-empty">No court cases reference you.</div>';
+    html+='</div>';
+
+    // ── Legislature ──
+    html+='<div class="ch-panel" style="--pa:#C9A84C">';
+    html+='<div class="ch-title">🏛 Legislative Activity <a class="ch-link" href="bundeskongress.html" style="margin-left:auto;">Bundeskongress →</a></div>';
+    if(myBills.length){
+      myBills.forEach(function(b){
+        html+=row(
+          '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">'+
+          '<span class="ch-v" style="font-family:\'Cinzel\',serif;">'+esc(b.title||"Bill")+'</span>'+
+          (b.status?'<span class="ch-k">'+esc(pretty(b.status))+'</span>':'')+'</div>'+
+          (b.type?'<div class="ch-k" style="margin-top:4px;">'+esc(pretty(b.type))+'</div>':'')
+        );
+      });
+    } else html+='<div class="ch-empty">No bills submitted under your name.</div>';
+    html+='</div>';
+
+    html+='</div>'; // grid
+
+    var hub=document.getElementById("cp-hub");
+    hub.innerHTML=html;
+    hub.classList.add("open");
+    hub.scrollTop=0;
+  }
+})();
 </script>
 
