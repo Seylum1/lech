@@ -346,13 +346,32 @@ function ProclamationsTab({proclamations}){
 }
 
 // ── HONOURS TAB ───────────────────────────────────────────────────────────────
+const ALL_MEDAL_TYPES=[...MIL_MEDAL_TYPES,...CIVIL_MEDAL_TYPES];
+const ORDER_SECTIONS=[
+  {label:"Grand Civil Orders",      cat:"civil_grand"},
+  {label:"Civil Orders of Merit",   cat:"civil_merit"},
+  {label:"Civil Medals",            cat:"civil_service"},
+  {label:"Grand Military Orders",   cat:"military_grand"},
+  {label:"Military Orders of Valor",cat:"military_valor"},
+  {label:"Military Service Medals", cat:"military_service"},
+  {label:"Campaign Medals",         cat:"campaign"},
+];
+const isMilCat=(c)=>c==="military_grand"||c==="military_valor"||c==="military_service"||c==="campaign";
+const seniorityVal=(s)=>{const t=Date.parse(s);return isNaN(t)?Infinity:t;};
+
 function HonoursTab({civilHonours,personnel}){
-  const [filter,setFilter]=useState("all");
+  const [view,setView]=useState(null);   // null | "player" | "order"
+  const [search,setSearch]=useState("");
+  const [selPlayer,setSelPlayer]=useState(null);
+  const [selOrder,setSelOrder]=useState(null);
+
   const allHonours=useMemo(()=>{
     const list=[];
     Object.values(civilHonours||{}).forEach(h=>{
-      const mt=CIVIL_MEDAL_TYPES.find(m=>m.v===h.medal)||{l:h.medal,cat:"civil_service",prestige:99};
-      list.push({...h,medalLabel:mt.l,cat:mt.cat,prestige:mt.prestige,source:"civil"});
+      const milType=MIL_MEDAL_TYPES.find(m=>m.v===h.medal);
+      const civType=CIVIL_MEDAL_TYPES.find(m=>m.v===h.medal);
+      const mt=milType||civType||{l:h.medal,cat:"civil_service",prestige:99};
+      list.push({...h,medalLabel:mt.l,cat:mt.cat,prestige:mt.prestige,source:milType?"military":"civil",recipientUsername:h.recipientUsername||""});
     });
     Object.values(personnel||{}).forEach(person=>{
       (person.medals||[]).forEach(m=>{
@@ -361,61 +380,153 @@ function HonoursTab({civilHonours,personnel}){
         const mt=milType||civType||null;
         if(!mt) return;
         const source=civType?"civil":"military";
-        list.push({id:`${person.id}_${m.type}`,recipient:person.name,medal:m.type,medalLabel:mt.l,
+        list.push({id:`${person.id}_${m.type}`,recipient:person.name,recipientUsername:person.username||"",medal:m.type,medalLabel:mt.l,
           cat:mt.cat,prestige:mt.prestige,citation:m.citation,awarded:m.awarded,source});
       });
     });
-    return list.sort((a,b)=>a.prestige-b.prestige||(a.recipient||"").localeCompare(b.recipient||""));
+    return list;
   },[civilHonours,personnel]);
 
-  const cats=[
-    {v:"all",           l:"All Honours"},
-    {v:"military_grand",l:"Grand Military Orders"},
-    {v:"military_valor",l:"Military Orders of Valor"},
-    {v:"military_service",l:"Military Service"},
-    {v:"campaign",      l:"Campaign Medals"},
-    {v:"civil_grand",   l:"Grand Civil Orders"},
-    {v:"civil_merit",   l:"Civil Orders of Merit"},
-    {v:"civil_service", l:"Civil Service"},
-  ];
-  const filtered=filter==="all"?allHonours:allHonours.filter(h=>h.cat===filter);
-  return <div className="fadeIn">
-    <div style={{textAlign:"center",marginBottom:"2.5rem"}}>
-      <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.5em",color:C.goldD,marginBottom:8,textTransform:"uppercase"}}>Imperial Register of</div>
-      <div style={{fontFamily:"'Cinzel',serif",fontSize:22,fontWeight:700,color:C.text,letterSpacing:"0.1em"}}>Honours {"&"} Awards</div>
-      <GoldRule/>
-    </div>
-    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:"1.5rem"}}>
-      {cats.map(cat=><button key={cat.v} onClick={()=>setFilter(cat.v)}
-        style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",
-                 padding:"4px 12px",background:filter===cat.v?C.s2:"transparent",
-                 border:`1px solid ${filter===cat.v?C.gold:C.border}`,
-                 color:filter===cat.v?C.gold:C.textD,borderRadius:1,cursor:"pointer"}}>
-        {cat.l}
-      </button>)}
-    </div>
-    {filtered.length===0
-      ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No honours in this category.</div>
-      :<div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>
-        {filtered.map((h,i)=>{
-          const isMil=h.source==="military";
-          return <div key={h.id||i} style={{background:C.s1,border:`1px solid ${C.border}`,
-            borderLeft:`4px solid ${isMil?C.crimsonD:C.goldD}`,borderRadius:"0 3px 3px 0",
-            padding:"0.75rem 1.25rem",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-            <span style={{fontSize:16}}>{"🎖"}</span>
-            <div style={{flex:1,minWidth:200}}>
-              <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text,fontWeight:600}}>{h.medalLabel}</div>
-              {h.citation&&<div style={{fontSize:12,color:C.textD,fontStyle:"italic",marginTop:2}}>{h.citation}</div>}
-            </div>
-            <div style={{textAlign:"right",flexShrink:0}}>
-              <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:isMil?C.crimsonL:C.gold}}>{h.recipient}</div>
-              {h.awarded&&<div className="mono" style={{fontSize:9,color:C.textDD,marginTop:2}}>{h.awarded}</div>}
-              <div className="mono" style={{fontSize:8,color:C.textDD,marginTop:2}}>{isMil?"MILITARY":"CIVIL"}</div>
-            </div>
-          </div>;
-        })}
+  // ── Recipients with ≥1 honour ──
+  const players=useMemo(()=>{
+    const m={};
+    allHonours.forEach(h=>{
+      const key=((h.recipientUsername||h.recipient)||"").toLowerCase();
+      if(!key) return;
+      if(!m[key]) m[key]={key,name:h.recipient,username:h.recipientUsername||"",honours:[]};
+      m[key].honours.push(h);
+    });
+    return Object.values(m).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  },[allHonours]);
+
+  const Header=()=> <div style={{textAlign:"center",marginBottom:"2rem"}}>
+    <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.5em",color:C.goldD,marginBottom:8,textTransform:"uppercase"}}>Imperial Register of</div>
+    <div style={{fontFamily:"'Cinzel',serif",fontSize:22,fontWeight:700,color:C.text,letterSpacing:"0.1em"}}>Honours {"&"} Awards</div>
+    <GoldRule/>
+  </div>;
+  const BackBtn=({label,onClick})=> <button onClick={onClick} style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.15em",
+    textTransform:"uppercase",background:"transparent",border:`1px solid ${C.border}`,borderRadius:1,color:C.textD,cursor:"pointer",
+    padding:"5px 12px",marginBottom:"1.5rem"}}
+    onMouseEnter={e=>{e.currentTarget.style.borderColor=C.gold;e.currentTarget.style.color=C.gold;}}
+    onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textD;}}>{label}</button>;
+
+  function HonourCard({h,showRecipient,showMedal}){
+    const isMil=h.source==="military";const col=isMil?C.crimsonL:C.gold;
+    return <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${isMil?C.crimsonD:C.goldD}`,
+      borderRadius:"0 3px 3px 0",padding:"0.75rem 1.25rem",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+      <span style={{fontSize:16}}>{"🎖"}</span>
+      <div style={{flex:1,minWidth:200}}>
+        {showMedal&&<div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text,fontWeight:600}}>{h.medalLabel}</div>}
+        {showRecipient&&<div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:col,fontWeight:600}}>{h.recipient}</div>}
+        {h.citation&&<div style={{fontSize:12,color:C.textD,fontStyle:"italic",marginTop:2}}>{h.citation}</div>}
       </div>
+      <div style={{textAlign:"right",flexShrink:0}}>
+        {h.awarded&&<div className="mono" style={{fontSize:9,color:C.textDD}}>{h.awarded}</div>}
+        <div className="mono" style={{fontSize:8,color:C.textDD,marginTop:2}}>{isMil?"MILITARY":"CIVIL"}</div>
+      </div>
+    </div>;
+  }
+
+  // ── LANDING ──
+  if(!view) return <div className="fadeIn">
+    <Header/>
+    <div style={{fontSize:13,color:C.textD,fontStyle:"italic",textAlign:"center",lineHeight:1.7,marginBottom:"2.25rem"}}>
+      Browse the honours and awards of the Empire by recipient, or by order of chivalry.
+    </div>
+    <div style={{display:"flex",gap:"1.25rem",justifyContent:"center",flexWrap:"wrap"}}>
+      {[["player","👤","View by Player","See every honour held by a single recipient, in order of precedence."],
+        ["order","🎖","View by Honour","Browse each order and medal, and the recipients who hold it."]].map(([v,icon,title,desc])=>
+        <div key={v} onClick={()=>{setView(v);setSelPlayer(null);setSelOrder(null);setSearch("");}}
+          style={{flex:"1 1 280px",maxWidth:340,cursor:"pointer",background:`linear-gradient(160deg,${C.s2},${C.s1})`,
+            border:`1px solid ${C.border}`,borderTop:`3px solid ${C.goldD}`,borderRadius:"0 0 4px 4px",padding:"1.75rem 1.5rem",textAlign:"center",transition:"all .15s"}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor=C.gold;e.currentTarget.style.borderTopColor=C.gold;e.currentTarget.style.transform="translateY(-3px)";}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.borderTopColor=C.goldD;e.currentTarget.style.transform="none";}}>
+          <div style={{fontSize:34,marginBottom:12}}>{icon}</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:16,fontWeight:700,letterSpacing:"0.08em",color:C.text,marginBottom:8}}>{title}</div>
+          <div style={{fontSize:13,color:C.textD,lineHeight:1.6}}>{desc}</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:10,letterSpacing:"0.2em",color:C.gold,marginTop:16,textTransform:"uppercase"}}>Enter →</div>
+        </div>)}
+    </div>
+  </div>;
+
+  // ── VIEW BY PLAYER ──
+  if(view==="player"){
+    const sel=selPlayer?players.find(p=>p.key===selPlayer):null;
+    if(sel){
+      const sorted=[...sel.honours].sort((a,b)=>a.prestige-b.prestige);
+      return <div className="fadeIn">
+        <Header/>
+        <BackBtn label="← All recipients" onClick={()=>setSelPlayer(null)}/>
+        <div style={{textAlign:"center",marginBottom:"1.5rem"}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:20,fontWeight:700,color:C.gold,letterSpacing:"0.06em"}}>{sel.name}</div>
+          {sel.username&&<div className="mono" style={{fontSize:10,color:C.textDD,fontStyle:"italic",marginTop:3}}>{sel.username}</div>}
+          <div className="mono" style={{fontSize:9,color:C.textDD,marginTop:6,letterSpacing:"0.15em"}}>{sorted.length} HONOUR{sorted.length!==1?"S":""} · IN ORDER OF PRECEDENCE</div>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>
+          {sorted.map((h,i)=><HonourCard key={h.id||i} h={h} showMedal={true}/>)}
+        </div>
+      </div>;
     }
+    const filtered=players.filter(p=>!search||(p.name||"").toLowerCase().includes(search.toLowerCase())||(p.username||"").toLowerCase().includes(search.toLowerCase()));
+    return <div className="fadeIn">
+      <Header/>
+      <BackBtn label="← Honours menu" onClick={()=>setView(null)}/>
+      <div style={{marginBottom:"1.25rem"}}><Inp value={search} onChange={setSearch} placeholder="Search recipients…"/></div>
+      {filtered.length===0
+        ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No recipients found.</div>
+        :<div style={{display:"flex",flexDirection:"column",gap:4}}>
+          {filtered.map(p=><div key={p.key} onClick={()=>setSelPlayer(p.key)}
+            style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${C.goldD}`,borderRadius:"0 3px 3px 0",
+              padding:"0.7rem 1.25rem",display:"flex",alignItems:"center",gap:10,cursor:"pointer",transition:"background .12s"}}
+            onMouseEnter={e=>e.currentTarget.style.background=C.s2} onMouseLeave={e=>e.currentTarget.style.background=C.s1}>
+            <span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{p.name}</span>
+            <span className="mono" style={{fontSize:9,color:C.gold}}>{p.honours.length} honour{p.honours.length!==1?"s":""}</span>
+            <span style={{color:C.textDD}}>→</span>
+          </div>)}
+        </div>}
+    </div>;
+  }
+
+  // ── VIEW BY HONOUR (ORDER) ──
+  const holdersOf=(v)=>allHonours.filter(h=>h.medal===v).sort((a,b)=>seniorityVal(a.awarded)-seniorityVal(b.awarded));
+  if(selOrder){
+    const mt=ALL_MEDAL_TYPES.find(m=>m.v===selOrder)||{l:selOrder,cat:"civil_service"};
+    const holders=holdersOf(selOrder);const mil=isMilCat(mt.cat);
+    return <div className="fadeIn">
+      <Header/>
+      <BackBtn label="← All honours" onClick={()=>setSelOrder(null)}/>
+      <div style={{textAlign:"center",marginBottom:"1.5rem"}}>
+        <div style={{fontSize:26,marginBottom:6}}>{"🎖"}</div>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:19,fontWeight:700,color:mil?C.crimsonL:C.gold,letterSpacing:"0.05em"}}>{mt.l}</div>
+        <div className="mono" style={{fontSize:9,color:C.textDD,marginTop:6,letterSpacing:"0.15em"}}>{holders.length} RECIPIENT{holders.length!==1?"S":""} · BY SENIORITY</div>
+      </div>
+      {holders.length===0
+        ?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No recipients on record.</div>
+        :<div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>{holders.map((h,i)=><HonourCard key={h.id||i} h={h} showRecipient={true}/>)}</div>}
+    </div>;
+  }
+  return <div className="fadeIn">
+    <Header/>
+    <BackBtn label="← Honours menu" onClick={()=>setView(null)}/>
+    {ORDER_SECTIONS.map(sec=>{
+      const types=ALL_MEDAL_TYPES.filter(m=>m.cat===sec.cat).map(m=>({...m,count:allHonours.filter(h=>h.medal===m.v).length})).filter(m=>m.count>0);
+      if(types.length===0) return null;
+      const mil=isMilCat(sec.cat);
+      return <div key={sec.cat} style={{marginBottom:"1.75rem"}}>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.3em",textTransform:"uppercase",color:mil?C.crimsonL:C.gold,marginBottom:"0.75rem"}}>{sec.label}</div>
+        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+          {types.map(m=><div key={m.v} onClick={()=>setSelOrder(m.v)}
+            style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${mil?C.crimsonD:C.goldD}`,borderRadius:"0 3px 3px 0",
+              padding:"0.7rem 1.25rem",display:"flex",alignItems:"center",gap:10,cursor:"pointer",transition:"background .12s"}}
+            onMouseEnter={e=>e.currentTarget.style.background=C.s2} onMouseLeave={e=>e.currentTarget.style.background=C.s1}>
+            <span style={{fontSize:15}}>{"🎖"}</span>
+            <span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{m.l}</span>
+            <span className="mono" style={{fontSize:9,color:mil?C.crimsonL:C.gold}}>{m.count} holder{m.count!==1?"s":""}</span>
+            <span style={{color:C.textDD}}>→</span>
+          </div>)}
+        </div>
+      </div>;
+    })}
   </div>;
 }
 
@@ -508,7 +619,7 @@ function PanelAuth({onAuth,onCancel}){
 }
 
 // ── EMPEROR PANEL ─────────────────────────────────────────────────────────────
-function EmperorPanel({family,proclamations,calendar,civilHonours,onAction,notify,setProcessing}){
+function EmperorPanel({family,proclamations,calendar,civilHonours,accounts,onAction,notify,setProcessing}){
   const [sec,setSec]=useState("family");
   const secs=[["family","Imperial Family"],["proclamations","Proclamations"],["calendar","Calendar"],["honours","Civil Honours"]];
   return <div className="fadeIn">
@@ -526,7 +637,7 @@ function EmperorPanel({family,proclamations,calendar,civilHonours,onAction,notif
     {sec==="family"&&<PanelFamily family={family} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
     {sec==="proclamations"&&<PanelProclamations proclamations={proclamations} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
     {sec==="calendar"&&<PanelCalendar calendar={calendar} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
-    {sec==="honours"&&<PanelHonours civilHonours={civilHonours} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+    {sec==="honours"&&<PanelHonours civilHonours={civilHonours} accounts={accounts} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
   </div>;
 }
 
@@ -675,27 +786,42 @@ function PanelCalendar({calendar,onAction,notify,setProcessing}){
   </div>;
 }
 
-function PanelHonours({civilHonours,onAction,notify,setProcessing}){
-  const [recipient,setRecipient]=useState("");const [medal,setMedal]=useState("ICOGO");
+function PanelHonours({civilHonours,accounts,onAction,notify,setProcessing}){
+  const [recipient,setRecipient]=useState("");const [recipientUsername,setRecipientUsername]=useState("");const [nonCitizen,setNonCitizen]=useState(false);
+  const [medal,setMedal]=useState("ICOGO");
   const [citation,setCitation]=useState("");
   const [awarded,setAwarded]=useState(new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"}));
   const [saving,setSaving]=useState(false);
+  const acctOpts=[{v:"",l:"— Select a citizen —"},...((accounts||[]).map(a=>({v:a.username,l:(a.displayName?a.displayName+" ":"")+"@"+a.username})))];
+  function pickAccount(u){setRecipientUsername(u);const a=(accounts||[]).find(x=>x.username===u);setRecipient(a?(a.displayName||a.username):"");}
   const list=Object.values(civilHonours||{}).sort((a,b)=>{
-    const ap=CIVIL_MEDAL_TYPES.find(m=>m.v===a.medal)?.prestige||99;
-    const bp=CIVIL_MEDAL_TYPES.find(m=>m.v===b.medal)?.prestige||99;
-    return ap-bp||(a.recipient||"").localeCompare(b.recipient||"");
+    const ma=ALL_MEDAL_TYPES.find(m=>m.v===a.medal),mb=ALL_MEDAL_TYPES.find(m=>m.v===b.medal);
+    const am=ma&&isMilCat(ma.cat)?1:0,bm=mb&&isMilCat(mb.cat)?1:0;
+    return am-bm||((ma?.prestige||99)-(mb?.prestige||99))||(a.recipient||"").localeCompare(b.recipient||"");
   });
   const cats=[
-    {label:"Grand Civil Orders",    medals:CIVIL_MEDAL_TYPES.filter(m=>m.cat==="civil_grand")},
-    {label:"Civil Orders of Merit", medals:CIVIL_MEDAL_TYPES.filter(m=>m.cat==="civil_merit")},
-    {label:"Civil Medals",          medals:CIVIL_MEDAL_TYPES.filter(m=>m.cat==="civil_service")},
+    {label:"Grand Civil Orders",      medals:CIVIL_MEDAL_TYPES.filter(m=>m.cat==="civil_grand")},
+    {label:"Civil Orders of Merit",   medals:CIVIL_MEDAL_TYPES.filter(m=>m.cat==="civil_merit")},
+    {label:"Civil Medals",            medals:CIVIL_MEDAL_TYPES.filter(m=>m.cat==="civil_service")},
+    {label:"Grand Military Orders",   medals:MIL_MEDAL_TYPES.filter(m=>m.cat==="military_grand")},
+    {label:"Military Orders of Valor",medals:MIL_MEDAL_TYPES.filter(m=>m.cat==="military_valor")},
+    {label:"Military Service Medals", medals:MIL_MEDAL_TYPES.filter(m=>m.cat==="military_service")},
+    {label:"Campaign Medals",         medals:MIL_MEDAL_TYPES.filter(m=>m.cat==="campaign")},
   ];
   return <div>
-    <STitle>Bestow Civil Honour</STitle>
+    <STitle>Bestow Honour</STitle>
     <div style={{background:C.s2,border:`1px solid ${C.border}`,padding:"1.25rem",marginBottom:"1.5rem"}}>
       <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
-        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
-          <div style={{flex:2,minWidth:180}}><FL>RECIPIENT *</FL><Inp value={recipient} onChange={setRecipient} placeholder="Name of recipient"/></div>
+        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap",alignItems:"flex-end"}}>
+          <div style={{flex:2,minWidth:180}}>
+            <FL>RECIPIENT *</FL>
+            {nonCitizen
+              ?<Inp value={recipient} onChange={setRecipient} placeholder="Full name of non-citizen recipient"/>
+              :<select value={recipientUsername} onChange={e=>pickAccount(e.target.value)}
+                 style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,padding:"8px 12px",color:C.text,fontSize:14,outline:"none",fontFamily:"'Crimson Text',serif"}}>
+                 {acctOpts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+               </select>}
+          </div>
           <div style={{flex:1,minWidth:200}}>
             <FL>HONOUR</FL>
             <select value={medal} onChange={e=>setMedal(e.target.value)}
@@ -707,32 +833,38 @@ function PanelHonours({civilHonours,onAction,notify,setProcessing}){
             </select>
           </div>
         </div>
+        <div onClick={()=>{setNonCitizen(v=>!v);setRecipient("");setRecipientUsername("");}}
+          style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
+          <div style={{width:14,height:14,borderRadius:2,border:`2px solid ${nonCitizen?C.gold:C.border}`,background:nonCitizen?C.goldD:"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:C.gold,flexShrink:0}}>{nonCitizen?"✓":""}</div>
+          <span style={{fontSize:12,color:nonCitizen?C.text:C.textD}}>Recipient is not a registered citizen — enter their name manually</span>
+        </div>
         <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
           <div style={{flex:2}}><FL>CITATION</FL><Inp value={citation} onChange={setCitation} placeholder="Reason for bestowing this honour..."/></div>
           <div style={{flex:1,minWidth:160}}><FL>DATE AWARDED</FL><Inp value={awarded} onChange={setAwarded}/></div>
         </div>
         <Btn small disabled={!recipient.trim()||saving} onClick={async()=>{
           setSaving(true); setProcessing("Bestowing honour...");
-          await onAction("createHonour",{recipient:recipient.trim(),medal,citation:citation.trim(),awarded:awarded.trim()});
+          await onAction("createHonour",{recipient:recipient.trim(),recipientUsername:nonCitizen?"":recipientUsername,medal,citation:citation.trim(),awarded:awarded.trim()});
           setProcessing(null); setSaving(false); notify("Honour bestowed upon "+recipient+".",C.gold);
-          setRecipient(""); setCitation("");
+          setRecipient(""); setRecipientUsername(""); setCitation("");
         }}>{saving?"Bestowing...":"Bestow Honour"}</Btn>
       </div>
     </div>
-    <STitle>Civil Honours Register</STitle>
-    {list.length===0&&<div style={{fontSize:14,color:C.textDD,fontStyle:"italic"}}>No civil honours on record.</div>}
+    <STitle>Honours Register</STitle>
+    {list.length===0&&<div style={{fontSize:14,color:C.textDD,fontStyle:"italic"}}>No honours on record.</div>}
     {list.map((h,i)=>{
-      const mt=CIVIL_MEDAL_TYPES.find(m=>m.v===h.medal)||{l:h.medal};
+      const mt=ALL_MEDAL_TYPES.find(m=>m.v===h.medal)||{l:h.medal,cat:"civil_service"};
+      const mil=isMilCat(mt.cat);
       return <div key={h.id||i} style={{background:C.s1,border:`1px solid ${C.border}`,
-        borderLeft:`4px solid ${C.goldD}`,borderRadius:"0 3px 3px 0",padding:"0.65rem 1.25rem",
+        borderLeft:`4px solid ${mil?C.crimsonD:C.goldD}`,borderRadius:"0 3px 3px 0",padding:"0.65rem 1.25rem",
         marginBottom:4,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
         <span style={{fontSize:14}}>{"🎖"}</span>
         <div style={{flex:1}}>
-          <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text}}>{mt.l}</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text}}>{mt.l}<span className="mono" style={{fontSize:8,color:C.textDD,marginLeft:8}}>{mil?"MILITARY":"CIVIL"}</span></div>
           {h.citation&&<div style={{fontSize:12,color:C.textD,fontStyle:"italic"}}>{h.citation}</div>}
         </div>
         <div style={{textAlign:"right"}}>
-          <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.gold}}>{h.recipient}</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:mil?C.crimsonL:C.gold}}>{h.recipient}</div>
           {h.awarded&&<div className="mono" style={{fontSize:9,color:C.textDD,marginTop:2}}>{h.awarded}</div>}
         </div>
         <ArmBtn small label="Revoke" confirmLabel="Revoke honour?" onConfirm={async()=>{
@@ -779,6 +911,12 @@ function App(){
   const calendar=useMemo(()=>raw["ih_calendar"]||{},[raw]);
   const civilHonours=useMemo(()=>raw["ih_honours"]||{},[raw]);
   const personnel=useMemo(()=>raw["mow_personnel"]||{},[raw]);
+  const accounts=useMemo(()=>{
+    const out=[];const seen={};
+    Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v&&v.username&&!seen[v.username.toLowerCase()]){seen[v.username.toLowerCase()]=1;out.push(v);}});
+    Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(v&&v.username&&!seen[v.username.toLowerCase()]){seen[v.username.toLowerCase()]=1;out.push(v);}});
+    return out.sort((x,y)=>((x.displayName||x.username)||"").localeCompare((y.displayName||y.username)||""));
+  },[raw]);
 
   const onAction=useCallback(async(type,payload)=>{
     if(type==="createFamilyMember"){
@@ -875,7 +1013,7 @@ function App(){
       {loaded&&!panelAuth&&tab==="honours"&&<HonoursTab civilHonours={civilHonours} personnel={personnel}/>}
       {loaded&&!panelAuth&&tab==="calendar"&&<CalendarTab calendar={calendar}/>}
       {loaded&&!panelAuth&&tab==="panel"&&panelUser&&<EmperorPanel family={family} proclamations={proclamations}
-        calendar={calendar} civilHonours={civilHonours} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+        calendar={calendar} civilHonours={civilHonours} accounts={accounts} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
       {loaded&&!panelAuth&&tab==="panel"&&!panelUser&&<div style={{textAlign:"center",padding:"4rem",color:C.textDD,fontStyle:"italic"}}>
         Reserved for His Imperial Majesty. Click Imperial Panel to authenticate.
       </div>}

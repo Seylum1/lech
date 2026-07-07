@@ -44,6 +44,21 @@ function getAdvisory(country,advisories){
   if(country&&country.advisoryLevel!==undefined) return {level:country.advisoryLevel,text:country.advisoryText||"",updatedAt:country.advisoryUpdatedAt};
   const a=(advisories||{})[country&&country.id]; return a?{level:a.level,text:a.text||"",updatedAt:a.updatedAt}:{level:1,text:""};
 }
+function fmtDate(d){if(d===undefined||d===null||d==="")return "—";const t=typeof d==="number"?d:new Date(d).getTime();if(isNaN(t))return ""+d;return new Date(t).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});}
+// Validity of an approved visa, based on its valid-until date (or permanent flag).
+function visaValidity(v){
+  if(!v||v.status!=="approved")return null;
+  if(v.permanent||v.validUntil==="permanent")return {label:"Permanent",color:"#2a9a4a",state:"permanent"};
+  if(!v.validUntil)return {label:"No expiry set",color:"#7a9ab0",state:"open"};
+  const end=new Date(v.validUntil+"T23:59:59").getTime();
+  if(isNaN(end))return {label:"Valid",color:"#2a9a4a",state:"valid"};
+  const days=Math.ceil((end-Date.now())/86400000);
+  if(days<0)return {label:"Expired",color:"#cc2222",state:"expired"};
+  if(days===0)return {label:"Expires today",color:"#cc6a10",state:"soon"};
+  if(days<=14)return {label:"Expires in "+days+" day"+(days!==1?"s":""),color:"#cc6a10",state:"soon"};
+  return {label:"Valid",color:"#2a9a4a",state:"valid"};
+}
+function VisaValidityBadge({visa}){const vv=visaValidity(visa);if(!vv)return null;return <span className="mono" style={{fontSize:9,padding:"2px 8px",borderRadius:1,background:vv.color+"18",border:`1px solid ${vv.color}55`,color:vv.color}}>{vv.label.toUpperCase()}</span>;}
 
 async function sha256(t){const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");}
 function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
@@ -217,6 +232,48 @@ function CitizenshipTab({citizens,user,myCitizenship,onRequireSignIn,onAction,no
   </div>;
 }
 
+function IssuedVisas({visas}){
+  const [search,setSearch]=useState("");const [showExpired,setShowExpired]=useState(false);
+  const all=Object.values(visas||{}).filter(v=>v.status==="approved");
+  const activeCount=all.filter(v=>(visaValidity(v)||{}).state!=="expired").length;
+  const rank=v=>(visaValidity(v)||{}).state==="expired"?2:1;
+  const list=all.filter(v=>{
+    const q=search.toLowerCase();
+    const matchQ=!q||(v.name||"").toLowerCase().includes(q)||(v.nationality||"").toLowerCase().includes(q);
+    const matchExp=showExpired||(visaValidity(v)||{}).state!=="expired";
+    return matchQ&&matchExp;
+  }).sort((a,b)=>rank(a)-rank(b)||(a.name||"").localeCompare(b.name||""));
+  return <div className="fadeIn">
+    <STitle>Issued Visas</STitle>
+    <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.25rem"}}>Public register of visas issued by the Ministry of Foreign Affairs {"—"} {activeCount} currently active.</div>
+    <div style={{display:"flex",gap:"1rem",marginBottom:"1.25rem",flexWrap:"wrap",alignItems:"center"}}>
+      <div style={{flex:2,minWidth:200}}><Inp value={search} onChange={setSearch} placeholder="Search holder or nationality..."/></div>
+      <CheckBox checked={showExpired} onChange={setShowExpired} label="Show expired"/>
+    </div>
+    {list.length===0?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No issued visas to display.</div>
+    :<div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>
+      {list.map(v=>{
+        const vt=VISA_TYPES.find(t=>t.v===v.type)||VISA_TYPES[0];const vv=visaValidity(v)||{};const expired=vv.state==="expired";
+        return <div key={v.id} style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${vv.color||C.border}`,borderRadius:"0 3px 3px 0",padding:"0.75rem 1.1rem",opacity:expired?0.62:1}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:6}}>
+            <div style={{lineHeight:1.2}}>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:15,color:C.text}}>{v.username||v.name}</div>
+              {v.username&&v.name&&<div className="mono" style={{fontSize:10,color:C.textDD,fontStyle:"italic"}}>{v.name}</div>}
+            </div>
+            <span className="mono" style={{fontSize:9,color:C.textD,padding:"2px 8px",background:C.s2,border:`1px solid ${C.border}`}}>{vt.l}</span>
+            {v.nationality&&<span style={{fontSize:12,color:C.textDD,fontStyle:"italic"}}>{v.nationality}</span>}
+            <span style={{flex:1}}/>
+            <VisaValidityBadge visa={v}/>
+          </div>
+          <div style={{display:"flex",gap:"1.75rem",flexWrap:"wrap"}}>
+            <div><span className="mono" style={{fontSize:8,color:C.textDD,marginRight:6}}>ISSUED</span><span style={{fontSize:13,color:C.text}}>{fmtDate(v.issuedAt)}</span></div>
+            <div><span className="mono" style={{fontSize:8,color:C.textDD,marginRight:6}}>VALID UNTIL</span><span style={{fontSize:13,color:expired?C.redL:C.text}}>{v.permanent||v.validUntil==="permanent"?"Permanent":(v.validUntil?fmtDate(v.validUntil):"—")}</span></div>
+          </div>
+        </div>;
+      })}
+    </div>}
+  </div>;
+}
 function VisaTab({countries,onSubmitVisa,notify,visas,user,myCitizenship}){
   const [sub,setSub]=useState("apply");const [trackRef,setTrackRef]=useState("");const [tracked,setTracked]=useState(null);
   function doTrack(){
@@ -229,9 +286,10 @@ function VisaTab({countries,onSubmitVisa,notify,visas,user,myCitizenship}){
   const vt=tracked&&tracked!=="notfound"?(VISA_TYPES.find(t=>t.v===tracked.type)||VISA_TYPES[0]):null;
   return <div className="fadeIn">
     <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1.5rem"}}>
-      {[["apply","Apply for a Visa"],["track","Track Application"]].map(([v,l])=><button key={v} onClick={()=>setSub(v)} style={{fontFamily:"'Cinzel',serif",fontSize:10,letterSpacing:"0.15em",textTransform:"uppercase",padding:"0.6rem 1.1rem",background:"transparent",border:"none",cursor:"pointer",borderBottom:`2px solid ${sub===v?C.accent:"transparent"}`,color:sub===v?C.accent:C.textD}}>{l}</button>)}
+      {[["apply","Apply for a Visa"],["track","Track Application"],["issued","Issued Visas"]].map(([v,l])=><button key={v} onClick={()=>setSub(v)} style={{fontFamily:"'Cinzel',serif",fontSize:10,letterSpacing:"0.15em",textTransform:"uppercase",padding:"0.6rem 1.1rem",background:"transparent",border:"none",cursor:"pointer",borderBottom:`2px solid ${sub===v?C.accent:"transparent"}`,color:sub===v?C.accent:C.textD}}>{l}</button>)}
     </div>
     {sub==="apply"&&<VisaForm countries={countries} onSubmit={onSubmitVisa} notify={notify} user={user} myCitizenship={myCitizenship}/>}
+    {sub==="issued"&&<IssuedVisas visas={visas}/>}
     {sub==="track"&&<div>
       <STitle>Track Your Application</STitle>
       <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.25rem"}}>Enter your application reference number to check your status.</div>
@@ -246,12 +304,17 @@ function VisaTab({countries,onSubmitVisa,notify,visas,user,myCitizenship}){
       {tracked&&tracked!=="notfound"&&st&&vt&&<div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${st.color}`,borderRadius:"0 3px 3px 0",padding:"1.25rem",maxWidth:480}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"0.85rem",flexWrap:"wrap",gap:8}}>
           <div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>REFERENCE</div><div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text}}>{tracked.ref}</div></div>
-          <span className="mono" style={{fontSize:10,padding:"3px 10px",background:C.s2,border:`1px solid ${st.color}44`,color:st.color}}>{st.l.toUpperCase()}</span>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>
+            <span className="mono" style={{fontSize:10,padding:"3px 10px",background:C.s2,border:`1px solid ${st.color}44`,color:st.color}}>{st.l.toUpperCase()}</span>
+            <VisaValidityBadge visa={tracked}/>
+          </div>
         </div>
         <div style={{display:"flex",gap:"1.5rem",flexWrap:"wrap",marginBottom:"0.75rem"}}>
           <div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>APPLICANT</div><span style={{fontSize:13,color:C.text}}>{tracked.name}</span></div>
           <div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>TYPE</div><span style={{fontSize:13,color:C.text}}>{vt.l}</span></div>
-          <div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>SUBMITTED</div><span style={{fontSize:13,color:C.text}}>{tracked.submitted?new Date(tracked.submitted).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}):"—"}</span></div>
+          <div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>SUBMITTED</div><span style={{fontSize:13,color:C.text}}>{fmtDate(tracked.submitted)}</span></div>
+          {tracked.status==="approved"&&tracked.issuedAt&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>ISSUED</div><span style={{fontSize:13,color:C.text}}>{fmtDate(tracked.issuedAt)}</span></div>}
+          {tracked.status==="approved"&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>VALID UNTIL</div><span style={{fontSize:13,color:C.text}}>{tracked.permanent||tracked.validUntil==="permanent"?"Permanent":(tracked.validUntil?fmtDate(tracked.validUntil):"—")}</span></div>}
         </div>
         {tracked.reviewNote&&<div style={{background:C.s2,border:`1px solid ${C.border}`,borderLeft:`3px solid ${st.color}`,borderRadius:"0 2px 2px 0",padding:"0.6rem 0.85rem",fontSize:13,color:C.text,fontStyle:"italic"}}>
           <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2,fontStyle:"normal"}}>NOTE FROM MINISTRY</div>
@@ -495,19 +558,28 @@ function PanelVisas({visas,onAction,notify,setProcessing}){
 }
 
 function VisaRow({visa,onAction,notify,setProcessing}){
-  const [open,setOpen]=useState(false);const [status,setStatus]=useState(visa.status||"pending");const [note,setNote]=useState("");const [saving,setSaving]=useState(false);
+  const [open,setOpen]=useState(false);const [status,setStatus]=useState(visa.status||"pending");const [note,setNote]=useState("");
+  const [validUntil,setValidUntil]=useState(visa.validUntil&&visa.validUntil!=="permanent"?visa.validUntil:"");const [permanent,setPermanent]=useState(!!visa.permanent||visa.validUntil==="permanent");
+  const [saving,setSaving]=useState(false);
   const st=VISA_STATUSES.find(s=>s.v===visa.status)||VISA_STATUSES[0];
   const vt=VISA_TYPES.find(t=>t.v===visa.type)||VISA_TYPES[0];
   return <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${st.color}`,borderRadius:"0 3px 3px 0",marginBottom:"0.5rem",overflow:"hidden"}}>
-    <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"0.65rem 1rem",cursor:"pointer",flexWrap:"wrap"}}><span className="mono" style={{fontSize:9,color:st.color,padding:"2px 8px",background:C.s2,border:`1px solid ${st.color}44`}}>{st.l.toUpperCase()}</span><span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{visa.name}</span><span className="mono" style={{fontSize:9,color:C.textD}}>{vt.l}</span><span className="mono" style={{fontSize:9,color:C.textDD}}>{visa.ref}</span><span style={{fontSize:11,color:C.textDD}}>{open?"A":"V"}</span></div>
+    <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"0.65rem 1rem",cursor:"pointer",flexWrap:"wrap"}}><span className="mono" style={{fontSize:9,color:st.color,padding:"2px 8px",background:C.s2,border:`1px solid ${st.color}44`}}>{st.l.toUpperCase()}</span><span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{visa.name}</span>{visa.status==="approved"&&<VisaValidityBadge visa={visa}/>}<span className="mono" style={{fontSize:9,color:C.textD}}>{vt.l}</span><span className="mono" style={{fontSize:9,color:C.textDD}}>{visa.ref}</span><span style={{fontSize:11,color:C.textDD}}>{open?"A":"V"}</span></div>
     {open&&<div style={{borderTop:`1px solid ${C.border}`,padding:"1rem",background:C.s2}}>
-      <div style={{display:"flex",gap:"2rem",flexWrap:"wrap",marginBottom:"1rem"}}>{[["Applicant",visa.name],["Username",visa.username],["Nationality",visa.nationality],["Type",vt.l],["Destination",visa.destination||""],["Duration",visa.duration||""]].map(([k,v])=>v?<div key={k}><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>{k.toUpperCase()}</div><div style={{fontSize:13,color:C.text}}>{v}</div></div>:null)}</div>
+      <div style={{display:"flex",gap:"2rem",flexWrap:"wrap",marginBottom:"1rem"}}>{[["Applicant",visa.name],["Username",visa.username],["Nationality",visa.nationality],["Type",vt.l],["Duration",visa.duration||""],["Submitted",visa.submitted?fmtDate(visa.submitted):""],["Issued",visa.issuedAt?fmtDate(visa.issuedAt):""],["Valid Until",visa.permanent||visa.validUntil==="permanent"?"Permanent":(visa.validUntil?fmtDate(visa.validUntil):"")]].map(([k,v])=>v?<div key={k}><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>{k.toUpperCase()}</div><div style={{fontSize:13,color:C.text}}>{v}</div></div>:null)}</div>
       {visa.purpose&&<div style={{background:C.s1,border:`1px solid ${C.border}`,borderRadius:2,padding:"0.6rem 0.85rem",marginBottom:"0.85rem"}}><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>PURPOSE</div><div style={{fontSize:13,color:C.text,lineHeight:1.7}}>{visa.purpose}</div></div>}
       {visa.reviewNote&&<div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`3px solid ${st.color}`,borderRadius:"0 2px 2px 0",padding:"0.5rem 0.85rem",marginBottom:"0.75rem",fontSize:13,color:C.text}}><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>REVIEW NOTE</div>{visa.reviewNote}</div>}
       <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap",alignItems:"flex-end",borderTop:`1px solid ${C.border}`,paddingTop:"0.75rem"}}>
-        <div style={{flex:1,minWidth:160}}><FL>UPDATE STATUS</FL><DD value={status} onChange={setStatus} options={VISA_STATUSES.map(s=>({v:s.v,l:s.l}))}/></div>
-        <div style={{flex:2,minWidth:200}}><FL>REVIEW NOTE</FL><Inp value={note} onChange={setNote} placeholder="Note to applicant..."/></div>
-        <Btn small variant="gold" disabled={saving} onClick={async()=>{setSaving(true);setProcessing("Updating...");await onAction("updateVisa",{id:visa.id,status,reviewNote:note.trim()});setProcessing(null);setSaving(false);setNote("");notify("Application "+visa.ref+" updated.",C.gold);}}>{saving?"Saving...":"Update"}</Btn>
+        <div style={{flex:1,minWidth:150}}><FL>UPDATE STATUS</FL><DD value={status} onChange={setStatus} options={VISA_STATUSES.map(s=>({v:s.v,l:s.l}))}/></div>
+        {status==="approved"&&<>
+          <div style={{flex:1,minWidth:150}}><FL>VALID UNTIL</FL><Inp value={validUntil} onChange={setValidUntil} type="date"/></div>
+          <div style={{paddingBottom:6}}><CheckBox checked={permanent} onChange={setPermanent} label="No expiry (permanent)"/></div>
+        </>}
+        <div style={{flex:2,minWidth:180}}><FL>REVIEW NOTE</FL><Inp value={note} onChange={setNote} placeholder="Note to applicant..."/></div>
+        <Btn small variant="gold" disabled={saving} onClick={async()=>{setSaving(true);setProcessing("Updating...");
+          const patch={id:visa.id,status,reviewNote:note.trim()};
+          if(status==="approved"){patch.validUntil=permanent?"permanent":validUntil;patch.permanent=permanent;if(!visa.issuedAt)patch.issuedAt=Date.now();}
+          await onAction("updateVisa",patch);setProcessing(null);setSaving(false);setNote("");notify("Application "+visa.ref+" updated.",C.gold);}}>{saving?"Saving...":"Update"}</Btn>
       </div>
     </div>}
   </div>;
