@@ -74,6 +74,36 @@ const PARTIES=[
 ];
 const partyById=id=>PARTIES.find(p=>p.id===id)||PARTIES[5];
 
+/* ── referendums ─────────────────────────────────────────────────────────────
+   Any election may carry one or more referendum questions (tacked onto a contest
+   or held on their own). Each ballot records refVotes: { referendumId: optionId }. */
+const REF_THRESHOLDS={
+  simple:{l:"Simple majority",short:"MAJORITY",need:"more than half"},
+  twothirds:{l:"Two-thirds supermajority",short:"2/3 SUPERMAJORITY",need:"at least two-thirds"},
+};
+function blankReferendum(){return{id:"ref_"+uid(),question:"",description:"",threshold:"simple",
+  options:[{id:"for",label:"For"},{id:"against",label:"Against"}]};}
+function tallyReferendum(ref,ballots){
+  const counts={};(ref.options||[]).forEach(o=>counts[o.id]=0);
+  (ballots||[]).forEach(b=>{const pick=(b.refVotes||{})[ref.id];if(pick!=null&&counts[pick]!=null)counts[pick]++;});
+  const total=Object.values(counts).reduce((a,b)=>a+b,0);
+  const opts=(ref.options||[]).map(o=>({id:o.id,label:o.label,votes:counts[o.id]||0,
+    pctv:total>0?(counts[o.id]||0)/total*100:0})).sort((a,b)=>b.votes-a.votes);
+  const isBinary=(ref.options||[]).length===2;
+  let verdict=null;
+  if(isBinary){
+    const aff=ref.options[0],neg=ref.options[1];
+    const av=counts[aff.id]||0,nv=counts[neg.id]||0,dec=av+nv;
+    let passed=false;
+    if(dec>0) passed=ref.threshold==="twothirds"?(av*3>=dec*2&&av>nv):(av>nv);
+    const tied=av===nv&&dec>0;
+    verdict={av,nv,dec,passed,tied,affLabel:aff.label,negLabel:neg.label,
+      label:dec===0?"NO VOTES":tied?"TIED":passed?"CARRIED":"REJECTED",
+      color:dec===0?E.onInkMute:tied?E.gold:passed?E.green:E.stamp};
+  }
+  return {counts,total,opts,isBinary,verdict,winner:opts[0]&&opts[0].votes>0?opts[0]:null};
+}
+
 const CITIZEN_STATUSES={citizen:"Citizen",naturalised:"Naturalised",resident:"Permanent Resident",revoked:"Revoked",renounced:"Renounced"};
 
 /* The four future constituency regions (geodata not yet in the registry). */
@@ -161,9 +191,10 @@ function App(){
   const saveVoterIds=async(next)=>{setRaw(r=>({...r,el_voter_ids:next}));await sset("el_voter_ids",next);};
 
   /* ── casting a ballot (public) ── */
-  const castBallot=async(el,citizen,votes)=>{
+  const castBallot=async(el,citizen,payload)=>{
     const key="el_ballot_"+el.id+"_"+citizen.id;
-    const ballot={elId:el.id,citizenId:citizen.id,citizenName:citizen.name,votes,at:Date.now()};
+    const ballot={elId:el.id,citizenId:citizen.id,citizenName:citizen.name,
+      votes:payload.votes||{},refVotes:payload.refVotes||{},at:Date.now()};
     setRaw(r=>({...r,[key]:ballot}));
     await sset(key,ballot);
   };
@@ -279,6 +310,59 @@ function useResults(el,ballots){
   },[el,ballots]);
 }
 
+/* ── referendum results board (used on the broadcast & admin) ────────────────── */
+function RefResultRow({r,idx,multi,t}){
+  const thr=REF_THRESHOLDS[r.threshold]||REF_THRESHOLDS.simple;
+  const binary=r.options.length===2;
+  const palette=[E.indigo,E.gold,E.green,"#8a5cc4","#3a7a8a"];
+  const colorOf=(origIdx)=>binary?(origIdx===0?E.green:E.stamp):palette[origIdx%palette.length];
+  const rows=(binary?r.options.map((o,oi)=>({...o,oi})):t.opts.map(o=>({...o,oi:r.options.findIndex(x=>x.id===o.id)})))
+    .map(o=>({...o,votes:t.counts[o.id]||0,pctv:t.total>0?((t.counts[o.id]||0)/t.total*100):0}));
+  const v=t.verdict;
+  const badge=binary
+    ?{label:v.label,color:v.color}
+    :(t.winner?{label:"LEADING · "+t.winner.label,color:E.gold}:{label:"NO VOTES",color:E.onInkMute});
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",gap:12,flexWrap:"wrap",alignItems:"baseline",marginBottom:8}}>
+        <div style={{flex:1,minWidth:200}}>
+          <div className="mono" style={{fontSize:9,letterSpacing:"1.5px",color:E.stamp,textTransform:"uppercase"}}>Referendum{multi?" "+(idx+1):""} · {thr.short}</div>
+          <div className="arch" style={{fontWeight:800,fontSize:"clamp(1rem,2.4vw,1.35rem)",color:E.onInk,lineHeight:1.2,marginTop:2}}>{r.question}</div>
+        </div>
+        <span className="arch" style={{flexShrink:0,fontWeight:900,fontSize:12,letterSpacing:"1.5px",color:badge.color,
+          border:`1px solid ${badge.color}66`,background:badge.color+"18",borderRadius:6,padding:"6px 12px",alignSelf:"center"}}>{badge.label}</span>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:11}}>
+        {rows.map(o=>{const c=colorOf(o.oi);const win=binary?(v&&v.passed&&o.oi===0):(t.winner&&t.winner.id===o.id);return(
+          <div key={o.id}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:12,marginBottom:4}}>
+              <span className="arch" style={{fontWeight:win?900:700,fontSize:14.5,color:win?c:E.onInk,lineHeight:1.35,minWidth:0}}>{win?"✓ ":""}{o.label}</span>
+              <span className="mono" style={{fontSize:11,color:win?c:E.onInkMute,whiteSpace:"nowrap",flexShrink:0}}><b style={{fontSize:13.5}}>{o.pctv.toFixed(1)}%</b> · {o.votes} vote{o.votes!==1?"s":""}</span>
+            </div>
+            <div style={{height:14,borderRadius:7,background:E.ink3,overflow:"hidden",border:`1px solid ${E.inkLine}`}}>
+              <div style={{width:o.pctv+"%",height:"100%",background:`linear-gradient(90deg,${c},${c}cc)`,transition:"width .7s cubic-bezier(.2,.7,.2,1)",boxShadow:win?`0 0 10px ${c}66`:"none"}}/>
+            </div>
+          </div>
+        );})}
+      </div>
+      <div className="mono" style={{fontSize:9.5,color:E.onInkMute,marginTop:6,letterSpacing:"0.5px"}}>
+        {t.total} vote{t.total!==1?"s":""} cast{binary&&v&&v.dec>0?" · needs "+thr.need+" to carry":""}
+      </div>
+    </div>
+  );
+}
+function ReferendumBoard({referendums,ballots,title}){
+  if(!referendums||!referendums.length)return null;
+  return(
+    <section style={{background:`linear-gradient(180deg,${E.ink2},${E.ink})`,border:`1px solid ${E.inkLine}`,borderRadius:10,boxShadow:"0 18px 50px #0008",padding:"1rem 1.2rem",marginBottom:"1.2rem"}}>
+      <div className="arch" style={{fontWeight:800,fontSize:11,letterSpacing:"2.5px",textTransform:"uppercase",color:E.onInkMute,marginBottom:14}}>{title||"Referendum Results"}</div>
+      <div style={{display:"flex",flexDirection:"column",gap:"1.4rem"}}>
+        {referendums.map((r,i)=><RefResultRow key={r.id} r={r} idx={i} multi={referendums.length>1} t={tallyReferendum(r,ballots)}/>)}
+      </div>
+    </section>
+  );
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
    ELECTION-NIGHT BROADCAST — a full-screen "decision desk" newscast that takes
    over the screen on entry while polls are open. Live, animated, high-tech.
@@ -367,6 +451,8 @@ function ElectionNightBroadcast({el,elList,ballotsByEl,citizens,loading,onVote,o
     return Object.values(m).sort((a,b)=>b.seats-a.seats||b.votes-a.votes);
   },[rows]);
   const candRows=useMemo(()=>rows.map(r=>{const p=partyById(r.party);return{id:r.id,name:r.name,abbr:p.abbr,color:p.color,votes:r.votes,seats:r.seats};}),[rows]);
+  const refs=el?.referendums||[];
+  const refOnly=candRows.length===0&&refs.length>0;
   const leader=byParty[0]&&byParty[0].votes>0?byParty[0]:null;
   const runnerUp=byParty[1]||null;
   const hasMajority=!!(leader&&leader.seats>=major);
@@ -400,8 +486,27 @@ function ElectionNightBroadcast({el,elList,ballotsByEl,citizens,loading,onVote,o
     else call={k:"COUNT IN PROGRESS",t:"Tallying the ballots",sub:"",c:E.indigo};
   }
 
-  const ticker=byParty.map(p=>p.abbr+"  "+p.seats+" SEATS · "+pct(p.votes,totalVotes).toFixed(1)+"%")
-    .concat(["BALLOTS CAST  "+ballotCount,"TURNOUT  "+turnout.toFixed(1)+"%","REGISTER  "+elig,"HOUSE "+seatsTotal+" · MAJORITY "+major])
+  /* referendum-only contests get a referendum-led decision-desk call */
+  if(refOnly){
+    const r0=refs[0],t0=tallyReferendum(r0,ballots),v0=t0.verdict,thr=REF_THRESHOLDS[r0.threshold]||REF_THRESHOLDS.simple;
+    const many=refs.length>1?" (+"+(refs.length-1)+" more)":"";
+    if(status==="draft"){
+      call={k:"NOT YET OPEN",t:"The referendum has not opened",sub:"Voting begins once the Returning Officer opens the poll",c:E.indigo};
+    } else if(t0.total===0){
+      call={k:isClosed?"CERTIFIED · REFERENDUM":"REFERENDUM · POLLS OPEN",t:"Awaiting the first ballots",sub:r0.question+many,c:E.indigo};
+    } else if(t0.isBinary&&v0){
+      const head=v0.tied?"Too close to call — tied":v0.passed?"Motion carried":(isClosed?"Motion rejected":"Trailing — not yet carried");
+      call={k:(isClosed?"CERTIFIED RESULT · ":"REFERENDUM · LIVE · ")+thr.short,t:head,sub:r0.question+many,c:v0.color,win:v0.passed};
+    } else {
+      call={k:(isClosed?"CERTIFIED · ":"REFERENDUM · LIVE")+"",t:t0.winner?"Leading: "+t0.winner.label:"Counting",sub:r0.question+many,c:E.gold,win:false};
+    }
+  }
+
+  const refTickers=refs.map((r,i)=>{const t=tallyReferendum(r,ballots);const v=t.verdict;
+    return "REFERENDUM"+(refs.length>1?" "+(i+1):"")+"  "+(t.isBinary&&v?(v.label+" "+v.av+"–"+v.nv):(t.winner?t.winner.label.toUpperCase():"NO VOTES"));});
+  const ticker=(refOnly?[]:byParty.map(p=>p.abbr+"  "+p.seats+" SEATS · "+pct(p.votes,totalVotes).toFixed(1)+"%"))
+    .concat(refTickers)
+    .concat(["BALLOTS CAST  "+ballotCount,"TURNOUT  "+turnout.toFixed(1)+"%","REGISTER  "+elig].concat(refOnly?[]:["HOUSE "+seatsTotal+" · MAJORITY "+major]))
     .join("        ◆        ")+"        ◆        ";
 
   const W=600,cx=W/2,rOuter=262,cy=rOuter+24,H=cy+6;
@@ -504,7 +609,7 @@ function ElectionNightBroadcast({el,elList,ballotsByEl,citizens,loading,onVote,o
             </div>
 
             {/* seat projection + candidate returns */}
-            <div style={{display:"flex",flexWrap:"wrap",gap:"1.1rem",marginBottom:"1.2rem"}}>
+            {!refOnly&&<div style={{display:"flex",flexWrap:"wrap",gap:"1.1rem",marginBottom:"1.2rem"}}>
               <section style={{...card,flex:"1 1 440px",minWidth:300,padding:"1rem 1.2rem 0.6rem"}}>
                 <div className="arch" style={{fontWeight:800,fontSize:11,letterSpacing:"2.5px",textTransform:"uppercase",color:E.onInkMute,marginBottom:4}}>Seat Projection — {seatsTotal} seats</div>
                 {arc
@@ -537,10 +642,10 @@ function ElectionNightBroadcast({el,elList,ballotsByEl,citizens,loading,onVote,o
                     {candRows.slice(0,8).map((p,i)=><EnPartyRow key={p.id} p={p} idx={i} totalVotes={totalVotes} leader={candRows[0]&&candRows[0].votes>0?candRows[0]:null}/>)}
                   </div>}
               </section>
-            </div>
+            </div>}
 
             {/* battle for the house */}
-            <section style={{...card,padding:"1rem 1.2rem",marginBottom:"1.2rem"}}>
+            {!refOnly&&<section style={{...card,padding:"1rem 1.2rem",marginBottom:"1.2rem"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:8,flexWrap:"wrap",gap:6}}>
                 <span className="arch" style={{fontWeight:800,fontSize:11,letterSpacing:"2.5px",textTransform:"uppercase",color:E.onInkMute}}>Battle for the House</span>
                 <span className="mono" style={{fontSize:10,color:E.onInkMute}}>MAJORITY = {major} OF {seatsTotal}</span>
@@ -554,12 +659,15 @@ function ElectionNightBroadcast({el,elList,ballotsByEl,citizens,loading,onVote,o
               <div className="mono" style={{fontSize:10.5,color:E.onInkMute,marginTop:7}}>
                 {leader?<span style={{color:hasMajority?E.green:E.onInk}}>{leader.abbr} {leader.seats} / {major}{hasMajority?"  ✓ majority secured":"  — "+Math.max(0,major-leader.seats)+" short of a majority"}</span>:"Awaiting returns"}
               </div>
-            </section>
+            </section>}
+
+            {/* referendum results — shown for referendum-only and mixed contests */}
+            {refs.length>0&&<ReferendumBoard referendums={refs} ballots={ballots} title={refOnly?"The Referendum":"Referendums on this ballot"}/>}
 
             {/* tallies */}
             <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap",marginBottom:"1.2rem"}}>
               {chip("Ballots cast",ballotsCU.toLocaleString(),E.indigo)}
-              {chip("Total votes",votesCU.toLocaleString(),E.onInk)}
+              {!refOnly&&chip("Total votes",votesCU.toLocaleString(),E.onInk)}
               {chip("Turnout",turnout.toFixed(1)+"%",E.green)}
               {chip("On the register",elig.toLocaleString(),E.onInk)}
             </div>
@@ -609,22 +717,10 @@ function SectionLabel({children}){return <div className="arch" style={{fontWeigh
 /* ── geography stub (planned) ────────────────────────────────────────────── */
 function GeographyStub(){
   return(
-    <div style={{marginTop:"2.4rem",border:`1px dashed ${E.inkLine}`,borderRadius:8,padding:"1.3rem 1.4rem",background:`${E.ink2}99`,position:"relative"}}>
-      <div style={{position:"absolute",top:14,right:14}}><span className="mono" style={{fontSize:9.5,letterSpacing:"2px",color:E.gold,border:`1px solid ${E.gold}55`,borderRadius:20,padding:"2px 10px"}}>PLANNED · NOT YET ACTIVE</span></div>
-      <SectionLabel>Geography &amp; ridings</SectionLabel>
-      <p style={{color:E.onInkMute,maxWidth:620,lineHeight:1.65,marginTop:"-0.4rem"}}>
-        A future revision will seat citizens by region. Each citizen will belong to one of four constituency regions, vote within a local riding, and seats will be apportioned riding-by-riding rather than nationally. This needs a <span className="mono" style={{color:E.onInk}}>state</span> field added to the citizenship registry first.
-      </p>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:"0.7rem",marginTop:"1rem",opacity:0.5,pointerEvents:"none",filter:"grayscale(1)"}}>
-        {PLANNED_REGIONS.map((r,i)=>(
-          <div key={i} style={{border:`1px solid ${E.inkLine}`,borderRadius:5,padding:"0.85rem"}}>
-            <div className="mono" style={{fontSize:9,color:E.onInkMute,letterSpacing:"1.5px"}}>REGION {String(i+1).padStart(2,"0")}</div>
-            <div className="arch" style={{fontWeight:800,fontSize:15,color:E.onInk,marginTop:3}}>{r}</div>
-            <div className="mono" style={{fontSize:9,color:E.onInkMute,marginTop:6}}>— ridings —</div>
-          </div>
-        ))}
-      </div>
-      <div className="mono" style={{fontSize:10,color:E.onInkMute,marginTop:"0.9rem",letterSpacing:"1px"}}>FLOW · citizen → region → riding → ballot → riding seats</div>
+    <div style={{marginTop:"2rem",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",
+      border:`1px dashed ${E.inkLine}`,borderRadius:6,padding:"0.55rem 0.9rem",background:`${E.ink2}66`}}>
+      <span className="mono" style={{fontSize:9,letterSpacing:"1.5px",color:E.gold,border:`1px solid ${E.gold}44`,borderRadius:20,padding:"2px 9px",flexShrink:0}}>PLANNED</span>
+      <span className="mono" style={{fontSize:10.5,color:E.onInkMute,lineHeight:1.5}}>Regional ridings — citizens seated by constituency region — arrive once the citizenship registry gains a state field.</span>
     </div>
   );
 }
@@ -716,7 +812,7 @@ function VoteFlow({el,citizens,ballots,voterIds,onCast,onBack,note}){
           </div>
         ):step==="ballot"?(
           <BallotCard el={el} citizen={citizen} cands={cands} vpv={vpv} onBack={()=>setStep("identify")}
-            onSubmit={async(votes)=>{await onCast(el,citizen,votes);note("Ballot recorded. Thank you for voting.",E.green);setCastNow(true);setStep("done");}}/>
+            onSubmit={async(payload)=>{await onCast(el,citizen,payload);note("Ballot recorded. Thank you for voting.",E.green);setCastNow(true);setStep("done");}}/>
         ):(
           <div style={{padding:"2.4rem 1.4rem",textAlign:"center"}}>
             <Stamp size={120} style={{transform:"rotate(-9deg)",animation:"seal .5s ease"}}/>
@@ -734,37 +830,81 @@ function VoteFlow({el,citizens,ballots,voterIds,onCast,onBack,note}){
   );
 }
 function BallotCard({el,citizen,cands,vpv,onBack,onSubmit}){
+  const refs=el.referendums||[];
+  const hasCands=cands.length>0;
   const [alloc,setAlloc]=useState({});
+  const [refAns,setRefAns]=useState({});
   const [saving,setSaving]=useState(false);
   const used=Object.values(alloc).reduce((a,b)=>a+b,0);
   const left=vpv-used;
   const bump=(cid,d)=>setAlloc(a=>{const n=Math.max(0,(a[cid]||0)+d);const others=used-(a[cid]||0);if(others+n>vpv)return a;return{...a,[cid]:n};});
-  const submit=async()=>{if(used!==vpv||saving)return;setSaving(true);const votes={};Object.entries(alloc).forEach(([k,v])=>{if(v>0)votes[k]=v;});await onSubmit(votes);setSaving(false);};
+  const candsOk=!hasCands||used===vpv;
+  const refsOk=refs.every(r=>!!refAns[r.id]);
+  const canSubmit=candsOk&&refsOk&&(hasCands||refs.length>0);
+  const submit=async()=>{
+    if(!canSubmit||saving)return;setSaving(true);
+    const votes={};Object.entries(alloc).forEach(([k,v])=>{if(v>0)votes[k]=v;});
+    await onSubmit({votes,refVotes:{...refAns}});setSaving(false);
+  };
+  const optColor=(ref,idx)=>ref.options.length===2?(idx===0?E.green:E.stamp):E.indigo;
   return(
     <div style={{padding:"1.3rem 1.4rem"}}>
-      <PaperLabel>Step 2 — Cast your {vpv} votes</PaperLabel>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"0.9rem",flexWrap:"wrap",gap:8}}>
-        <span style={{color:E.pMuted,fontSize:13.5}}>Voting as <strong style={{color:E.pInk}}>{citizen.name}</strong>. Give both votes to one candidate, or split them.</span>
-        <span className="arch" style={{fontWeight:900,fontSize:14,color:left===0?E.green:E.stamp}}>{left} vote{left!==1?"s":""} remaining</span>
-      </div>
-      {cands.length===0&&<div style={{color:E.pMuted,fontStyle:"italic"}}>No candidates registered.</div>}
-      <div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>
-        {cands.map(c=>{const p=partyById(c.party);const n=alloc[c.id]||0;return(
-          <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,padding:"0.6rem 0.8rem",border:`1px solid ${n>0?p.color:E.paperLine}`,borderLeft:`4px solid ${p.color}`,borderRadius:5,background:n>0?p.color+"10":"transparent"}}>
-            <div style={{flex:1}}>
-              <span className="arch" style={{fontWeight:700,fontSize:16,color:E.pInk}}>{c.name}</span>
-              <span className="mono" style={{fontSize:10,marginLeft:8,color:p.color==="#C9A84C"?"#8a6a20":p.color}}>{p.abbr}</span>
-              {c.blurb&&<div style={{fontSize:12.5,color:E.pMuted,marginTop:2}}>{c.blurb}</div>}
+      {hasCands&&<>
+        <PaperLabel>{refs.length>0?"Part 1":"Step 2"} — Cast your {vpv} vote{vpv!==1?"s":""}</PaperLabel>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"0.9rem",flexWrap:"wrap",gap:8}}>
+          <span style={{color:E.pMuted,fontSize:13.5}}>Voting as <strong style={{color:E.pInk}}>{citizen.name}</strong>. Give {vpv>1?"all your votes to one candidate, or split them":"your vote to one candidate"}.</span>
+          <span className="arch" style={{fontWeight:900,fontSize:14,color:left===0?E.green:E.stamp}}>{left} vote{left!==1?"s":""} remaining</span>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>
+          {cands.map(c=>{const p=partyById(c.party);const n=alloc[c.id]||0;return(
+            <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,padding:"0.6rem 0.8rem",border:`1px solid ${n>0?p.color:E.paperLine}`,borderLeft:`4px solid ${p.color}`,borderRadius:5,background:n>0?p.color+"10":"transparent"}}>
+              <div style={{flex:1}}>
+                <span className="arch" style={{fontWeight:700,fontSize:16,color:E.pInk}}>{c.name}</span>
+                <span className="mono" style={{fontSize:10,marginLeft:8,color:p.color==="#C9A84C"?"#8a6a20":p.color}}>{p.abbr}</span>
+                {c.blurb&&<div style={{fontSize:12.5,color:E.pMuted,marginTop:2}}>{c.blurb}</div>}
+              </div>
+              <button onClick={()=>bump(c.id,-1)} disabled={n===0} style={stepBtn(n===0)}>−</button>
+              <span className="arch" style={{fontWeight:900,fontSize:20,width:24,textAlign:"center",color:E.pInk}}>{n}</span>
+              <button onClick={()=>bump(c.id,1)} disabled={left===0} style={stepBtn(left===0)}>+</button>
             </div>
-            <button onClick={()=>bump(c.id,-1)} disabled={n===0} style={stepBtn(n===0)}>−</button>
-            <span className="arch" style={{fontWeight:900,fontSize:20,width:24,textAlign:"center",color:E.pInk}}>{n}</span>
-            <button onClick={()=>bump(c.id,1)} disabled={left===0} style={stepBtn(left===0)}>+</button>
-          </div>
-        );})}
-      </div>
-      <div style={{display:"flex",justifyContent:"space-between",marginTop:"1.1rem",gap:8}}>
+          );})}
+        </div>
+      </>}
+
+      {refs.length>0&&<div style={{marginTop:hasCands?"1.4rem":0}}>
+        <PaperLabel>{hasCands?"Part 2":"Step 2"} — {refs.length>1?"Referendums":"Referendum"}</PaperLabel>
+        {!hasCands&&<div style={{color:E.pMuted,fontSize:13.5,marginBottom:"0.9rem"}}>Voting as <strong style={{color:E.pInk}}>{citizen.name}</strong>. Record your decision on {refs.length>1?"each question":"the question"} below.</div>}
+        <div style={{display:"flex",flexDirection:"column",gap:"1rem"}}>
+          {refs.map((r,ri)=>{const chosen=refAns[r.id];const thr=REF_THRESHOLDS[r.threshold]||REF_THRESHOLDS.simple;return(
+            <div key={r.id} style={{border:`1px solid ${chosen?E.indigo:E.paperLine}`,borderLeft:`4px solid ${E.indigo}`,borderRadius:6,padding:"0.85rem 1rem",background:chosen?E.indigo+"08":"transparent"}}>
+              <div className="mono" style={{fontSize:9.5,letterSpacing:"1.5px",color:E.stamp,textTransform:"uppercase",marginBottom:4}}>Referendum{refs.length>1?" "+(ri+1):""} · {thr.short}</div>
+              <div className="arch" style={{fontWeight:800,fontSize:16,color:E.pInk,lineHeight:1.25}}>{r.question}</div>
+              {r.description&&<p style={{fontSize:13,color:E.pMuted,margin:"4px 0 0",lineHeight:1.55}}>{r.description}</p>}
+              <div style={{display:"flex",flexDirection:"column",gap:7,marginTop:"0.8rem"}}>
+                {r.options.map((o,oi)=>{const sel=chosen===o.id;const oc=optColor(r,oi);return(
+                  <button key={o.id} onClick={()=>setRefAns(a=>({...a,[r.id]:o.id}))} className="arch"
+                    style={{display:"flex",alignItems:"center",gap:12,width:"100%",textAlign:"left",fontWeight:sel?900:700,fontSize:14.5,
+                      padding:"11px 14px",cursor:"pointer",border:`2px solid ${sel?oc:E.paperLine}`,borderRadius:6,
+                      background:sel?oc+"12":"#fff",color:sel?oc:E.pInk,transition:"all .12s",lineHeight:1.35}}>
+                    <span style={{width:18,height:18,borderRadius:"50%",flexShrink:0,border:`2px solid ${sel?oc:E.paperLine}`,
+                      background:"#fff",display:"inline-flex",alignItems:"center",justifyContent:"center"}}>
+                      {sel&&<span style={{width:9,height:9,borderRadius:"50%",background:oc}}/>}
+                    </span>
+                    <span style={{flex:1}}>{o.label}</span>
+                    {sel&&<span className="mono" style={{fontSize:9,letterSpacing:"1.5px",color:oc,flexShrink:0}}>SELECTED</span>}
+                  </button>
+                );})}
+              </div>
+            </div>
+          );})}
+        </div>
+      </div>}
+
+      {!hasCands&&refs.length===0&&<div style={{color:E.pMuted,fontStyle:"italic"}}>This ballot has no candidates or questions.</div>}
+
+      <div style={{display:"flex",justifyContent:"space-between",marginTop:"1.3rem",gap:8}}>
         <button onClick={onBack} className="arch" style={{fontSize:11,fontWeight:700,letterSpacing:"1px",color:E.pMuted,background:"none",border:`1px solid ${E.paperLine}`,borderRadius:4,padding:"7px 14px",cursor:"pointer"}}>← Not me</button>
-        <PaperBtn disabled={used!==vpv||saving} onClick={submit}>{saving?"Recording…":"Cast ballot ✓"}</PaperBtn>
+        <PaperBtn disabled={!canSubmit||saving} onClick={submit}>{saving?"Recording…":"Cast ballot ✓"}</PaperBtn>
       </div>
     </div>
   );
@@ -858,6 +998,9 @@ function AdminElection({el,ballots,citizens,voterIds,onSaveVoterIds,onEdit,onUps
   const elig=eligibleCitizens(citizens,el).length;
   const setStatus=async(s)=>{await onUpsert({...el,status:s,closedAt:s==="closed"?Date.now():el.closedAt});note(s==="open"?"Polls opened.":s==="closed"?"Result certified.":"Set to draft.",E.indigo);};
   const cands=Object.values(el.candidates||{});
+  const refs=el.referendums||[];
+  const canOpen=cands.length===0?refs.length>=1:cands.length>=2;
+  const openWarn=canOpen?"":cands.length===0?"Add at least two candidates, or one referendum question, before opening polls.":"Add at least two candidates before opening polls.";
 
   return(
     <div style={{background:E.ink2,border:`1px solid ${E.inkLine}`,borderRadius:8,padding:"1.2rem 1.3rem"}}>
@@ -868,16 +1011,20 @@ function AdminElection({el,ballots,citizens,voterIds,onSaveVoterIds,onEdit,onUps
         </div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           <InkBtn onClick={onEdit}>Edit</InkBtn>
-          {el.status!=="open"&&<InkBtn primary onClick={()=>setStatus("open")} disabled={cands.length<2}>Open polls</InkBtn>}
+          {el.status!=="open"&&<InkBtn primary onClick={()=>setStatus("open")} disabled={!canOpen}>Open polls</InkBtn>}
           {el.status==="open"&&<InkBtn primary onClick={()=>setStatus("closed")}>Close &amp; certify</InkBtn>}
           {el.status!=="draft"&&<InkBtn onClick={()=>setStatus("draft")}>To draft</InkBtn>}
         </div>
       </div>
-      {cands.length<2&&<div className="mono" style={{fontSize:10.5,color:E.gold,marginTop:8}}>Add at least two candidates before opening polls.</div>}
+      {openWarn&&<div className="mono" style={{fontSize:10.5,color:E.gold,marginTop:8}}>{openWarn}</div>}
 
       {/* candidates manager */}
-      <SectionLabel>Candidates</SectionLabel>
+      <SectionLabel>Candidates{cands.length===0?" (optional — leave empty for a referendum-only vote)":""}</SectionLabel>
       <CandidateManager el={el} onUpsert={onUpsert} note={note}/>
+
+      {/* referendum manager */}
+      <SectionLabel>Referendum questions</SectionLabel>
+      <ReferendumManager el={el} ballots={ballots} onUpsert={onUpsert} note={note}/>
 
       {el.requireVoterId&&<>
         <SectionLabel>Voter ID register</SectionLabel>
@@ -909,8 +1056,11 @@ function AdminElection({el,ballots,citizens,voterIds,onSaveVoterIds,onEdit,onUps
         {ballots.length===0&&<div className="mono" style={{fontSize:11,color:E.onInkMute,padding:"0.7rem"}}>No ballots cast.</div>}
         {ballots.slice().sort((a,b)=>b.at-a.at).map((b,i)=>(
           <div key={i} style={{display:"flex",justifyContent:"space-between",gap:8,padding:"0.4rem 0.7rem",borderBottom:`1px solid ${E.inkLine}`}}>
-            <span className="arch" style={{fontSize:13,color:E.onInk}}>{b.citizenName}</span>
-            <span className="mono" style={{fontSize:10,color:E.onInkMute}}>{Object.entries(b.votes||{}).map(([cid,n])=>{const c=(el.candidates||{})[cid];return (c?c.name:"?")+"×"+n;}).join(", ")}</span>
+            <span className="arch" style={{fontSize:13,color:E.onInk,flexShrink:0}}>{b.citizenName}</span>
+            <span className="mono" style={{fontSize:10,color:E.onInkMute,textAlign:"right"}}>{[
+              Object.entries(b.votes||{}).map(([cid,n])=>{const c=(el.candidates||{})[cid];return (c?c.name:"?")+"×"+n;}).join(", "),
+              (refs||[]).map(r=>{const pick=(b.refVotes||{})[r.id];if(!pick)return null;const o=(r.options||[]).find(x=>x.id===pick);return "▸"+(o?o.label:"?");}).filter(Boolean).join(" ")
+            ].filter(Boolean).join("  ·  ")}</span>
           </div>
         ))}
       </div>
@@ -943,6 +1093,66 @@ function CandidateManager({el,onUpsert,note}){
         <InkBtn primary onClick={add}>Add</InkBtn>
       </div>
       <div style={{marginTop:6}}><input value={blurb} onChange={e=>setBlurb(e.target.value)} placeholder="Short blurb (optional)" style={inkInp}/></div>
+    </div>
+  );
+}
+
+function ReferendumManager({el,ballots,onUpsert,note}){
+  const refs=el.referendums||[];
+  const [q,setQ]=useState("");const [desc,setDesc]=useState("");const [thr,setThr]=useState("simple");
+  const [opts,setOpts]=useState([{id:"for",label:"For"},{id:"against",label:"Against"}]);
+  const setOpt=(i,v)=>setOpts(o=>o.map((x,idx)=>idx===i?{...x,label:v}:x));
+  const addOpt=()=>setOpts(o=>o.length>=6?o:[...o,{id:"opt_"+uid(),label:""}]);
+  const rmOpt=(i)=>setOpts(o=>o.length<=2?o:o.filter((_,idx)=>idx!==i));
+  const reset=()=>{setQ("");setDesc("");setThr("simple");setOpts([{id:"for",label:"For"},{id:"against",label:"Against"}]);};
+  const add=async()=>{
+    const clean=opts.map(o=>({id:o.id,label:o.label.trim()})).filter(o=>o.label);
+    if(!q.trim()||clean.length<2){note("A question and at least two options are required.",E.stamp);return;}
+    await onUpsert({...el,referendums:[...refs,{id:"ref_"+uid(),question:q.trim(),description:desc.trim(),threshold:thr,options:clean}]});
+    reset();note("Referendum added.",E.green);
+  };
+  const remove=async(id)=>{await onUpsert({...el,referendums:refs.filter(r=>r.id!==id)});};
+  return(
+    <div>
+      {refs.length>0&&<div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:"0.9rem"}}>
+        {refs.map((r)=>{const t=tallyReferendum(r,ballots);const v=t.verdict;const m=REF_THRESHOLDS[r.threshold]||REF_THRESHOLDS.simple;return(
+          <div key={r.id} style={{border:`1px solid ${E.inkLine}`,borderLeft:`4px solid ${E.indigo}`,borderRadius:5,padding:"0.6rem 0.8rem"}}>
+            <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"flex-start"}}>
+              <div style={{flex:1,minWidth:0}}>
+                <span className="arch" style={{fontWeight:700,fontSize:14,color:E.onInk}}>{r.question}</span>
+                <div className="mono" style={{fontSize:9.5,color:E.onInkMute,marginTop:2}}>{m.short} · {r.options.map(o=>o.label).join(" / ")}</div>
+              </div>
+              <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
+                <span className="mono" style={{fontSize:10,color:v?v.color:E.gold}}>{v?v.label+" "+v.av+"–"+v.nv:(t.winner?t.winner.label:"—")}</span>
+                <button onClick={()=>remove(r.id)} className="mono" style={{fontSize:10,color:E.stamp,background:"none",border:`1px solid ${E.stamp}55`,borderRadius:3,padding:"2px 8px",cursor:"pointer"}}>remove</button>
+              </div>
+            </div>
+          </div>
+        );})}
+      </div>}
+      <div style={{border:`1px solid ${E.inkLine}`,borderRadius:6,padding:"0.85rem",background:E.ink3+"66"}}>
+        <InkLabel>New referendum question</InkLabel>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="e.g. Shall the Crown ratify the Treaty of …?" style={inkInp}/>
+        <input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Explanatory note shown to voters (optional)" style={inkInp}/>
+        <div style={{maxWidth:280}}>
+          <InkLabel>Threshold to carry</InkLabel>
+          <select value={thr} onChange={e=>setThr(e.target.value)} style={inkInp}>{Object.entries(REF_THRESHOLDS).map(([k,m])=><option key={k} value={k}>{m.l}</option>)}</select>
+        </div>
+        <InkLabel>Options {opts.length===2?"— first option is the affirmative (pass / fail)":"— plurality winner"}</InkLabel>
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {opts.map((o,i)=>(
+            <div key={o.id} style={{display:"flex",gap:6,alignItems:"center"}}>
+              <span className="mono" style={{fontSize:10,color:E.onInkMute,width:14}}>{i+1}</span>
+              <input value={o.label} onChange={e=>setOpt(i,e.target.value)} placeholder={"Option "+(i+1)} style={{...inkInp,marginBottom:0}}/>
+              <button onClick={()=>rmOpt(i)} disabled={opts.length<=2} className="mono" style={{fontSize:11,color:opts.length<=2?E.onInkMute:E.stamp,background:"none",border:`1px solid ${E.inkLine}`,borderRadius:3,padding:"5px 9px",cursor:opts.length<=2?"not-allowed":"pointer"}}>✕</button>
+            </div>
+          ))}
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",marginTop:10}}>
+          <InkBtn onClick={addOpt} disabled={opts.length>=6}>+ Option</InkBtn>
+          <InkBtn primary onClick={add}>Add referendum</InkBtn>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1029,7 +1239,7 @@ function ElectionEditor({el,onClose,onSave}){
   ),document.body);
 }
 
-function blankElection(){return{id:"el_"+uid(),name:"",date:new Date().toISOString().slice(0,10),status:"draft",seatsTotal:HOUSE_SEATS,votesPerVoter:VOTES_PER_VOTER,eligibility:[...DEFAULT_ELIGIBILITY],requireVoterId:false,candidates:{},createdAt:Date.now()};}
+function blankElection(){return{id:"el_"+uid(),name:"",date:new Date().toISOString().slice(0,10),status:"draft",seatsTotal:HOUSE_SEATS,votesPerVoter:VOTES_PER_VOTER,eligibility:[...DEFAULT_ELIGIBILITY],requireVoterId:false,candidates:{},referendums:[],createdAt:Date.now()};}
 
 /* ── small UI atoms ──────────────────────────────────────────────────────── */
 const paperInp={width:"100%",background:"#fff",border:`1px solid ${E.paperLine}`,borderRadius:5,color:E.pInk,padding:"9px 11px",fontSize:15,outline:"none"};
