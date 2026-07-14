@@ -201,10 +201,10 @@ function Overlay({label}){
 
 // ── ROLE / ACCESS HELPERS ─────────────────────────────────────────────────────
 const imcRoleRank=v=>v==="commissioner"?3:v==="registrar"?2:v==="officer"?1:0;
-const canViewIMC=u=>u&&imcRoleRank(u.imcRole)>=1;
-const canRegister=u=>u&&imcRoleRank(u.imcRole)>=2;
-const isCommissioner=u=>u&&imcRoleRank(u.imcRole)>=3;
 const isMOIAdmin=u=>u&&(u.role==="minister"||u.role==="emperor");
+const canViewIMC=u=>u&&(imcRoleRank(u.imcRole)>=1||isMOIAdmin(u));
+const canRegister=u=>u&&(imcRoleRank(u.imcRole)>=2||isMOIAdmin(u));
+const isCommissioner=u=>u&&(imcRoleRank(u.imcRole)>=3||isMOIAdmin(u));
 
 // ── PORT BADGE ────────────────────────────────────────────────────────────────
 function PortTypeBadge({type,style:extra={}}){
@@ -283,11 +283,14 @@ function LoginScreen({onLogin}){
       ))}
       <div className="fadeIn" style={{position:"relative",zIndex:10,width:"100%",maxWidth:420,padding:"0 20px"}}>
         <div style={{textAlign:"center",marginBottom:"2.5rem"}}>
-          {/* Logo placeholder — save imc_logo.png to this folder to display */}
-          <div style={{width:88,height:88,margin:"0 auto 16px",borderRadius:"50%",
-            background:"radial-gradient(circle,#1a2a3a,#0a1420)",
-            border:"2px solid #2a6aaa44",display:"flex",alignItems:"center",justifyContent:"center",
-            fontSize:36}}>⚓</div>
+          {/* Imperial Maritime Commission seal — save imc_logo.png to this folder */}
+          <div style={{width:104,height:104,margin:"0 auto 16px",display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <img src="imc_logo.png" alt="Imperial Maritime Commission" style={{width:104,height:104,objectFit:"contain"}}
+              onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}}/>
+            <div style={{display:"none",width:88,height:88,borderRadius:"50%",
+              background:"radial-gradient(circle,#1a2a3a,#0a1420)",border:"2px solid #2a6aaa44",
+              alignItems:"center",justifyContent:"center",fontSize:36}}>⚓</div>
+          </div>
           <div className="mono" style={{fontSize:9,letterSpacing:"0.5em",color:C.accentL,marginBottom:8,
             animation:"pulse 3s infinite"}}>Empire of Lech · Secure Portal</div>
           <div style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:22,
@@ -1220,6 +1223,13 @@ function App(){
       setRaw(r=>({...r,imc_ship_reqs:next}));
       await sset("imc_ship_reqs",next);
     }
+    else if(type==="submitPortRequest"){
+      const id="preq_"+uid();
+      const newReq={...payload.req,id,status:"pending",createdAt:Date.now()};
+      const next={...portReqs,[id]:newReq};
+      setRaw(r=>({...r,imc_port_reqs:next}));
+      await sset("imc_port_reqs",next);
+    }
     else if(type==="approveRequest"){
       const {reqId,reqType}=payload;
       if(reqType==="ship"){
@@ -1288,8 +1298,10 @@ function App(){
             color:C.textD,textDecoration:"none",border:`1px solid ${C.border}`,borderRadius:2,
             padding:"3px 10px",flexShrink:0}}>{"← Ministry of Interior"}</a>
           <div style={{display:"flex",alignItems:"center",gap:12}}>
-            <div style={{width:36,height:36,borderRadius:"50%",background:C.s2,
-              border:"1px solid #2a6aaa44",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>⚓</div>
+            <img src="imc_logo.png" alt="" style={{width:38,height:38,objectFit:"contain",flexShrink:0}}
+              onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}}/>
+            <div style={{display:"none",width:36,height:36,borderRadius:"50%",background:C.s2,
+              border:"1px solid #2a6aaa44",alignItems:"center",justifyContent:"center",fontSize:18}}>⚓</div>
             <div>
               <div style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:14,letterSpacing:"0.15em",color:C.text,lineHeight:1}}>
                 Imperial Maritime Commission
