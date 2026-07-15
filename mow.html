@@ -21,6 +21,7 @@ input,select,textarea{font-family:'Crimson Text',Georgia,serif;}
 @keyframes scanline{0%{transform:translateY(-100%);}100%{transform:translateY(100vh);}}
 @keyframes warflash{0%,100%{opacity:1;}50%{opacity:.7;}}
 .fadeIn{animation:fadeIn .3s ease both;}
+@media(max-width:820px){.sitrepGrid{grid-template-columns:minmax(0,1fr)!important;}}
 .mono{font-family:'Share Tech Mono',monospace;}
 </style>
 </head>
@@ -279,6 +280,33 @@ const ECHELONS=[
   {v:"subunit",   l:"Sub-Unit (Coy/Tp/Det)",           short:"SUNIT",color:"#4a8a6a"},
 ];
 const ECH=(v)=>ECHELONS.find(e=>e.v===v)||ECHELONS[4];
+
+// ── HONOURS (read-only mirror of the Imperial Household registry) ─────────────
+// All honours are conferred in the IH (ih.html → ih_honours). The War Office
+// only displays them. Legacy medals stored on the personnel record itself are
+// still shown so historical awards are not lost.
+const RANK_GROUPS=[
+  {v:"FO",  l:"Flag Officers",          short:"FLAG",  color:"#ffc860"},
+  {v:"SO",  l:"Senior Officers",        short:"SNR",   color:"#e0c870"},
+  {v:"JO",  l:"Junior Officers",        short:"JNR",   color:"#C9A84C"},
+  {v:"SNCO",l:"Senior NCOs",            short:"SNCO",  color:"#ccddee"},
+  {v:"NCO", l:"Non-Commissioned Officers",short:"NCO", color:"#9aaa8a"},
+  {v:"NCM", l:"Enlisted",               short:"ENL",   color:"#7a8a6a"},
+];
+const norm=(s)=>(s||"").trim().toLowerCase();
+function honoursFor(person,ihHonours){
+  const out=[];
+  const pName=norm(person?.name), pUser=norm(person?.username);
+  Object.values(ihHonours||{}).forEach(h=>{
+    const hUser=norm(h.recipientUsername), hName=norm(h.recipient);
+    const match=(pUser&&hUser&&pUser===hUser)||(!hUser&&pName&&hName===pName)||(pName&&hName===pName);
+    if(match) out.push({type:h.medal,citation:h.citation,awarded:h.awarded,source:"ih"});
+  });
+  (person?.medals||[]).forEach(m=>{
+    if(!out.some(o=>o.type===m.type)) out.push({...m,source:"legacy"});
+  });
+  return out;
+}
 
 // ── DESIGN TOKENS ─────────────────────────────────────────────────────────────
 const C={
@@ -621,13 +649,19 @@ function AnnouncementBanner({announcement}){
 }
 
 // ── PERSONNEL SECTION ─────────────────────────────────────────────────────────
-function PersonnelSection({personnel,commands,currentUser,onAction,notify,setProcessing,canManage}){
+function PersonnelSection({personnel,commands,currentUser,onAction,notify,setProcessing,canManage,ihHonours,isEmperor}){
   const [search,setSearch]=useState("");
   const [branchFilter,setBranchFilter]=useState("all");
   const [creating,setCreating]=useState(false);
+  const [roster,setRoster]=useState("active");
+  const [collapsed,setCollapsed]=useState({});
+
+  const dischargedCount=Object.values(personnel||{}).filter(p=>p.status==="discharged").length;
 
   const list=Object.values(personnel||{})
     .filter(p=>{
+      const isDisch=p.status==="discharged";
+      if(roster==="active"?isDisch:!isDisch) return false;
       const q=search.toLowerCase();
       const matchQ=!q||p.name?.toLowerCase().includes(q)||p.posting?.toLowerCase().includes(q)||p.position?.toLowerCase().includes(q);
       const matchB=branchFilter==="all"||p.branch===branchFilter;
@@ -640,6 +674,16 @@ function PersonnelSection({personnel,commands,currentUser,onAction,notify,setPro
       return bi-ai||a.name?.localeCompare(b.name);
     });
 
+  // Bucket the roster by rank category (Flag → Senior → Junior → SNCO → NCO → Enlisted)
+  const buckets=RANK_GROUPS.map(g=>({
+    ...g,
+    people:list.filter(p=>(getRank(p.branch,p.grade)||{}).group===g.v),
+  })).filter(g=>g.people.length>0);
+  const ungrouped=list.filter(p=>!(getRank(p.branch,p.grade)||{}).group);
+  if(ungrouped.length>0) buckets.push({v:"__other",l:"Unclassified",short:"UNCL",color:C.textDD,people:ungrouped});
+
+  const cardProps={commands,canManage,ihHonours,isEmperor,onAction,notify,setProcessing};
+
   return(
     <div className="fadeIn">
       <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:"3px solid #5a6a4a",
@@ -649,8 +693,29 @@ function PersonnelSection({personnel,commands,currentUser,onAction,notify,setPro
       </div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1rem",flexWrap:"wrap",gap:8}}>
         <STitle style={{marginBottom:0}}>Personnel Registry</STitle>
-        {canManage&&!creating&&<Btn small onClick={()=>setCreating(true)}>+ Enlist Personnel</Btn>}
+        {canManage&&!creating&&roster==="active"&&<Btn small onClick={()=>setCreating(true)}>+ Enlist Personnel</Btn>}
       </div>
+
+      {/* Roster selector */}
+      <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1rem"}}>
+        {[["active","Active Roster",null],["discharged","Discharged",dischargedCount]].map(([v,l,n])=>(
+          <button key={v} onClick={()=>{setRoster(v);setCreating(false);}}
+            style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.14em",textTransform:"uppercase",
+                     padding:"6px 14px",background:"transparent",border:"none",cursor:"pointer",
+                     borderBottom:`2px solid ${roster===v?C.accent:"transparent"}`,color:roster===v?C.accent:C.textD}}>
+            {l}{n>0?` (${n})`:""}
+          </button>
+        ))}
+      </div>
+
+      {roster==="discharged"&&(
+        <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:"3px solid #5a5a5a",
+          borderRadius:"0 3px 3px 0",padding:"6px 14px",marginBottom:"1rem",fontSize:13,
+          color:C.textD,fontStyle:"italic"}}>
+          Service records of discharged personnel are retained in full. Records may be reinstated to the active roster at any time.
+        </div>
+      )}
+
       <div style={{display:"flex",gap:"0.75rem",marginBottom:"1.25rem",flexWrap:"wrap"}}>
         <div style={{flex:2,minWidth:180}}><Inp value={search} onChange={setSearch} placeholder="Search name, posting, position…"/></div>
         <div style={{flex:1,minWidth:140}}>
@@ -658,26 +723,47 @@ function PersonnelSection({personnel,commands,currentUser,onAction,notify,setPro
             options={[{v:"all",l:"All Branches"},...BRANCHES.map(b=>({v:b.v,l:b.short}))]}/>
         </div>
       </div>
-      {creating&&<PersonnelForm commands={commands} onAction={onAction} notify={notify} setProcessing={setProcessing} onClose={()=>setCreating(false)} isNew={true}/>}
+      {creating&&<PersonnelForm commands={commands} ihHonours={ihHonours} onAction={onAction} notify={notify} setProcessing={setProcessing} onClose={()=>setCreating(false)} isNew={true}/>}
       {list.length===0
-        ?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No personnel records found.</div>
-        :list.map(p=><PersonnelCard key={p.id} person={p} commands={commands} canManage={canManage}
-            onAction={onAction} notify={notify} setProcessing={setProcessing}/>)
+        ?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>
+          {roster==="discharged"?"No discharged personnel on file.":"No personnel records found."}
+        </div>
+        :buckets.map(g=>{
+          const isC=!!collapsed[g.v];
+          return(
+            <div key={g.v} style={{marginBottom:"1.25rem"}}>
+              <div onClick={()=>setCollapsed(c=>({...c,[g.v]:!c[g.v]}))}
+                style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",marginBottom:"0.5rem",
+                  borderBottom:`1px solid ${g.color}33`,paddingBottom:4}}>
+                <span className="mono" style={{fontSize:8,color:g.color,letterSpacing:".14em",
+                  border:`1px solid ${g.color}44`,padding:"1px 5px",flexShrink:0}}>{g.short}</span>
+                <span style={{fontFamily:"'Cinzel',serif",fontSize:11,fontWeight:700,letterSpacing:".16em",
+                  textTransform:"uppercase",color:g.color}}>{g.l}</span>
+                <span className="mono" style={{fontSize:9,color:C.textDD}}>{g.people.length}</span>
+                <div style={{flex:1}}/>
+                <span style={{fontSize:10,color:C.textDD}}>{isC?"▼":"▲"}</span>
+              </div>
+              {!isC&&g.people.map(p=><PersonnelCard key={p.id} person={p} {...cardProps}/>)}
+            </div>
+          );
+        })
       }
     </div>
   );
 }
 
-function PersonnelCard({person,commands,canManage,onAction,notify,setProcessing}){
+function PersonnelCard({person,commands,canManage,ihHonours,isEmperor,onAction,notify,setProcessing}){
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(false);
   const br=BRANCHES.find(b=>b.v===person.branch)||BRANCHES[0];
   const rank=getRank(person.branch,person.grade);
   const cmd=commands?.[person.commandId];
+  const honours=honoursFor(person,ihHonours);
+  const isDisch=person.status==="discharged";
 
   return(
-    <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${br.color}`,
-      borderRadius:"0 3px 3px 0",marginBottom:"0.6rem",overflow:"hidden"}}>
+    <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${isDisch?"#3a3a3a":br.color}`,
+      borderRadius:"0 3px 3px 0",marginBottom:"0.6rem",overflow:"hidden",opacity:isDisch?0.72:1}}>
       <div onClick={()=>{setOpen(o=>!o);setEditing(false);}}
         style={{display:"flex",alignItems:"center",gap:10,padding:"0.75rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
         <div style={{display:"flex",flexDirection:"column",gap:3,flex:1,minWidth:160}}>
@@ -691,8 +777,10 @@ function PersonnelCard({person,commands,canManage,onAction,notify,setProcessing}
           {cmd&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{cmd.name}</span>}
           {person.isAdc&&<span className="mono" style={{fontSize:9,color:C.gold,
             border:`1px solid ${C.gold}44`,padding:"1px 6px"}}>🎗 ADC</span>}
-          {(person.medals||[]).length>0&&<span className="mono" style={{fontSize:9,color:C.accentD}}>
-            🎖 ×{person.medals.length}
+          {isDisch&&<span className="mono" style={{fontSize:9,color:"#8a8a8a",
+            border:"1px solid #3a3a3a",padding:"1px 6px",letterSpacing:".1em"}}>DISCHARGED</span>}
+          {honours.length>0&&<span className="mono" style={{fontSize:9,color:C.accentD}}>
+            🎖 ×{honours.length}
           </span>}
           <span style={{fontSize:11,color:C.textDD}}>{open?"▲":"▼"}</span>
         </div>
@@ -700,10 +788,11 @@ function PersonnelCard({person,commands,canManage,onAction,notify,setProcessing}
       {open&&(
         <div style={{borderTop:`1px solid ${C.border}`,padding:"1rem",background:C.s2}}>
           {editing
-            ?<PersonnelForm person={person} commands={commands} onAction={onAction} notify={notify}
+            ?<PersonnelForm person={person} commands={commands} ihHonours={ihHonours} onAction={onAction} notify={notify}
                 setProcessing={setProcessing} onClose={()=>setEditing(false)} isNew={false}/>
-            :<PersonnelDetail person={person} commands={commands} br={br} rank={rank}
-                canManage={canManage} onEdit={()=>setEditing(true)} onAction={onAction} notify={notify} setProcessing={setProcessing}/>
+            :<PersonnelDetail person={person} commands={commands} br={br} rank={rank} honours={honours}
+                canManage={canManage} isEmperor={isEmperor} onEdit={()=>setEditing(true)}
+                onAction={onAction} notify={notify} setProcessing={setProcessing}/>
           }
         </div>
       )}
@@ -711,10 +800,22 @@ function PersonnelCard({person,commands,canManage,onAction,notify,setProcessing}
   );
 }
 
-function PersonnelDetail({person,commands,br,rank,canManage,onEdit,onAction,notify,setProcessing}){
+function PersonnelDetail({person,commands,br,rank,honours=[],canManage,isEmperor,onEdit,onAction,notify,setProcessing}){
   const cmd=commands?.[person.commandId];
+  const isDisch=person.status==="discharged";
   return(
     <div>
+      {isDisch&&(
+        <div style={{background:"#0e0e0e",border:"1px solid #2a2a2a",borderLeft:"3px solid #5a5a5a",
+          borderRadius:"0 2px 2px 0",padding:"0.6rem 0.85rem",marginBottom:"1rem"}}>
+          <div className="mono" style={{fontSize:9,color:"#8a8a8a",letterSpacing:".15em",marginBottom:3}}>
+            DISCHARGED{person.dischargedAt?" — "+new Date(person.dischargedAt).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}):""}
+          </div>
+          <div style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>
+            {person.dischargeReason||"No reason recorded."} Service record retained in full.
+          </div>
+        </div>
+      )}
       <div style={{display:"flex",gap:"2rem",flexWrap:"wrap",marginBottom:"1rem"}}>
         <div>
           <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>BRANCH</div>
@@ -756,12 +857,19 @@ function PersonnelDetail({person,commands,br,rank,canManage,onEdit,onAction,noti
         </div>
       )}
 
-      {/* Medals */}
-      {(person.medals||[]).length>0&&(
-        <div style={{marginBottom:"1rem"}}>
-          <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:6}}>MEDALS & COMMENDATIONS</div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-            {person.medals.map((m,i)=>{
+      {/* Honours — conferred in the Imperial Household, displayed here read-only */}
+      <div style={{marginBottom:"1rem"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
+          <span className="mono" style={{fontSize:9,color:C.textDD}}>HONOURS & AWARDS</span>
+          <span className="mono" style={{fontSize:8,color:C.textDD,border:`1px solid ${C.border}`,padding:"0 5px"}}>READ-ONLY</span>
+          <a href="ih.html" style={{fontSize:11,color:C.accentD,textDecoration:"none",fontStyle:"italic"}}>
+            Conferred by the Imperial Household ↗
+          </a>
+        </div>
+        {honours.length===0
+          ?<div style={{fontSize:12,color:C.textDD,fontStyle:"italic"}}>No honours recorded.</div>
+          :<div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {honours.map((m,i)=>{
               const mt=MEDAL_TYPES.find(t=>t.v===m.type);
               return(
                 <div key={i} style={{background:C.s1,border:`1px solid ${C.accentD}44`,borderRadius:2,
@@ -769,13 +877,17 @@ function PersonnelDetail({person,commands,br,rank,canManage,onEdit,onAction,noti
                   <span style={{fontFamily:"'Cinzel',serif",fontSize:10,color:C.gold}}>🎖 {mt?.l||m.type}</span>
                   {mt?.abbr&&<span className="mono" style={{fontSize:8,color:C.accentD,marginLeft:6,border:`1px solid ${C.accentD}33`,padding:"1px 5px"}}>{mt.abbr}</span>}
                   {m.citation&&<span style={{fontSize:11,color:C.textD,fontStyle:"italic"}}>{m.citation}</span>}
-                  {m.awarded&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{m.awarded}</span>}
+                  <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                    {m.awarded&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{m.awarded}</span>}
+                    {m.source==="legacy"&&<span className="mono" style={{fontSize:7,color:C.textDD,
+                      border:`1px solid ${C.border}`,padding:"0 4px"}} title="Awarded before honours moved to the Imperial Household">ARCHIVE</span>}
+                  </div>
                 </div>
               );
             })}
           </div>
-        </div>
-      )}
+        }
+      </div>
 
       {person.isAdc&&person.adcTo&&(
         <div style={{background:"#1a1800",border:`1px solid ${C.gold}44`,borderLeft:`3px solid ${C.gold}`,
@@ -798,21 +910,67 @@ function PersonnelDetail({person,commands,br,rank,canManage,onEdit,onAction,noti
       )}
 
       {canManage&&(
-        <div style={{display:"flex",gap:6,marginTop:8,borderTop:`1px solid ${C.border}`,paddingTop:"0.75rem"}}>
-          <Btn small variant="ghost" onClick={onEdit}>✎ Edit Record</Btn>
-          <ArmBtn small label="Discharge" confirmLabel="Discharge personnel?" onConfirm={async()=>{
-            setProcessing("Discharging personnel…");
-            await onAction("deletePersonnel",{id:person.id});
-            setProcessing(null); notify(person.name+" discharged.",C.textD);
-          }}/>
+        <div style={{marginTop:8,borderTop:`1px solid ${C.border}`,paddingTop:"0.75rem"}}>
+          {isDisch
+            ?<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              <Btn small variant="ghost" onClick={onEdit}>✎ Edit Record</Btn>
+              <ArmBtn small variant="primary" label="↩ Reinstate" confirmLabel="Return to active roster?" onConfirm={async()=>{
+                setProcessing("Reinstating…");
+                await onAction("reinstatePersonnel",{id:person.id});
+                setProcessing(null); notify(person.name+" reinstated to the active roster.",C.accent);
+              }}/>
+              {isEmperor&&<ArmBtn small label="⌫ Purge Record" confirmLabel="Erase permanently — no undo?" onConfirm={async()=>{
+                setProcessing("Purging record…");
+                await onAction("deletePersonnel",{id:person.id});
+                setProcessing(null); notify(person.name+" purged from the registry.",C.redL);
+              }}/>}
+            </div>
+            :<DischargeControl person={person} onAction={onAction} notify={notify} setProcessing={setProcessing} onEdit={onEdit}/>
+          }
         </div>
       )}
     </div>
   );
 }
 
-function PersonnelForm({person,commands,onAction,notify,setProcessing,onClose,isNew}){
+// Discharge is an archive action: the record moves to the discharged roster
+// with its service history intact. Only the Emperor can erase it afterwards.
+function DischargeControl({person,onAction,notify,setProcessing,onEdit}){
+  const [arming,setArming]=useState(false);
+  const [reason,setReason]=useState("");
+  if(!arming) return(
+    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+      <Btn small variant="ghost" onClick={onEdit}>✎ Edit Record</Btn>
+      <Btn small variant="danger" onClick={()=>setArming(true)}>Discharge</Btn>
+    </div>
+  );
+  return(
+    <div style={{background:C.s1,border:`1px solid ${C.red}55`,borderLeft:`3px solid ${C.red}`,
+      borderRadius:"0 2px 2px 0",padding:"0.75rem"}}>
+      <div className="mono" style={{fontSize:9,color:C.redL,letterSpacing:".15em",marginBottom:6}}>DISCHARGE FROM ACTIVE SERVICE</div>
+      <div style={{fontSize:12,color:C.textD,fontStyle:"italic",marginBottom:8}}>
+        The record is retained and moved to the discharged roster. It is not deleted.
+      </div>
+      <div style={{marginBottom:8}}>
+        <FL>REASON / TYPE OF DISCHARGE</FL>
+        <Inp value={reason} onChange={setReason} placeholder="e.g. Honourable discharge, end of engagement"/>
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        <Btn small variant="danger" onClick={async()=>{
+          setProcessing("Discharging personnel…");
+          await onAction("dischargePersonnel",{id:person.id,reason:reason.trim()});
+          setProcessing(null); setArming(false);
+          notify(person.name+" discharged. Record retained.",C.textD);
+        }}>Confirm Discharge</Btn>
+        <Btn small variant="ghost" onClick={()=>{setArming(false);setReason("");}}>Cancel</Btn>
+      </div>
+    </div>
+  );
+}
+
+function PersonnelForm({person,commands,onAction,notify,setProcessing,onClose,isNew,ihHonours}){
   const [name,setName]=useState(person?.name||"");
+  const [username,setUsername]=useState(person?.username||"");
   const [branch,setBranch]=useState(person?.branch||"ILA");
   const [grade,setGrade]=useState(person?.grade||"OR-1");
   const [force,setForce]=useState(person?.force||"regular");
@@ -822,8 +980,6 @@ function PersonnelForm({person,commands,onAction,notify,setProcessing,onClose,is
   const [notes,setNotes]=useState(person?.notes||"");
   const [histEntry,setHistEntry]=useState("");
   const [histDate,setHistDate]=useState(new Date().toISOString().slice(0,10));
-  const [medalType,setMedalType]=useState("commendation");
-  const [medalCitation,setMedalCitation]=useState("");
   const [isAdc,setIsAdc]=useState(person?.isAdc||false);
   const [adcTo,setAdcTo]=useState(person?.adcTo||"");
   const [adcType,setAdcType]=useState(person?.adcType||"camp");
@@ -831,6 +987,7 @@ function PersonnelForm({person,commands,onAction,notify,setProcessing,onClose,is
   const [tab,setTab]=useState("basic");
   const ranks=BRANCH_RANKS[branch]||ARMY_RANKS;
   const cmdList=Object.values(commands||{});
+  const honours=honoursFor(person,ihHonours);
 
   return(
     <div style={{background:C.s1,border:`1px solid ${C.accentD}44`,borderRadius:3,padding:"1.25rem"}}>
@@ -840,7 +997,7 @@ function PersonnelForm({person,commands,onAction,notify,setProcessing,onClose,is
         <button onClick={onClose} style={{background:"transparent",border:"none",color:C.textD,cursor:"pointer",fontSize:14}}>✕</button>
       </div>
       <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1rem"}}>
-        {[["basic","Basic"],["history","Service History"],["medals","Medals"]].map(([v,l])=>(
+        {[["basic","Basic"],["history","Service History"],["medals","Honours"]].map(([v,l])=>(
           <button key={v} onClick={()=>setTab(v)}
             style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",
                      padding:"5px 12px",background:"transparent",border:"none",cursor:"pointer",
@@ -870,6 +1027,10 @@ function PersonnelForm({person,commands,onAction,notify,setProcessing,onClose,is
           <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
             <div style={{flex:1,minWidth:160}}><FL>POSITION / ROLE</FL><Inp value={position} onChange={setPosition} placeholder="e.g. Commanding Officer"/></div>
             <div style={{flex:1,minWidth:160}}><FL>POSTING / UNIT</FL><Inp value={posting} onChange={setPosting} placeholder="e.g. 1st Imperial Division"/></div>
+            <div style={{flex:1,minWidth:160}}>
+              <FL>CITIZEN USERNAME</FL>
+              <Inp value={username} onChange={setUsername} placeholder="For matching IH honours"/>
+            </div>
             {cmdList.length>0&&<div style={{flex:1,minWidth:160}}>
               <FL>COMBATANT COMMAND</FL>
               <DD value={commandId} onChange={setCommandId} options={[{v:"",l:"— None —"},...cmdList.map(c=>({v:c.id,l:c.name}))]}/>
@@ -903,7 +1064,7 @@ function PersonnelForm({person,commands,onAction,notify,setProcessing,onClose,is
             <Btn disabled={!name.trim()||saving} onClick={async()=>{
               setSaving(true); setProcessing(isNew?"Enlisting personnel…":"Updating record…");
               await onAction(isNew?"createPersonnel":"updatePersonnel",{
-                id:person?.id,name:name.trim(),branch,grade,force,position:position.trim(),
+                id:person?.id,name:name.trim(),username:username.trim(),branch,grade,force,position:position.trim(),
                 posting:posting.trim(),commandId,notes:notes.trim(),
                 isAdc,adcTo:isAdc?adcTo.trim():"",adcType:isAdc?adcType:"",
               });
@@ -947,48 +1108,33 @@ function PersonnelForm({person,commands,onAction,notify,setProcessing,onClose,is
 
       {tab==="medals"&&!isNew&&(
         <div>
-          {(person?.medals||[]).length>0&&(
-            <div style={{marginBottom:"1rem"}}>
-              {person.medals.map((m,i)=>{
-                const mt=MEDAL_TYPES.find(t=>t.v===m.type);
-                return(
-                  <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
-                    padding:"5px 10px",background:C.s2,border:`1px solid ${C.border}`,marginBottom:3,borderRadius:2}}>
-                    <div>
-                      <span style={{fontFamily:"'Cinzel',serif",fontSize:11,color:C.gold}}>🎖 {mt?.l||m.type}</span>
-                      {m.citation&&<span style={{fontSize:11,color:C.textD,marginLeft:8,fontStyle:"italic"}}>{m.citation}</span>}
-                    </div>
-                    <span className="mono" style={{fontSize:9,color:C.textDD}}>{m.awarded}</span>
-                  </div>
-                );
-              })}
+          <div style={{background:C.s2,border:`1px solid ${C.accentD}44`,borderLeft:`3px solid ${C.accent}`,
+            borderRadius:"0 2px 2px 0",padding:"0.75rem 0.9rem",marginBottom:"1rem"}}>
+            <div className="mono" style={{fontSize:9,color:C.accent,letterSpacing:".15em",marginBottom:4}}>AUTHORITY: IMPERIAL HOUSEHOLD</div>
+            <div style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>
+              Honours are conferred solely by the Imperial Household. The War Office no longer issues them and
+              this record is display-only. To confer or amend an honour, use the <a href="ih.html"
+              style={{color:C.accentD}}>Imperial Household honours registry ↗</a>.
             </div>
-          )}
-          <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
-            <div style={{flex:1,minWidth:200}}>
-            <FL>MEDAL / HONOUR</FL>
-            <select value={medalType} onChange={e=>setMedalType(e.target.value)}
-              style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
-                       padding:"7px 11px",color:C.text,fontSize:14,outline:"none",fontFamily:"'Crimson Text',serif"}}>
-              {MEDAL_CATS.map(cat=>(
-                <optgroup key={cat.v} label={cat.l}>
-                  {MEDAL_TYPES.filter(m=>m.cat===cat.v).map(m=>(
-                    <option key={m.v} value={m.v}>{m.l}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
           </div>
-            <div style={{flex:2,minWidth:200}}><FL>CITATION (optional)</FL><Inp value={medalCitation} onChange={setMedalCitation} placeholder="Brief citation…"/></div>
-          </div>
-          <div style={{marginTop:8}}>
-            <Btn small onClick={async()=>{
-              setProcessing("Awarding medal…");
-              await onAction("addMedal",{id:person.id,medal:{type:medalType,citation:medalCitation.trim(),awarded:new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}});
-              setProcessing(null); setMedalCitation("");
-              notify("Medal awarded.",C.gold);
-            }}>Award Medal</Btn>
-          </div>
+          {honours.length===0
+            ?<div style={{fontSize:13,color:C.textDD,fontStyle:"italic"}}>No honours recorded for this member.</div>
+            :honours.map((m,i)=>{
+              const mt=MEDAL_TYPES.find(t=>t.v===m.type);
+              return(
+                <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                  padding:"5px 10px",background:C.s2,border:`1px solid ${C.border}`,marginBottom:3,borderRadius:2}}>
+                  <div>
+                    <span style={{fontFamily:"'Cinzel',serif",fontSize:11,color:C.gold}}>🎖 {mt?.l||m.type}</span>
+                    {m.citation&&<span style={{fontSize:11,color:C.textD,marginLeft:8,fontStyle:"italic"}}>{m.citation}</span>}
+                    {m.source==="legacy"&&<span className="mono" style={{fontSize:7,color:C.textDD,marginLeft:8,
+                      border:`1px solid ${C.border}`,padding:"0 4px"}}>ARCHIVE</span>}
+                  </div>
+                  <span className="mono" style={{fontSize:9,color:C.textDD}}>{m.awarded}</span>
+                </div>
+              );
+            })
+          }
         </div>
       )}
       {(tab==="history"||tab==="medals")&&isNew&&(
@@ -1349,7 +1495,7 @@ function ShipForm({commands,navyBases=[],onAction,notify,setProcessing,onClose})
 
 // ── COMMANDS SECTION (REDESIGNED) ─────────────────────────────────────────────
 
-function OrbatNodeCard({unit,depth,children,canManage,onEdit,onDelete,isOpen,onToggle,personnel,ships,commands}){
+function OrbatNodeCard({unit,depth,children,detached,canManage,isEmperor,onEdit,onDelete,isOpen,onToggle,personnel,ships,commands}){
   const hasChildren=children&&children.length>0;
   const ech=ECH(unit.echelon||unit.type);
   const branchColor=unit.branchType==="navy"?C.navy:(unit.branchType==="army"?C.army:(unit.branchType==="sof"?C.soc:ech.color));
@@ -1404,6 +1550,12 @@ function OrbatNodeCard({unit,depth,children,canManage,onEdit,onDelete,isOpen,onT
                     {statusBadge.label}
                   </span>
                 )}
+                {detached&&(
+                  <span className="mono" title="Parent command is disbanded or missing — shown at top level"
+                    style={{fontSize:7,color:"#cc6a10",border:"1px solid #5a3000",padding:"0 4px",letterSpacing:".08em"}}>
+                    DETACHED
+                  </span>
+                )}
               </div>
               <div style={{fontFamily:"'Cinzel',serif",fontSize:12,fontWeight:700,color:cmdStatus==="disbanded"?C.textDD:C.text,
                 letterSpacing:".06em",marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
@@ -1428,6 +1580,9 @@ function OrbatNodeCard({unit,depth,children,canManage,onEdit,onDelete,isOpen,onT
             </div>
           )}
             {canManage&&<Btn small variant="ghost" onClick={()=>onEdit(unit)}>EDIT</Btn>}
+            {isEmperor&&onDelete&&(
+              <ArmBtn small label="⌫" confirmLabel="ERASE — no undo?" onConfirm={()=>onDelete(unit)}/>
+            )}
           </div>
           );
         })()}
@@ -1436,44 +1591,94 @@ function OrbatNodeCard({unit,depth,children,canManage,onEdit,onDelete,isOpen,onT
   );
 }
 
-function OrbatTree({commands,personnel,ships,canManage,onEdit}){
+function OrbatTree({commands,personnel,ships,canManage,isEmperor,onEdit,onDelete}){
   const [openMap,setOpenMap]=useState({});
+  const [showDisbanded,setShowDisbanded]=useState(false);
   const toggle=(id)=>setOpenMap(o=>({...o,[id]:!(o[id]===undefined?true:o[id])}));
   const isOpen=(id)=>openMap[id]===undefined?true:openMap[id];
 
-  // Build child map
-  const childMap={};
-  Object.values(commands||{}).forEach(u=>{
-    const pid=u.parentId||"__root";
-    if(!childMap[pid]) childMap[pid]=[];
-    childMap[pid].push(u);
-  });
-  // Sort by echelon
+  const all=Object.values(commands||{});
+  const isDisbanded=(u)=>u.status==="disbanded";
+  const active=all.filter(u=>!isDisbanded(u));
+  const disbanded=all.filter(isDisbanded);
   const echOrder={GCC:0,FCC:1,component:2,formation:3,unit:4,subunit:5};
-  Object.keys(childMap).forEach(k=>{
-    childMap[k].sort((a,b)=>((echOrder[a.echelon||a.type]||5)-(echOrder[b.echelon||b.type]||5))||((a.name||"").localeCompare(b.name||"")));
-  });
 
-  function renderNode(unit,depth){
-    const children=childMap[unit.id]||[];
+  // Build a child map over one partition. A unit whose parent is outside the
+  // partition (e.g. an active unit under a disbanded parent) is re-rooted so it
+  // never disappears from the tree.
+  function buildTree(units){
+    const ids=new Set(units.map(u=>u.id));
+    const map={};
+    units.forEach(u=>{
+      const pid=(u.parentId&&ids.has(u.parentId))?u.parentId:"__root";
+      (map[pid]=map[pid]||[]).push(u);
+    });
+    Object.keys(map).forEach(k=>{
+      map[k].sort((a,b)=>((echOrder[a.echelon||a.type]??5)-(echOrder[b.echelon||b.type]??5))||((a.name||"").localeCompare(b.name||"")));
+    });
+    return map;
+  }
+
+  function renderNode(map,unit,depth){
+    const children=map[unit.id]||[];
+    const orphaned=!!unit.parentId&&!(commands||{})[unit.parentId];
+    const detached=!!unit.parentId&&isDisbanded((commands||{})[unit.parentId]||{})&&!isDisbanded(unit);
     return(
       <div key={unit.id}>
-        <OrbatNodeCard unit={unit} depth={depth} hasChildren={children.length>0}
+        <OrbatNodeCard unit={unit} depth={depth} children={children} detached={detached||orphaned}
           isOpen={isOpen(unit.id)} onToggle={()=>toggle(unit.id)}
-          canManage={canManage} onEdit={onEdit}
+          canManage={canManage} isEmperor={isEmperor} onEdit={onEdit} onDelete={onDelete}
           personnel={personnel} ships={ships} commands={commands}/>
-        {isOpen(unit.id)&&children.map(child=>renderNode(child,depth+1))}
+        {isOpen(unit.id)&&children.map(child=>renderNode(map,child,depth+1))}
       </div>
     );
   }
 
-  const roots=childMap["__root"]||[];
-  if(roots.length===0) return(
+  const activeMap=buildTree(active);
+  const disbandedMap=buildTree(disbanded);
+  const activeRoots=activeMap["__root"]||[];
+  const disbandedRoots=disbandedMap["__root"]||[];
+
+  if(all.length===0) return(
     <div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>
       No commands established. Use the form to define the order of battle.
     </div>
   );
-  return <div>{roots.map(unit=>renderNode(unit,0))}</div>;
+
+  return(
+    <div>
+      {activeRoots.length===0
+        ?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>
+          No units in the active order of battle.
+        </div>
+        :activeRoots.map(u=>renderNode(activeMap,u,0))
+      }
+
+      {disbandedRoots.length>0&&(
+        <div style={{marginTop:"2rem"}}>
+          <div onClick={()=>setShowDisbanded(s=>!s)}
+            style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",
+              borderTop:`1px solid ${C.border}`,paddingTop:"1rem",marginBottom:"0.75rem"}}>
+            <span className="mono" style={{fontSize:8,color:"#5a5a5a",letterSpacing:".14em",
+              border:"1px solid #2a2a2a",padding:"1px 5px",flexShrink:0}}>STRUCK OFF</span>
+            <span style={{fontFamily:"'Cinzel',serif",fontSize:11,fontWeight:700,letterSpacing:".16em",
+              textTransform:"uppercase",color:"#6a6a6a"}}>Disbanded Units</span>
+            <span className="mono" style={{fontSize:9,color:C.textDD}}>{disbanded.length}</span>
+            <div style={{flex:1}}/>
+            <span style={{fontSize:10,color:C.textDD}}>{showDisbanded?"▲":"▼"}</span>
+          </div>
+          {showDisbanded&&(
+            <div>
+              <div style={{fontSize:12,color:C.textDD,fontStyle:"italic",marginBottom:"0.75rem"}}>
+                Held for the historical record. These units are excluded from the active order of battle.
+              </div>
+              {disbandedRoots.map(u=>renderNode(disbandedMap,u,0))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function CommandForm({cmd,commands,onSave,onCancel}){
@@ -1532,7 +1737,7 @@ function CommandForm({cmd,commands,onSave,onCancel}){
   );
 }
 
-function CommandsSection({commands,personnel,ships,canManage,onAction,notify,setProcessing}){
+function CommandsSection({commands,personnel,ships,canManage,isEmperor,onAction,notify,setProcessing}){
   const [creating,setCreating]=useState(false);
   const [editing,setEditing]=useState(null);
 
@@ -1547,18 +1752,36 @@ function CommandsSection({commands,personnel,ships,canManage,onAction,notify,set
     }
   }
 
+  async function remove(unit){
+    setProcessing("Erasing command…");
+    await onAction("deleteCommand",{id:unit.id});
+    setProcessing(null);
+    if(editing&&editing.id===unit.id) setEditing(null);
+    notify(unit.name+" erased from the order of battle.",C.redL);
+  }
+
   return(
     <div className="fadeIn">
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1rem"}}>
         <STitle style={{marginBottom:0}}>Order of Battle</STitle>
         {canManage&&!creating&&!editing&&<Btn small onClick={()=>setCreating(true)}>+ New Unit / Command</Btn>}
       </div>
+      {isEmperor&&(
+        <div style={{background:C.s1,border:`1px solid ${C.red}44`,borderLeft:`3px solid ${C.red}`,
+          borderRadius:"0 3px 3px 0",padding:"6px 14px",marginBottom:"1rem",fontSize:12,
+          color:C.textD,fontStyle:"italic"}}>
+          👑 Imperial prerogative: the ⌫ control erases a command permanently. Subordinate units are
+          re-attached to the parent above it, and assigned personnel and assets are returned to the unassigned pool.
+          To retire a unit while keeping its history, set its status to <strong>Disbanded</strong> instead.
+        </div>
+      )}
       {(creating||editing)&&(
         <CommandForm cmd={editing} commands={commands}
           onSave={save} onCancel={()=>{setCreating(false);setEditing(null);}}/>
       )}
       <OrbatTree commands={commands} personnel={personnel} ships={ships} canManage={canManage}
-        onEdit={u=>{setEditing(u);setCreating(false);}}/>
+        isEmperor={isEmperor} onEdit={u=>{setEditing(u);setCreating(false);}}
+        onDelete={isEmperor?remove:null}/>
     </div>
   );
 }
@@ -2832,6 +3055,161 @@ function MowAccountRow({acc,onAction,notify,setProcessing}){
 }
 
 // ── APP ───────────────────────────────────────────────────────────────────────
+// ── HOME: SITUATION REPORT ───────────────────────────────────────────────────
+// Replaces the old full command listing (which duplicated the Commands tab).
+// Everything here is derived from live data — nothing to maintain by hand.
+
+// Date-time group, e.g. 151430Z JUL 26
+function dtg(d=new Date()){
+  const p=(n)=>String(n).padStart(2,"0");
+  const mon=["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"][d.getUTCMonth()];
+  return `${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}Z ${mon} ${String(d.getUTCFullYear()).slice(2)}`;
+}
+
+function SitrepPanel({personnel,ships,commands,operations,schedule,alertData,wartime,user}){
+  const al=AL(alertData?.level??5);
+  const active=Object.values(personnel||{}).filter(p=>p.status!=="discharged");
+  const cmdList=Object.values(commands||{});
+  const liveCmds=cmdList.filter(c=>c.status!=="disbanded");
+  const ops=Object.values(operations||{});
+  const liveOps=ops.filter(o=>o.status==="active");
+  const planOps=ops.filter(o=>o.status==="planning"||o.status==="approved"||o.status==="recommended");
+  const assets=Object.values(ships||{});
+  const deployed=assets.filter(s=>s.status==="deployed").length;
+  const maint=assets.filter(s=>s.status==="maintenance").length;
+  const reserveP=active.filter(p=>p.force==="reserve").length;
+  const flag=active.filter(p=>(getRank(p.branch,p.grade)||{}).group==="FO").length;
+  const next=Object.values(schedule||{}).filter(e=>new Date(e.date)>=new Date())
+    .sort((a,b)=>new Date(a.date)-new Date(b.date))[0];
+
+  // Composed brief — each line only appears when it has something to say.
+  const lines=[];
+  lines.push(`Imperial readiness posture is ${al.short} — ${al.sub.toLowerCase()}.${wartime?.active?" The Empire stands on a WARTIME footing; all commands are subject to standing war orders.":""}`);
+  lines.push(`Establishment strength is ${active.length} in uniform across ${liveCmds.length} active command${liveCmds.length===1?"":"s"}${reserveP>0?`, of whom ${reserveP} are reserve force`:""}${flag>0?`, under ${flag} flag officer${flag===1?"":"s"}`:""}.`);
+  if(liveOps.length>0) lines.push(`${liveOps.length} operation${liveOps.length===1?" is":"s are"} currently prosecuted: ${liveOps.slice(0,3).map(o=>o.name||"UNNAMED").join(", ")}${liveOps.length>3?`, and ${liveOps.length-3} further`:""}.`);
+  else lines.push("No operations are currently active. All commands report routine posture.");
+  if(planOps.length>0) lines.push(`${planOps.length} operation${planOps.length===1?"":"s"} in planning or awaiting ministerial approval.`);
+  if(assets.length>0) lines.push(`${assets.length} asset${assets.length===1?"":"s"} on the register${deployed>0?`; ${deployed} deployed`:""}${maint>0?`; ${maint} under maintenance`:""}.`);
+  if(next) lines.push(`Next scheduled event: ${next.title||"Untitled"} on ${new Date(next.date).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})}.`);
+  lines.push("Nothing further to report at this time.");
+
+  const Meta=({k,v,color})=>(
+    <div style={{display:"flex",gap:8}}>
+      <span className="mono" style={{fontSize:9,color:C.textDD,width:38,flexShrink:0}}>{k}</span>
+      <span className="mono" style={{fontSize:9,color:color||C.textD,letterSpacing:".06em"}}>{v}</span>
+    </div>
+  );
+
+  return(
+    <div style={{background:C.s1,border:`1px solid ${C.border}`,borderTop:`3px solid ${al.color}`,
+      borderRadius:"0 0 4px 4px",padding:"1rem 1.1rem",height:"100%",display:"flex",flexDirection:"column"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8,flexWrap:"wrap",marginBottom:8}}>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:12,fontWeight:700,letterSpacing:".18em",color:C.text}}>
+          Situation Report
+        </div>
+        <span className="mono" style={{fontSize:8,color:al.color,border:`1px solid ${al.color}44`,
+          padding:"1px 6px",letterSpacing:".12em"}}>{al.short}</span>
+      </div>
+      <div style={{borderTop:`1px dashed ${C.border}`,borderBottom:`1px dashed ${C.border}`,
+        padding:"7px 0",marginBottom:10,display:"flex",flexDirection:"column",gap:2}}>
+        <Meta k="FM" v="IMPERIAL WAR OFFICE"/>
+        <Meta k="TO" v={(user?.displayName||user?.username||"DUTY OFFICER").toUpperCase()}/>
+        <Meta k="DTG" v={dtg()}/>
+        <Meta k="CLAS" v={wartime?.active?"RESTRICTED — WARTIME":"RESTRICTED"} color={wartime?.active?"#cc2222":C.textD}/>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:7,flex:1}}>
+        {lines.map((t,i)=>(
+          <div key={i} style={{display:"flex",gap:8}}>
+            <span className="mono" style={{fontSize:9,color:C.textDD,flexShrink:0,paddingTop:2}}>
+              {String(i+1).padStart(2,"0")}.
+            </span>
+            <span style={{fontSize:13,color:i===lines.length-1?C.textDD:C.text,lineHeight:1.5,
+              fontStyle:i===lines.length-1?"italic":"normal"}}>{t}</span>
+          </div>
+        ))}
+      </div>
+      <div className="mono" style={{fontSize:8,color:C.textDD,letterSpacing:".2em",textAlign:"right",
+        marginTop:10,borderTop:`1px dashed ${C.border}`,paddingTop:6}}>— END OF MESSAGE —</div>
+    </div>
+  );
+}
+
+function DispositionPanel({personnel,ships}){
+  const active=Object.values(personnel||{}).filter(p=>p.status!=="discharged");
+  const assets=Object.values(ships||{});
+  const total=active.length||1;
+
+  const rows=BRANCHES.map(b=>{
+    const n=active.filter(p=>p.branch===b.v).length;
+    return {...b,n,pct:Math.round((n/total)*100)};
+  });
+
+  const ready=assets.filter(s=>s.status==="active"||s.status==="deployed").length;
+  const readyPct=assets.length?Math.round((ready/assets.length)*100):0;
+  const readyColor=readyPct>=75?"#2a9a4a":readyPct>=50?"#C9A84C":"#cc6a10";
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:"1rem",height:"100%"}}>
+      <div style={{background:C.s1,border:`1px solid ${C.border}`,borderTop:`3px solid ${C.army}`,
+        borderRadius:"0 0 4px 4px",padding:"1rem 1.1rem"}}>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:11,fontWeight:700,letterSpacing:".16em",
+          color:C.text,marginBottom:10}}>Force Disposition</div>
+        {active.length===0
+          ?<div style={{fontSize:12,color:C.textDD,fontStyle:"italic"}}>No personnel on the active roster.</div>
+          :rows.map(b=>(
+            <div key={b.v} style={{marginBottom:9}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                <span className="mono" style={{fontSize:9,color:b.color,letterSpacing:".1em"}}>{b.short.toUpperCase()}</span>
+                <span className="mono" style={{fontSize:9,color:C.textD}}>{b.n} · {b.pct}%</span>
+              </div>
+              <div style={{height:4,background:C.s3,borderRadius:2,overflow:"hidden"}}>
+                <div style={{height:"100%",width:`${b.pct}%`,background:b.color,transition:"width .4s"}}/>
+              </div>
+            </div>
+          ))
+        }
+      </div>
+
+      <div style={{background:C.s1,border:`1px solid ${C.border}`,borderTop:`3px solid ${readyColor}`,
+        borderRadius:"0 0 4px 4px",padding:"1rem 1.1rem",flex:1}}>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:11,fontWeight:700,letterSpacing:".16em",
+          color:C.text,marginBottom:10}}>Asset Readiness</div>
+        {assets.length===0
+          ?<div style={{fontSize:12,color:C.textDD,fontStyle:"italic"}}>No assets on the register.</div>
+          :<div>
+            <div style={{display:"flex",alignItems:"baseline",gap:6,marginBottom:10}}>
+              <span style={{fontFamily:"'Cinzel',serif",fontSize:26,fontWeight:700,color:readyColor,lineHeight:1}}>{readyPct}%</span>
+              <span className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:".1em"}}>
+                FIT FOR SERVICE — {ready}/{assets.length}
+              </span>
+            </div>
+            <div style={{display:"flex",height:5,borderRadius:2,overflow:"hidden",marginBottom:10}}>
+              {SHIP_STATUSES.map(s=>{
+                const n=assets.filter(a=>a.status===s.v).length;
+                if(!n) return null;
+                return <div key={s.v} title={`${s.l}: ${n}`}
+                  style={{width:`${(n/assets.length)*100}%`,background:s.color}}/>;
+              })}
+            </div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:"3px 10px"}}>
+              {SHIP_STATUSES.map(s=>{
+                const n=assets.filter(a=>a.status===s.v).length;
+                if(!n) return null;
+                return(
+                  <span key={s.v} className="mono" style={{fontSize:8,color:C.textD,display:"flex",alignItems:"center",gap:4}}>
+                    <span style={{width:6,height:6,background:s.color,borderRadius:1,flexShrink:0}}/>
+                    {s.l.toUpperCase()} {n}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+  );
+}
+
 function App(){
   const [user,setUser]=useState(null);
   const [raw,setRaw]=useState({});
@@ -2854,6 +3232,7 @@ function App(){
   const announcement=useMemo(()=>raw["mow_announcement"]||{},[raw]);
   const mfaCountries=useMemo(()=>raw["mfa_countries"]||{},[raw]);
   const mapBorders=useMemo(()=>raw["mow_map_borders"]||{},[raw]);
+  const ihHonours=useMemo(()=>raw["ih_honours"]||{},[raw]);
   const accounts=useMemo(()=>{
     const a={};
     Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v) a[v.username]=v;});
@@ -2889,15 +3268,29 @@ function App(){
       const {id,...rest}=payload;
       const next={...personnel,[id]:{...personnel[id],...rest}};
       setRaw(r=>({...r,mow_personnel:next})); await sset("mow_personnel",next);
+    } else if(type==="dischargePersonnel"){
+      // Archive, never destroy: the service record is retained and an entry is
+      // appended to the member's history so the discharge itself is on file.
+      const p=personnel[payload.id]; if(!p) return;
+      const entry={date:new Date().toISOString().slice(0,10),
+        entry:"Discharged from active service"+(payload.reason?" — "+payload.reason:"")};
+      const next={...personnel,[payload.id]:{...p,status:"discharged",dischargedAt:Date.now(),
+        dischargeReason:payload.reason||"",commandId:"",
+        serviceHistory:[...(p.serviceHistory||[]),entry]}};
+      setRaw(r=>({...r,mow_personnel:next})); await sset("mow_personnel",next);
+    } else if(type==="reinstatePersonnel"){
+      const p=personnel[payload.id]; if(!p) return;
+      const entry={date:new Date().toISOString().slice(0,10),entry:"Reinstated to the active roster"};
+      const {dischargedAt,dischargeReason,...rest}=p;
+      const next={...personnel,[payload.id]:{...rest,status:"active",
+        serviceHistory:[...(p.serviceHistory||[]),entry]}};
+      setRaw(r=>({...r,mow_personnel:next})); await sset("mow_personnel",next);
     } else if(type==="deletePersonnel"){
+      // Emperor-only hard purge, reachable only from a discharged record.
       const next={...personnel}; delete next[payload.id];
       setRaw(r=>({...r,mow_personnel:next})); await sset("mow_personnel",next);
     } else if(type==="addServiceHistory"){
       const p={...personnel[payload.id],serviceHistory:[...(personnel[payload.id]?.serviceHistory||[]),payload.entry]};
-      const next={...personnel,[payload.id]:p};
-      setRaw(r=>({...r,mow_personnel:next})); await sset("mow_personnel",next);
-    } else if(type==="addMedal"){
-      const p={...personnel[payload.id],medals:[...(personnel[payload.id]?.medals||[]),payload.medal]};
       const next={...personnel,[payload.id]:p};
       setRaw(r=>({...r,mow_personnel:next})); await sset("mow_personnel",next);
     }
@@ -2923,8 +3316,29 @@ function App(){
       const next={...commands,[id]:{...payload,id,created:Date.now()}};
       setRaw(r=>({...r,mow_commands:next})); await sset("mow_commands",next);
     } else if(type==="deleteCommand"){
-      const next={...commands}; delete next[payload.id];
+      // Emperor-only. Erasing a command must not orphan anything: children are
+      // re-attached to the deleted unit's parent, and personnel/assets assigned
+      // to it are returned to the unassigned pool.
+      const doomed=commands[payload.id]; if(!doomed) return;
+      const newParent=doomed.parentId||null;
+      const next={};
+      Object.entries(commands).forEach(([k,v])=>{
+        if(k===payload.id) return;
+        next[k]=v.parentId===payload.id?{...v,parentId:newParent}:v;
+      });
       setRaw(r=>({...r,mow_commands:next})); await sset("mow_commands",next);
+
+      const pNext={...personnel}; let pTouched=false;
+      Object.entries(personnel).forEach(([k,v])=>{
+        if(v.commandId===payload.id){ pNext[k]={...v,commandId:""}; pTouched=true; }
+      });
+      if(pTouched){ setRaw(r=>({...r,mow_personnel:pNext})); await sset("mow_personnel",pNext); }
+
+      const sNext={...ships}; let sTouched=false;
+      Object.entries(ships).forEach(([k,v])=>{
+        if(v.commandId===payload.id){ sNext[k]={...v,commandId:""}; sTouched=true; }
+      });
+      if(sTouched){ setRaw(r=>({...r,mow_ships:sNext})); await sset("mow_ships",sNext); }
     } else if(type==="updateCommand"){
       const {id,...rest}=payload;
       const next={...commands,[id]:{...commands[id],...rest,updatedAt:Date.now()}};
@@ -2983,7 +3397,7 @@ function App(){
 
   if(!user) return<LoginScreen onLogin={handleLogin}/>;
 
-  const totalPersonnel=Object.keys(personnel).length;
+  const totalPersonnel=Object.values(personnel).filter(p=>p.status!=="discharged").length;
   const totalShips=Object.keys(ships).length;
   const activeOps=Object.values(operations).filter(o=>o.status==="active").length;
   const nextEvent=Object.values(schedule).filter(e=>new Date(e.date)>=new Date()).sort((a,b)=>new Date(a.date)-new Date(b.date))[0];
@@ -3060,7 +3474,7 @@ function App(){
             <AlertBanner alertData={alertData}/>
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"1rem",marginBottom:"2rem"}}>
               {[
-                {label:"Total Personnel",value:totalPersonnel,icon:"👤",color:C.army},
+                {label:"Active Personnel",value:totalPersonnel,icon:"👤",color:C.army},
                 {label:"Registered Assets",value:totalShips,icon:"⚓",color:"#4a6a9a"},
                 {label:"Active Operations",value:activeOps,icon:"📍",color:activeOps>0?"#cc6a10":C.textD},
                 {label:"Next Event",value:nextEvent?new Date(nextEvent.date).toLocaleDateString("en-GB",{day:"2-digit",month:"short"}):"—",icon:"📅",color:C.accent},
@@ -3073,39 +3487,22 @@ function App(){
                 </div>
               ))}
             </div>
-            {Object.values(commands).length>0&&(
-              <div>
-                <STitle>Combatant Commands</STitle>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:"0.75rem"}}>
-                  {Object.values(commands).map(cmd=>{
-                    const assignedP=Object.values(personnel).filter(p=>p.commandId===cmd.id).length;
-                    const assignedS=Object.values(ships).filter(s=>s.commandId===cmd.id).length;
-                    return(
-                      <div key={cmd.id} style={{background:C.s2,border:`1px solid ${C.accent}33`,
-                        borderLeft:`3px solid ${C.accent}`,borderRadius:"0 3px 3px 0",padding:"0.85rem 1rem"}}>
-                        <div style={{fontFamily:"'Cinzel',serif",fontSize:12,color:C.text,marginBottom:3}}>
-                          {cmd.name}
-                          {cmd.nickname&&<span className="mono" style={{fontSize:9,color:C.textDD,marginLeft:6}}>{cmd.nickname}</span>}
-                        </div>
-                        <div style={{display:"flex",gap:12,marginTop:4}}>
-                          <span className="mono" style={{fontSize:9,color:C.textDD}}>{assignedP} PERS</span>
-                          <span className="mono" style={{fontSize:9,color:C.textDD}}>{assignedS} VESSELS</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+            <div style={{display:"grid",gridTemplateColumns:"minmax(0,1.6fr) minmax(260px,1fr)",
+              gap:"1rem",alignItems:"stretch"}} className="sitrepGrid">
+              <SitrepPanel personnel={personnel} ships={ships} commands={commands} operations={operations}
+                schedule={schedule} alertData={alertData} wartime={wartime} user={user}/>
+              <DispositionPanel personnel={personnel} ships={ships}/>
+            </div>
           </div>
         )}
 
-        {tab==="personnel"&&<PersonnelSection personnel={personnel} commands={commands}
-          currentUser={user} canManage={canManage} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+        {tab==="personnel"&&<PersonnelSection personnel={personnel} commands={commands} ihHonours={ihHonours}
+          currentUser={user} canManage={canManage} isEmperor={isEmperor}
+          onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
         {tab==="assets"&&<AssetsSection ships={ships} commands={commands}
           canManage={canManage} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
         {tab==="commands"&&<CommandsSection commands={commands} personnel={personnel} ships={ships}
-          canManage={canManage} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+          canManage={canManage} isEmperor={isEmperor} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
         {tab==="schedule"&&<ScheduleSection schedule={schedule}
           canManage={canManage} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
         {tab==="admin"&&(isMowMinister||isEmperor)&&(

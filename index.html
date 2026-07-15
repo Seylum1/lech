@@ -770,6 +770,173 @@ function loadForeignPolicy(){
   function eqUser(s){s=(s==null?"":(""+s)).trim().toLowerCase();return !!s&&s===ME.u;}
   function hasMe(s){s=(s==null?"":(""+s)).toLowerCase();return (!!ME.n&&s.indexOf(ME.n)>=0)||(!!ME.u&&s.indexOf(ME.u)>=0);}
   function pretty(s){return (s==null?"":(""+s)).replace(/_/g," ").replace(/\b\w/g,function(c){return c.toUpperCase();});}
+
+  // ── Bundeskongress standing ────────────────────────────────────────────────
+  // Mirrors the chamber's own identity matching: records predating the account
+  // link were labelled by hand and don't always spell the username the same way
+  // ("Middleelement" vs "middlelement"), so compare on a collapsed key.
+  function idKey(s){return (s==null?"":(""+s)).toLowerCase().replace(/[^a-z0-9]/g,"").replace(/(.)\1+/g,"$1");}
+  var BK_PARTY_FALLBACK={
+    catholic:{name:"Lech Catholic Social Union",color:"#C9A84C"},
+    lech_first:{name:"Lech First Party",color:"#8B0000"},
+    sup:{name:"Social Unity Party",color:"#C05050"},
+    rappier:{name:"Rappier of Order",color:"#4A5A8A"},
+    starkes_militar:{name:"Starkes Militär Party",color:"#3a5a2a"},
+    independent:{name:"Independent",color:"#888888"}
+  };
+  function bkParty(bk,id){
+    var reg=bk["bk_parties"]||{};
+    if(reg[id]) return reg[id];
+    return BK_PARTY_FALLBACK[id]||null;
+  }
+  // Is this roster record the signed-in citizen?
+  function bkIsMe(r){
+    if(!r) return false;
+    var ru=(r.username||"").toLowerCase(), rn=(r.name||"").toLowerCase();
+    if(ME.u&&ru) return ru===ME.u;
+    if(!rn) return false;
+    return rn===ME.n||rn===ME.u||(!!ME.u&&idKey(rn)===idKey(ME.u));
+  }
+  // Every record id this citizen has ever voted under, across both chambers and
+  // the former-members roll — the same resolution the chamber itself uses.
+  function bkMyIds(bk){
+    var ids={};
+    ["bk_members","bk_bh","bk_former_members"].forEach(function(key){
+      var roster=bk[key]||{};
+      Object.keys(roster).forEach(function(id){
+        var r=roster[id];
+        if(bkIsMe(r)){ ids[id]=true; (r.aliases||[]).forEach(function(a){ids[a]=true;}); }
+      });
+    });
+    return ids;
+  }
+  // Share of votes put to them that they took part in; absent is the only miss.
+  function bkActivity(bk,ids){
+    var total=0,absent=0;
+    Object.keys(bk).forEach(function(k){
+      if(k.indexOf("bk_bill_")!==0) return;
+      var b=bk[k]; if(!b) return;
+      ["bt","bh"].forEach(function(ch){
+        var votes=b[ch+"_votes"]||{};
+        for(var id in ids){ if(votes[id]!==undefined){ total++; if(votes[id]==="absent") absent++; break; } }
+      });
+    });
+    if(total===0) return null;
+    return {pct:Math.round(((total-absent)/total)*100),attended:total-absent,total:total,absent:absent};
+  }
+  function bkActivityColor(p){return p>=75?"#7ad47a":p>=50?"#C9A84C":p>=25?"#cc6a10":"#c05050";}
+  // Of the bills taken part in, the share that were the citizen's own.
+  function bkDrafting(bk,ids,acc){
+    var participated=0, drafted=0;
+    function mine(b){
+      if(!b) return false;
+      var su=(b.submitterUsername||"").toLowerCase(), sn=(b.submitter||"").toLowerCase();
+      if(ME.u&&su) { if(su===ME.u) return true; }
+      else if(sn&&(sn===ME.n||sn===ME.u||(!!ME.u&&idKey(sn)===idKey(ME.u)))) return true;
+      return (b.cosponsors||[]).some(function(c){
+        var cu=(c.username||"").toLowerCase(), cn=(c.name||"").toLowerCase();
+        return (ME.u&&cu&&cu===ME.u)||(cn&&(cn===ME.n||cn===ME.u));
+      });
+    }
+    Object.keys(bk).forEach(function(k){
+      if(k.indexOf("bk_bill_")!==0) return;
+      var b=bk[k]; if(!b) return;
+      var took=false;
+      ["bt","bh"].forEach(function(ch){
+        var votes=b[ch+"_votes"]||{};
+        for(var id in ids){ if(votes[id]!==undefined&&votes[id]!=="absent"){ took=true; } }
+      });
+      if(took){ participated++; if(mine(b)) drafted++; }
+    });
+    if(participated===0) return null;
+    return {pct:Math.round((drafted/participated)*100),drafted:drafted,participated:participated};
+  }
+  // Styles and post-nominals due to this citizen under the register.
+  function bkHonorifics(bk,raw,acc,mySeat,myBHSeat,myFormerSeats,myOffices){
+    var styles=[], suffixes=[];
+    function push(st,why){ if(st&&!styles.some(function(s){return s.style===st&&s.why===why;})) styles.push({style:st,why:why}); }
+
+    // Peerage — held for life.
+    var bhRec=myBHSeat||myFormerSeats.filter(function(f){return f.rank;})[0];
+    if(bhRec&&bhRec.rank&&PEERAGE_STYLES[bhRec.rank])
+      push(PEERAGE_STYLES[bhRec.rank],pretty(bhRec.rank)+" — a peerage, held for life");
+    if(acc.role==="emperor") push("His Imperial Majesty","Emperor");
+
+    // Offices held now. The style is kept for life; MB is not.
+    myOffices.forEach(function(o){
+      var lo=o.toLowerCase();
+      if(lo.indexOf("chancellor")>=0||lo.indexOf("president of the bundestag")>=0)
+        push("The Right Honourable",o);
+      else push("The Honourable",o);
+    });
+    if(mySeat&&!suffixes.some(function(s){return s.code==="MB";}))
+      suffixes.push({code:"MB",why:"Member of the Bundestag — held only while sitting"});
+    else if(myOffices.length&&!suffixes.some(function(s){return s.code==="MB";}))
+      suffixes.push({code:"MB",why:myOffices[0]+" — held only while in office"});
+
+    // Judicial office, from the Judiciary's own register.
+    Object.keys(raw.ij_appointments||{}).forEach(function(k){
+      var a=raw.ij_appointments[k]; if(!a) return;
+      if(!eqUser(a.username)&&!eqMe(a.name)) return;
+      if(a.role==="president") push("The Right Honourable","President of the Constitutional Court");
+      else if(a.role==="cc_justice"||a.role==="rc_justice") push("The Honourable","Justice");
+    });
+
+    // Decorations — permanent.
+    var seen={};
+    Object.keys(raw.ih_honours||{}).forEach(function(k){
+      var h=raw.ih_honours[k]; if(!h) return;
+      if(!eqUser(h.recipientUsername)&&!eqMe(h.recipient)) return;
+      var d=null; DECORATIONS.forEach(function(x){ if(x.v===h.medal) d=x; });
+      if(!d||seen[d.v]) return; seen[d.v]=1;
+      suffixes.unshift({code:d.v,why:d.l+" — "+d.why+(h.awarded?", awarded "+h.awarded:"")});
+    });
+
+    styles.sort(function(a,b){return (STYLE_RANK[b.style]||0)-(STYLE_RANK[a.style]||0);});
+    return {prefix:styles[0]||null,styles:styles,suffixes:suffixes};
+  }
+  var BK_ACTIVITY_TIP="Activity Index — the share of votes put to you that you took part in. "+
+    "Voting for, against or abstaining all count as taking part; only being marked absent counts "+
+    "against it. Present for 3 of 4 votes scores 75%. Drawn from your whole record in the chamber.";
+  var BK_DRAFTING_TIP="Drafting to Voting — of the bills you took part in, the share that were "+
+    "your own: submitted by you, or drafted with you as a co-sponsor. A low figure simply means "+
+    "you vote on others' bills more than you put forward your own. It is not a measure of merit.";
+
+  // ── Imperial Honors & Medals Register ──────────────────────────────────────
+  // A style of address is kept for life once merited; a post-nominal of office
+  // (MB, IPS) is held only while actually in that office. Decorations are awards
+  // and so are permanent.
+  var STYLE_RANK={"His Imperial Majesty":100,"His/Her Imperial Highness":90,
+    "His/Her Serene Highness":80,"His/Her Grace":70,"The Most Honourable":60,
+    "The Right Honourable":50,"The Honourable":40};
+  var PEERAGE_STYLES={crown_prince:"His/Her Imperial Highness",prince:"His/Her Imperial Highness",
+    princess:"His/Her Imperial Highness",duke:"His/Her Grace",marquess:"The Most Honourable",
+    count:"The Right Honourable",viscount:"The Right Honourable",baron:"The Honourable",
+    baronet:"The Honourable"};
+  var DECORATIONS=[
+    {v:"IIC",l:"Imperial Iron Cross",why:"Highest military valor honor"},
+    {v:"OBE",l:"Order of the Black Eagle",why:"Exceptional command and leadership"},
+    {v:"ICV",l:"Imperial Cross of Valor",why:"Bravery in combat and active warfare"},
+    {v:"ICOGO",l:"Imperial Civil Order of the Golden Oak",why:"Highest civil honor of the Empire"},
+    {v:"ORE",l:"Order of the Red Eagle",why:"Diplomatic, academic and cultural distinction"},
+    {v:"IOM",l:"Imperial Order of Merit",why:"National achievement"},
+    {v:"IDSM",l:"Imperial Defense Service Medal",why:"Loyal and long military service"},
+    {v:"MSMM",l:"Military Service Medal of Merit",why:"Dedication and excellence in military duty"},
+    {v:"MOH",l:"Medal of Honor",why:"Heroic defense of the Empire"},
+    {v:"DSA",l:"Defense Service Award",why:"Service to national defense"},
+    {v:"LEM",l:"Law Enforcement Service Medal",why:"Internal security and policing"},
+    {v:"PSM",l:"Public Services Medal",why:"Fire/Rescue/Emergency service distinction"},
+    {v:"EMCM",l:"Exemplary Military Conduct Medal",why:"Discipline and conduct"},
+    {v:"DCSM",l:"Distinguished Civil Service Medal",why:"Long civil service"},
+    {v:"GSM",l:"Good Samaritan Medal",why:"Humanitarian/charitable actions"},
+    {v:"MC",l:"Medal of Counselors",why:"Legal and judicial achievement"},
+    {v:"MH",l:"Medal of Health",why:"Excellence in medicine"},
+    {v:"CEM",l:"Civil Engineering Medal",why:"Infrastructure and development contributions"},
+    {v:"NIM",l:"National Intelligence Medal",why:"Intelligence service distinction"},
+    {v:"ESM",l:"Exemplary Service Medal",why:"General civil excellence"},
+    {v:"KESJM",l:"King Edward Silver Jubilee Medal",why:"Commemorates the Silver Jubilee of King Edward"},
+    {v:"FECM",l:"First Edward Campaigns Medal",why:"Served during the First Edward Campaigns"}
+  ];
   function dateStr(d){if(!d)return "";if(typeof d==="number")return new Date(d).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});return d;}
 
   function fetchAll(url){
@@ -831,7 +998,41 @@ function loadForeignPolicy(){
     var myShips=Object.keys(ships).map(function(k){return ships[k];}).filter(function(s){return s&&(eqMe(s.registeredBy)||eqMe(s.requestedBy)||hasMe(s.owner));});
     var myShipReqs=Object.keys(shipReqs).map(function(k){return shipReqs[k];}).filter(function(r){return r&&eqMe(r.requestedBy)&&r.status==="pending";});
     var myCases=Object.keys(cases).map(function(k){return cases[k];}).filter(function(c){return c&&(hasMe(c.parties)||hasMe(c.title));});
-    var myBills=Object.keys(bk).filter(function(k){return k.indexOf("bk_bill_")===0;}).map(function(k){return bk[k];}).filter(function(b){return b&&(eqMe(b.submitter)||hasMe(b.submitter));});
+    // Bundeskongress standing — seats held now or in the past, and the record
+    // that goes with them.
+    var bkMembers=bk["bk_members"]||{}, bkBH=bk["bk_bh"]||{}, bkFormer=bk["bk_former_members"]||{},
+        bkOff=bk["bk_officials"]||{};
+    var mySeat=null, myBHSeat=null, myFormerSeats=[];
+    Object.keys(bkMembers).forEach(function(k){ if(bkIsMe(bkMembers[k])) mySeat=bkMembers[k]; });
+    Object.keys(bkBH).forEach(function(k){ if(bkIsMe(bkBH[k])) myBHSeat=bkBH[k]; });
+    Object.keys(bkFormer).forEach(function(k){ if(bkIsMe(bkFormer[k])) myFormerSeats.push(bkFormer[k]); });
+    var myBkIds=bkMyIds(bk);
+    var myActivity=bkActivity(bk,myBkIds);
+    var myDrafting=bkDrafting(bk,myBkIds,acc);
+    // Offices held. Newer records store the account; older ones only a name,
+    // which may be either the username or the display name.
+    var myOffices=(function(){
+      var out=[];
+      var aliases=[ME.u,ME.n,(mySeat&&(mySeat.name||"").toLowerCase()),(myBHSeat&&(myBHSeat.name||"").toLowerCase())]
+        .filter(Boolean);
+      function holds(userKey,nameKey){
+        var stored=(bkOff[userKey]||"").toLowerCase();
+        if(stored) return !!ME.u&&stored===ME.u;
+        var bare=(bkOff[nameKey]||"").toLowerCase();
+        return !!bare&&bare!=="vacant"&&aliases.indexOf(bare)>=0;
+      }
+      if(holds("president_bt_username","president_bt")) out.push("President of the Bundestag");
+      if(holds("president_bh_username","president_bh")) out.push("President of the Bundesherren");
+      if(holds("chancellor_username","chancellor")) out.push("Imperial Chancellor");
+      var mu=bkOff.minister_usernames||{}, mn=bkOff.ministers||{};
+      Object.keys(mn).forEach(function(p){
+        var stored=(mu[p]||"").toLowerCase();
+        var hit=stored?(!!ME.u&&stored===ME.u)
+          :(!!mn[p]&&(""+mn[p]).toLowerCase()!=="vacant"&&aliases.indexOf((""+mn[p]).toLowerCase())>=0);
+        if(hit) out.push(p);
+      });
+      return out;
+    })();
     var myBusinesses=Object.keys(businesses).map(function(k){return businesses[k];}).filter(function(b){return b&&(b.owners||[]).some(function(o){return o&&(eqUser(o.username)||eqMe(o.rpName));});});
     var myDebts=Object.keys(debts).map(function(k){return debts[k];}).filter(function(d){return d&&hasMe(d.counterparty);});
     var myCitizenship=Object.keys(citizens).map(function(k){return citizens[k];}).filter(function(c){return c&&eqUser(c.username);});
@@ -1003,20 +1204,89 @@ function loadForeignPolicy(){
     } else html+='<div class="ch-empty">No court cases reference you.</div>';
     html+='</div>';
 
-    // ── Legislature ──
-    html+='<div class="ch-panel" style="--pa:#C9A84C">';
-    html+='<div class="ch-title">🏛 Legislative Activity <a class="ch-link" href="bundeskongress.html" style="margin-left:auto;">Bundeskongress →</a></div>';
-    if(myBills.length){
-      myBills.forEach(function(b){
-        html+=row(
+    // ── Bundeskongress ──
+    // Only shown to those who hold, or have ever held, a seat. Everyone else has
+    // no standing in the chamber, so the panel simply is not part of their record.
+    if(mySeat||myBHSeat||myFormerSeats.length){
+      var seatRec=mySeat||myBHSeat||myFormerSeats[0];
+      var pty=bkParty(bk,seatRec.party);
+      var accent=pty?pty.color:"#C9A84C";
+      html+='<div class="ch-panel" style="--pa:'+accent+'">';
+      html+='<div class="ch-title">🏛 Bundeskongress <a class="ch-link" href="bundeskongress.html" style="margin-left:auto;">Bundeskongress →</a></div>';
+
+      // Standing
+      var standing=[];
+      if(mySeat) standing.push("Sitting Member of the Bundestag");
+      if(myBHSeat) standing.push("Bundesherr");
+      if(!standing.length) standing.push("Former Member");
+      var hon=bkHonorifics(bk,raw,acc,mySeat,myBHSeat,myFormerSeats,myOffices);
+      if(hon.prefix){
+        html+='<div title="'+esc(hon.styles.map(function(s){return s.style+" — "+s.why;}).join(" | "))+'" '+
+          'style="font-family:\'Cinzel\',serif;font-size:0.6rem;letter-spacing:0.18em;color:#C9A84C;margin-bottom:4px;cursor:help;">'+
+          esc(hon.prefix.style.toUpperCase())+'</div>';
+      }
+      html+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:0.75rem;">';
+      html+='<span class="ch-v" style="font-family:\'Cinzel\',serif;font-size:0.95rem;">'+esc(seatRec.username||seatRec.name)+'</span>';
+      if(hon.suffixes.length)
+        html+='<span title="'+esc(hon.suffixes.map(function(s){return s.code+" — "+s.why;}).join(" | "))+'" '+
+          'style="font-family:\'Share Tech Mono\',monospace;font-size:0.6rem;letter-spacing:0.08em;color:#C9A84C;opacity:0.8;cursor:help;">'+
+          esc(hon.suffixes.map(function(s){return s.code;}).join(" "))+'</span>';
+      if(seatRec.name&&seatRec.username&&seatRec.name.toLowerCase()!==seatRec.username.toLowerCase())
+        html+='<span class="ch-k" style="font-style:italic;">'+esc(seatRec.name)+'</span>';
+      html+='<span class="ch-badge" style="color:'+((mySeat||myBHSeat)?"#7ad47a":"#8a8a8a")+';border-color:'+((mySeat||myBHSeat)?"#7ad47a66":"#5a5a5a66")+';">'+((mySeat||myBHSeat)?"SITTING":"FORMER")+'</span>';
+      html+='</div>';
+
+      html+=row(
+        '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">'+
+        '<span class="ch-k">STANDING</span>'+
+        '<span class="ch-v">'+esc(standing.join(" · "))+'</span></div>'
+      );
+      if(pty) html+=row(
+        '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">'+
+        '<span class="ch-k">PARTY</span>'+
+        '<span class="ch-v" style="color:'+pty.color+';">'+esc(pty.name)+'</span></div>'
+      );
+      if(mySeat&&mySeat.seats) html+=row(
+        '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">'+
+        '<span class="ch-k">SEATS</span>'+
+        '<span class="ch-v">'+esc(String(mySeat.seats))+' of 1,000</span></div>'
+      );
+      if(myOffices.length) html+=row(
+        '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">'+
+        '<span class="ch-k">OFFICES</span>'+
+        '<span class="ch-v" style="color:#C9A84C;">'+esc(myOffices.join(" · "))+'</span></div>'
+      );
+      myFormerSeats.forEach(function(f){
+        if(f.departed_reason) html+=row(
           '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">'+
-          '<span class="ch-v" style="font-family:\'Cinzel\',serif;">'+esc(b.title||"Bill")+'</span>'+
-          (b.status?'<span class="ch-k">'+esc(pretty(b.status))+'</span>':'')+'</div>'+
-          (b.type?'<div class="ch-k" style="margin-top:4px;">'+esc(pretty(b.type))+'</div>':'')
+          '<span class="ch-k">DEPARTURE</span>'+
+          '<span class="ch-v" style="font-style:italic;">'+esc(f.departed_reason)+(f.departed_at?" · "+esc(dateStr(f.departed_at)):"")+'</span></div>'
         );
       });
-    } else html+='<div class="ch-empty">No bills submitted under your name.</div>';
-    html+='</div>';
+      if(myActivity){
+        var ac=bkActivityColor(myActivity.pct);
+        html+=row(
+          '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;align-items:center;" title="'+esc(BK_ACTIVITY_TIP)+'">'+
+          '<span class="ch-k" style="cursor:help;border-bottom:1px dotted #6a5a4a;">ACTIVITY INDEX</span>'+
+          '<span class="ch-v" style="color:'+ac+';font-family:\'Cinzel\',serif;font-weight:700;">'+myActivity.pct+'%</span></div>'+
+          '<div style="height:5px;background:#1a1410;border-radius:3px;overflow:hidden;margin-top:6px;" title="'+esc(BK_ACTIVITY_TIP)+'">'+
+          '<div style="height:100%;width:'+myActivity.pct+'%;background:'+ac+';"></div></div>'+
+          '<div class="ch-k" style="margin-top:4px;font-style:italic;">present for '+myActivity.attended+' of '+myActivity.total+' votes'+(myActivity.absent?" · absent "+myActivity.absent:"")+'</div>'
+        );
+      }
+      if(myDrafting){
+        html+=row(
+          '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;align-items:center;" title="'+esc(BK_DRAFTING_TIP)+'">'+
+          '<span class="ch-k" style="cursor:help;border-bottom:1px dotted #6a5a4a;">DRAFTING TO VOTING</span>'+
+          '<span class="ch-v" style="font-family:\'Cinzel\',serif;font-weight:700;">'+myDrafting.pct+'%</span></div>'+
+          '<div style="height:5px;background:#1a1410;border-radius:3px;overflow:hidden;margin-top:6px;" title="'+esc(BK_DRAFTING_TIP)+'">'+
+          '<div style="height:100%;width:'+myDrafting.pct+'%;background:#8a7a6a;"></div></div>'+
+          '<div class="ch-k" style="margin-top:4px;font-style:italic;">'+myDrafting.drafted+' of '+myDrafting.participated+' were your own</div>'
+        );
+      }
+      html+='<div class="ch-k" style="margin-top:0.75rem;font-style:italic;">Full voting and submission history is on the Bundeskongress.</div>';
+      html+='</div>';
+    }
 
     html+='</div>'; // grid
 
