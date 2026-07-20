@@ -654,6 +654,139 @@ const OFFICE_HONOURS=[
   {key:"ips",         label:"Imperial Private Secretary",           style:"The Right Honourable", suffix:"IPS"},
 ];
 const OFFICE=(k)=>OFFICE_HONOURS.find(o=>o.key===k);
+
+// ── OFFICE COMMUNIQUÉS (press releases) ────────────────────────────────────────
+// Ministry seals sit in the same folder as the pages, so a bare filename resolves
+// on both the Bundeskongress and the Press page. Offices without a dedicated seal
+// fall back to the Imperial cypher.
+const OFFICE_SEALS={
+  "Minister of War":"MOW.png","Minister of Health":"MOH.png",
+  "Minister of Foreign Affairs":"MOFA.png","Minister of Finance":"MOF.png",
+  "Minister of Interior":"MOI.png","Minister of Infrastructure":"MOIN.png",
+};
+const officeSeal=(office)=>OFFICE_SEALS[office]||"";
+const officeStyle=(office)=>(office==="Chancellor"||office==="Vice Chancellor")?"The Right Honourable":"The Honourable";
+// The executive offices whose holder may issue a communiqué, resolved from the
+// live officials register against the signed-in account.
+function heldOffices(user, officials){
+  if(!user) return [];
+  const off=officials||{};
+  const u=String(user.username||"").toLowerCase();
+  const d=String(user.displayName||"").toLowerCase();
+  const holds=(uKey,nKey)=>{
+    const stored=String(off[uKey]||"").toLowerCase();
+    if(stored) return !!u&&stored===u;
+    const bare=String(off[nKey]||"").toLowerCase();
+    return !!bare&&bare!=="vacant"&&(bare===u||bare===d);
+  };
+  const out=[];
+  if(holds("chancellor_username","chancellor")) out.push("Chancellor");
+  const mu=off.minister_usernames||{}, mn=off.ministers||{};
+  MINISTER_PORTFOLIOS.forEach(p=>{
+    const stored=String(mu[p]||"").toLowerCase();
+    const hit=stored?(!!u&&stored===u):(!!mn[p]&&String(mn[p]).toLowerCase()!=="vacant"&&[u,d].filter(Boolean).includes(String(mn[p]).toLowerCase()));
+    if(hit) out.push(p);
+  });
+  return out;
+}
+// A peerage outranks an office for the style of address, so honour it if held.
+function peerageOf(user, bundesherren, formerMembers){
+  const u=String(user&&user.username||"").toLowerCase(), d=String(user&&user.displayName||"").toLowerCase();
+  const isThem=(v)=>{const s=String(v||"").toLowerCase();return !!s&&(s===u||s===d);};
+  const rec=Object.values(bundesherren||{}).find(b=>isThem(b.username)||isThem(b.name))
+    ||Object.values(formerMembers||{}).find(b=>b.rank&&(isThem(b.username)||isThem(b.name)));
+  return rec&&rec.rank?PEERAGE_RANKS.find(r=>r.v===rec.rank):null;
+}
+
+// The formatted communiqué — a light, printable legal document. Used for the live
+// preview here; the Press page renders the same fields for readers.
+function PressReleaseDoc({office,seal,style,name,post,headline,body,refNo,issuedAt}){
+  const D={ink:"#1a1408",inkD:"#6a5c3a",rule:"#b9a468",gold:"#8a6c20",paper:"#f6f1e2"};
+  const paras=String(body||"").split(/\n+/).filter(Boolean);
+  const sealImg=seal
+    ? <img src={seal} alt="" style={{width:88,height:88,objectFit:"contain"}}/>
+    : <div style={{width:88,height:88,borderRadius:"50%",border:"2px solid "+D.gold,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:D.gold}}><div style={{fontSize:30,lineHeight:1}}>⚜</div><div style={{fontSize:6,letterSpacing:"0.15em",marginTop:3}}>EMPIRE OF LECH</div></div>;
+  return <div style={{background:D.paper,color:D.ink,padding:"2.5rem 2.75rem",border:"1px solid "+D.rule,position:"relative",maxWidth:720,margin:"0 auto"}}>
+    <div style={{position:"absolute",inset:9,border:"2px solid "+D.rule,pointerEvents:"none"}}/>
+    <div style={{position:"relative"}}>
+      <div style={{display:"flex",alignItems:"center",gap:16,borderBottom:"2px solid "+D.rule,paddingBottom:"1.1rem",marginBottom:"1.25rem"}}>
+        {sealImg}
+        <div style={{flex:1,textAlign:"center"}}>
+          <div className="mono" style={{fontSize:9,letterSpacing:"0.45em",color:D.inkD,marginBottom:5}}>EMPIRE OF LECH</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:20,fontWeight:700,letterSpacing:"0.08em",color:D.ink,lineHeight:1.2}}>Office of the {office}</div>
+          <div className="mono" style={{fontSize:9,letterSpacing:"0.3em",color:D.gold,marginTop:6}}>OFFICIAL COMMUNIQUÉ</div>
+        </div>
+        <div style={{width:88}}/>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:D.inkD,marginBottom:"1rem"}} className="mono">
+        <span>{refNo||"REF —"}</span><span>{issuedAt?new Date(issuedAt).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"}).toUpperCase():""}</span>
+      </div>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:23,fontWeight:700,color:D.ink,lineHeight:1.25,marginBottom:"1.1rem"}}>{headline||"—"}</div>
+      <div style={{fontSize:15,lineHeight:1.9,color:D.ink}}>
+        {paras.length?paras.map((p,i)=><p key={i} style={{margin:"0 0 0.9rem"}}>{p}</p>):<p style={{fontStyle:"italic",color:D.inkD}}>The body of the communiqué will appear here.</p>}
+      </div>
+      <div style={{marginTop:"2rem",display:"flex",justifyContent:"space-between",alignItems:"flex-end",gap:20,flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:220}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:19,color:D.gold,fontStyle:"italic",borderBottom:"1px solid "+D.ink,paddingBottom:4,marginBottom:6}}>{name}</div>
+          <div style={{fontSize:13,color:D.ink}}>{[style,name].filter(Boolean).join(" ")}{post?" "+post:""}</div>
+          <div className="mono" style={{fontSize:10,letterSpacing:"0.12em",color:D.inkD,marginTop:2}}>{office.toUpperCase()}</div>
+        </div>
+        <div style={{opacity:.9}}>{sealImg}</div>
+      </div>
+      <div style={{marginTop:"1.5rem",paddingTop:"0.75rem",borderTop:"1px solid "+D.rule,textAlign:"center"}}>
+        <div className="mono" style={{fontSize:8,color:D.inkD,letterSpacing:"0.15em"}}>ISSUED UNDER THE AUTHORITY OF THE OFFICE NAMED ABOVE · EMPIRE OF LECH</div>
+      </div>
+    </div>
+  </div>;
+}
+
+// The compose-and-issue panel shown to an officeholder.
+function CommuniquePanel({office,user,bundesherren,formerMembers,onAction,notify,setProcessing}){
+  const [headline,setHeadline]=useState("");
+  const [body,setBody]=useState("");
+  const [saving,setSaving]=useState(false);
+  const [done,setDone]=useState(false);
+  const peer=peerageOf(user,bundesherren,formerMembers);
+  const style=peer?peer.style:officeStyle(office);
+  const name=user.displayName||user.username;
+  const post="MB";
+  const seal=officeSeal(office);
+  if(done) return <Card style={{textAlign:"center",padding:"2.5rem",maxWidth:520,margin:"0 auto"}}>
+    <div style={{fontSize:32,marginBottom:8}}>📜</div>
+    <div style={{fontFamily:"'Cinzel',serif",fontSize:16,color:C.text,marginBottom:8}}>Communiqué Issued</div>
+    <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.25rem"}}>Your press release has been published to the Imperial Gazette under the Office of the {office}.</div>
+    <div style={{display:"flex",gap:8,justifyContent:"center"}}>
+      <a href="press.html" style={{textDecoration:"none"}}><Btn>View on the Gazette</Btn></a>
+      <Btn variant="ghost" onClick={()=>{setDone(false);setHeadline("");setBody("");}}>Issue Another</Btn>
+    </div>
+  </Card>;
+  return <div>
+    <STitle>Office of the {office} — Communiqués</STitle>
+    <div style={{fontSize:13,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.25rem"}}>
+      Issue an official press release under your office. It is sealed with your office's authority and published to the Imperial Gazette on generation.
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr",gap:"1.5rem"}}>
+      <div>
+        <FL>HEADLINE</FL><Inp value={headline} onChange={setHeadline} placeholder="Headline of the communiqué"/>
+        <div style={{height:10}}/>
+        <FL>STATEMENT</FL>
+        <textarea value={body} onChange={e=>setBody(e.target.value)} rows={7} placeholder="The text of the press release. Separate paragraphs with a blank line."
+          style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,padding:"10px 12px",color:C.text,fontSize:14,outline:"none",resize:"vertical",lineHeight:1.7,fontFamily:"'Crimson Text',Georgia,serif"}}/>
+      </div>
+      <div>
+        <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.2em",marginBottom:8}}>PREVIEW</div>
+        <PressReleaseDoc office={office} seal={seal} style={style} name={name} post={post} headline={headline} body={body} refNo="REF —" issuedAt={Date.now()}/>
+      </div>
+      <div>
+        <Btn disabled={!headline.trim()||!body.trim()||saving} onClick={async()=>{
+          setSaving(true);setProcessing("Issuing communiqué…");
+          await onAction("issuePressRelease",{office,seal,style,name,post,headline:headline.trim(),body:body.trim()});
+          setProcessing(null);setSaving(false);setDone(true);notify("Communiqué published.",C.gold);
+        }}>{saving?"Issuing…":"Issue & Publish Communiqué"}</Btn>
+      </div>
+    </div>
+  </div>;
+}
 // Decorations, in the register's order of prestige. Post-nominals are permanent.
 const DECORATIONS=[
   {v:"IIC",   l:"Imperial Iron Cross",                     why:"Highest military valor honor"},
@@ -5535,10 +5668,12 @@ function EmperorPanelContent({bills,members,bundesherren,officials,orgChart,anno
 // passphrases (bk_bt_hash / bk_bh_hash / bk_emp_hash) are gone: an officeholder
 // signs in as themselves, and access follows their account when office changes.
 function PanelTab({bills,members,bundesherren,officials,orgChart,session,announcement,activeBudget,submitLock,imperialReserve,imperialLinks,nextElection,absences,accounts,formerMembers,parties,digitalVoting,user,isEmperor,isBTPresident,isBHPresident,onAction,notify,setProcessing}) {
+  const myOffices=heldOffices(user,officials);
   const avail=[
     ...(isEmperor?[{id:"emperor",label:"Imperial Throne",icon:"👑"}]:[]),
     ...(isBTPresident?[{id:"bt_president",label:"President of the Bundestag",icon:"🏛"}]:[]),
     ...(isBHPresident?[{id:"bh_president",label:"President of the Bundesherren",icon:"🏰"}]:[]),
+    ...myOffices.map(o=>({id:"office:"+o,label:o,icon:"📜"})),
   ];
   const [role,setRole]=useState(avail.length===1?avail[0].id:null);
 
@@ -5589,6 +5724,7 @@ function PanelTab({bills,members,bundesherren,officials,orgChart,session,announc
       {role==="emperor"&&<EmperorPanelContent bills={bills} members={members} bundesherren={bundesherren} officials={officials} orgChart={orgChart} announcement={announcement} activeBudget={activeBudget} submitLock={submitLock} imperialReserve={imperialReserve} imperialLinks={imperialLinks} nextElection={nextElection} accounts={accounts} formerMembers={formerMembers} parties={parties} digitalVoting={digitalVoting} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
       {role==="bt_president"&&<BTPanelContent bills={bills} members={members} bundesherren={bundesherren} session={session} absences={absences} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
       {role==="bh_president"&&<BHPanelContent bills={bills} members={members} bundesherren={bundesherren} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+      {typeof role==="string"&&role.indexOf("office:")===0&&<CommuniquePanel office={role.slice(7)} user={user} bundesherren={bundesherren} formerMembers={formerMembers} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
     </div>
   );
 }
@@ -7147,6 +7283,20 @@ function App() {
     if(type==="saveOfficials"){
       setOff(payload); await sset("bk_officials",payload);
     }
+    else if(type==="issuePressRelease"){
+      // Published as a Gazette article so it appears on the Press page at once;
+      // the server verifies the issuer actually holds this office.
+      const id="rel_"+uid();
+      const now=Date.now();
+      const rec={ id, pressRelease:true, office:payload.office, seal:payload.seal||"",
+        signStyle:payload.style, signName:payload.name, signPost:payload.post,
+        headline:payload.headline, body:payload.body,
+        refNo:"COMM-"+new Date(now).getFullYear()+"-"+String(now).slice(-4),
+        byline:"Office of the "+payload.office, dateline:"KINGSLAND",
+        section:"Official", status:"published", created:now, publishedAt:now,
+        issuedByUsername:(user&&user.username)||"" };
+      await sset("press_article_"+id, rec);
+    }
     else if(type==="importMembers"){
       // Member identity must be stable. This previously minted a fresh
       // "m_<timestamp>_<i>" id for every row, which orphaned every existing
@@ -7787,7 +7937,10 @@ function App() {
   const isEmperor    = access?.role==="emperor";
   const isBTPresident= isEmperor||access?.role==="bt_president";
   const isBHPresident= isEmperor||access?.role==="bh_president";
-  const hasPanel     = isEmperor||isBTPresident||isBHPresident;
+  // Ministers and the Chancellor hold no chamber presidency, but still get the
+  // Panel tab so they can issue communiqués under their office.
+  const myOffices    = useMemo(()=>heldOffices(user,officials),[user,officials]);
+  const hasPanel     = isEmperor||isBTPresident||isBHPresident||myOffices.length>0;
   // Which chamber the signed-in account actually sits in.
   const mySeat   = user?findSeat(members,user.username,user.displayName):null;
   const myBHSeat = user?findSeat(bundesherren,user.username,user.displayName):null;

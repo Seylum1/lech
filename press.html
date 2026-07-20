@@ -27,6 +27,14 @@ input,select,textarea{font-family:'Source Serif 4',Georgia,serif;}
 @keyframes fadeIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
 .fadeIn{animation:fadeIn .25s ease both;}
 .drop-cap::first-letter{float:left;font-family:'Playfair Display',Georgia,serif;font-size:4.2em;font-weight:900;line-height:.82;padding-right:.07em;margin-top:.05em;color:var(--ink);}
+@media print{
+  body{background:#fff !important;}
+  body.release-print *{visibility:hidden;}
+  body.release-print .release-sheet, body.release-print .release-sheet *{visibility:visible;}
+  body.release-print .release-sheet{position:absolute;left:0;top:0;width:100%;border:none;box-shadow:none;}
+  .noprint{display:none !important;}
+  @page{size:A4 portrait;margin:12mm;}
+}
 </style>
 </head>
 <body>
@@ -479,9 +487,55 @@ function ArticleCard(props){
 
 // -- ARTICLE VIEW --
 
+// An office communiqué renders as its sealed legal document rather than a plain story.
+function PressReleaseView(props){
+  var a=props.article, onBack=props.onBack;
+  var D={ink:"#1a1408",inkD:"#6a5c3a",rule:"#b9a468",gold:"#8a6c20",paper:"#f6f1e2"};
+  var paras=((a&&a.body)||"").split(/\n+/).filter(Boolean);
+  useEffect(function(){document.body.classList.add("release-print");return function(){document.body.classList.remove("release-print");};},[]);
+  var seal=a.seal
+    ? <img src={a.seal} alt="" style={{width:92,height:92,objectFit:"contain"}}/>
+    : <div style={{width:92,height:92,borderRadius:"50%",border:"2px solid "+D.gold,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:D.gold}}><div style={{fontSize:32,lineHeight:1}}>⚜</div><div style={{fontSize:6,letterSpacing:"0.15em",marginTop:3}}>EMPIRE OF LECH</div></div>;
+  var btn={fontFamily:"'Playfair Display SC',serif",fontSize:10,letterSpacing:"0.12em",background:"transparent",border:"1px solid var(--rule)",borderRadius:2,color:"var(--ink)",cursor:"pointer",padding:"5px 12px"};
+  return <div className="fadeIn" style={{maxWidth:820,margin:"0 auto",padding:"2rem 1.5rem"}}>
+    <div className="noprint" style={{display:"flex",gap:8,marginBottom:"1.25rem"}}>
+      <button onClick={onBack} style={btn}>{"<- Back to Front Page"}</button>
+      <button onClick={function(){window.print();}} style={btn}>Save as PDF / Print</button>
+    </div>
+    <div className="release-sheet" style={{background:D.paper,color:D.ink,padding:"2.75rem 3rem",border:"1px solid "+D.rule,position:"relative"}}>
+      <div style={{position:"absolute",inset:9,border:"2px solid "+D.rule,pointerEvents:"none"}}/>
+      <div style={{position:"relative"}}>
+        <div style={{display:"flex",alignItems:"center",gap:18,borderBottom:"2px solid "+D.rule,paddingBottom:"1.1rem",marginBottom:"1.25rem"}}>
+          {seal}
+          <div style={{flex:1,textAlign:"center"}}>
+            <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.45em",color:D.inkD,marginBottom:5}}>EMPIRE OF LECH</div>
+            <div style={{fontFamily:"'Playfair Display',serif",fontWeight:900,fontSize:22,letterSpacing:"0.03em",color:D.ink}}>Office of the {a.office}</div>
+            <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.3em",color:D.gold,marginTop:6}}>OFFICIAL COMMUNIQUÉ</div>
+          </div>
+          <div style={{width:92}}/>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",fontFamily:"'Playfair Display SC',serif",fontSize:10,letterSpacing:"0.08em",color:D.inkD,marginBottom:"1rem"}}>
+          <span>{a.refNo||""}</span><span>{fmtDateUpper(a.publishedAt||a.created)}</span>
+        </div>
+        <div style={{fontFamily:"'Playfair Display',serif",fontWeight:900,fontSize:26,lineHeight:1.2,color:D.ink,marginBottom:"1.1rem"}}>{a.headline}</div>
+        {paras.map(function(p,i){return <p key={i} style={{fontFamily:"'Source Serif 4',serif",fontSize:15.5,lineHeight:1.9,color:D.ink,margin:"0 0 0.95rem"}}>{p}</p>;})}
+        <div style={{marginTop:"2rem",display:"flex",justifyContent:"space-between",alignItems:"flex-end",gap:20,flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:220}}>
+            <div style={{fontFamily:"'IM Fell English',serif",fontStyle:"italic",fontSize:20,color:D.gold,borderBottom:"1px solid "+D.ink,paddingBottom:4,marginBottom:6}}>{a.signName}</div>
+            <div style={{fontFamily:"'Source Serif 4',serif",fontSize:13,color:D.ink}}>{[a.signStyle,a.signName].filter(Boolean).join(" ")}{a.signPost?" "+a.signPost:""}</div>
+            <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:10,letterSpacing:"0.12em",color:D.inkD,marginTop:2}}>{(a.office||"").toUpperCase()}</div>
+          </div>
+          <div style={{opacity:.9}}>{seal}</div>
+        </div>
+      </div>
+    </div>
+  </div>;
+}
+
 function ArticleView(props){
   var article=props.article; var onBack=props.onBack;
   var paragraphs=useMemo(function(){return ((article&&article.body)||"").split(/\n+/).filter(Boolean);},[article]);
+  if(article&&article.pressRelease) return <PressReleaseView article={article} onBack={onBack}/>;
   return <div className="fadeIn" style={{maxWidth:760,margin:"0 auto",padding:"2rem 1.5rem"}}>
     <button onClick={onBack} style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",background:"transparent",border:"none",color:"var(--ink3)",cursor:"pointer",marginBottom:"1.5rem"}}>
       {"<- Back to Front Page"}
