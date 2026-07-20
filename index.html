@@ -465,6 +465,8 @@ function loadForeignPolicy(){
   var ADVISORY_COLORS={1:{color:"#2a9a4a",bg:"#0a1a0e",border:"#1a4a2a",label:"Exercise Normal Caution"},2:{color:"#C9A84C",bg:"#1a1200",border:"#4a3a00",label:"Exercise Increased Caution"},3:{color:"#cc6a10",bg:"#1a0e00",border:"#6a3a00",label:"Avoid Non-Essential Travel"},4:{color:"#cc2222",bg:"#1a0808",border:"#6a1010",label:"Do Not Travel"}};
   var RELATION_CONFIG={full:{color:"#2a9a4a",border:"#1a4a2a",bg:"#0a1a0e",badge:"DIPLOMATIC RELATIONS"},limited:{color:"#C9A84C",border:"#4a3a00",bg:"#1a1200",badge:"LIMITED RELATIONS"},none:{color:"#7a7a7a",border:"#3a3a3a",bg:"#0e0e0e",badge:"NO RELATIONS"},hostile:{color:"#cc2222",border:"#6a1010",bg:"#1a0808",badge:"DESIGNATED HOSTILE"}};
 
+  // Escape anything author-supplied before it goes into innerHTML on this public page.
+  function fpEsc(s){return (s==null?"":(""+s)).replace(/[&<>"]/g,function(ch){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[ch];});}
   function pill(label,value,labelColor,valueColor,bg,border){
     return '<div class="fp-pill" style="background:'+bg+';border:1px solid '+border+';">'+
       '<div style="font-family:\'Share Tech Mono\',monospace;font-size:0.55rem;color:'+labelColor+';margin-bottom:3px;">'+label+'</div>'+
@@ -495,20 +497,20 @@ function loadForeignPolicy(){
     var html='<div class="fp-country'+(isHostile?" hostile":"")+'" style="border-color:'+borderBase+';background:'+bgBase+';">';
     html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.85rem;flex-wrap:wrap;gap:8px;">';
     html+='<div>';
-    html+='<div style="font-family:\'Cinzel\',serif;font-size:1rem;font-weight:700;color:#e8d8c8;margin-bottom:3px;">'+c.name+'</div>';
+    html+='<div style="font-family:\'Cinzel\',serif;font-size:1rem;font-weight:700;color:#e8d8c8;margin-bottom:3px;">'+fpEsc(c.name)+'</div>';
     if(entityLine) html+='<div style="font-family:\'Share Tech Mono\',monospace;font-size:0.6rem;color:#5a3a30;">'+entityLine+'</div>';
     html+='</div>';
     html+='<span class="fp-tag" style="color:'+rc.color+';border-color:'+rc.border+';background:'+rc.bg+';">'+rc.badge+'</span>';
     html+='</div>';
 
     if(c.policyStatement){
-      html+='<div style="font-size:0.9rem;color:#9a8070;font-style:italic;line-height:1.7;margin-bottom:0.85rem;">'+c.policyStatement+'</div>';
+      html+='<div style="font-size:0.9rem;color:#9a8070;font-style:italic;line-height:1.7;margin-bottom:0.85rem;">'+fpEsc(c.policyStatement)+'</div>';
     }
 
     html+='<div style="display:flex;gap:0.75rem;flex-wrap:wrap;">';
     html+=pill("TRAVEL ADVISORY",al.label,pillsLabelColor,al.color,pillsBg,al.border||pillsBorder);
     if(c.visaOnArrival!==undefined&&!isHostile) html+=pill("ENTRY (LECH CITIZENS)",c.visaOnArrival?"Visa on Arrival":"Visa Not Required",pillsLabelColor,"#6aaa4a",pillsBg,pillsBorder);
-    if(c.visaPolicy) html+=pill("VISA POLICY",c.visaPolicy,pillsLabelColor,"#e8d8c8",pillsBg,pillsBorder);
+    if(c.visaPolicy) html+=pill("VISA POLICY",fpEsc(c.visaPolicy),pillsLabelColor,"#e8d8c8",pillsBg,pillsBorder);
     if(isHostile) html+=pill("INDIVIDUAL RESTRICTIONS","Members proscribed under Imperial law",pillsLabelColor,"#e07070",pillsBg,pillsBorder);
     else if(rCount>0) html+=pill("RESTRICTIONS",rCount+" individual restriction"+(rCount!==1?"s":"")+" in effect",pillsLabelColor,"#cc6a10",pillsBg,pillsBorder);
     else html+=pill("RESTRICTIONS","None",pillsLabelColor,"#e8d8c8",pillsBg,pillsBorder);
@@ -536,7 +538,7 @@ function loadForeignPolicy(){
     html+='<div style="width:8px;height:8px;border-radius:50%;background:'+irl.color+';flex-shrink:0;box-shadow:0 0 6px '+irl.color+';"></div>';
     html+='<div><div style="font-family:\'Share Tech Mono\',monospace;font-size:0.55rem;color:'+irl.color+';letter-spacing:0.1em;margin-bottom:2px;">IRL-'+(alert.level||5)+' IMPERIAL READINESS</div>';
     html+='<div style="font-family:\'Cinzel\',serif;font-size:0.7rem;color:'+irl.color+';">'+irl.label+'</div>';
-    if(alert.setBy) html+='<div style="font-family:\'Share Tech Mono\',monospace;font-size:0.5rem;color:'+irl.color+';opacity:0.6;margin-top:2px;">Set by '+alert.setBy.toUpperCase()+'</div>';
+    if(alert.setBy) html+='<div style="font-family:\'Share Tech Mono\',monospace;font-size:0.5rem;color:'+irl.color+';opacity:0.6;margin-top:2px;">Set by '+fpEsc(String(alert.setBy).toUpperCase())+'</div>';
     html+='</div></div>';
     // Wartime / 6th Amendment
     if(wartime.active){
@@ -544,7 +546,7 @@ function loadForeignPolicy(){
       html+='<span style="font-size:14px;">⚔</span>';
       html+='<div><div style="font-family:\'Share Tech Mono\',monospace;font-size:0.55rem;color:#cc2222;letter-spacing:0.1em;margin-bottom:2px;">6TH AMENDMENT INVOKED</div>';
       html+='<div style="font-family:\'Cinzel\',serif;font-size:0.7rem;color:#e07070;">Wartime Measures Active</div>';
-      if(wartime.invokedBy) html+='<div style="font-family:\'Share Tech Mono\',monospace;font-size:0.5rem;color:#cc2222;opacity:0.6;margin-top:2px;">Invoked by '+wartime.invokedBy.toUpperCase()+'</div>';
+      if(wartime.invokedBy) html+='<div style="font-family:\'Share Tech Mono\',monospace;font-size:0.5rem;color:#cc2222;opacity:0.6;margin-top:2px;">Invoked by '+fpEsc(String(wartime.invokedBy).toUpperCase())+'</div>';
       html+='</div></div>';
     } else {
       html+='<div style="background:#0a120a;border:1px solid #1a3a18;border-radius:2px;padding:7px 12px;display:flex;align-items:center;gap:8px;">';
