@@ -134,6 +134,12 @@ const isMinisterOrAbove=(u)=>hasRole(u,"minister");
 // account keeps working until someone next saves it, which writes the new field.
 const LSS_ROLES=[{v:"",l:"No Access"},{v:"agent",l:"LSS Agent"},{v:"director",l:"LSS Director"}];
 const LFP_ROLES=[{v:"",l:"No Access"},{v:"officer",l:"LFP Officer"},{v:"director",l:"LFP Director"}];
+// Standing in the Republic of Vindex Nation. The two governments share accounts,
+// so the office is a field here — but it is conferred on the Republic's own portal
+// by its own government, and this ministry only reports it.
+const VX_ROLE_LABEL={citizen:"Citizen of Vindex",representative:"Representative of the House",
+  speaker:"Speaker of the House",cabinet:"Cabinet Secretary",
+  vice_president:"Vice President",president:"President of Vindex Nation"};
 function lssRole(u){
   if(!u) return "";
   if(u.lssRole) return u.lssRole;
@@ -305,10 +311,25 @@ let AUTH_TOKEN=null;
 // against the server on every page load and dropped at once if the server
 // rejects it; signing out clears it everywhere.
 const SESSION_KEY="lech_session";
-function saveSession(t){try{if(t)localStorage.setItem(SESSION_KEY,t);}catch(e){}}
+// The account the token belongs to, cached beside it so a page paints its
+// signed-in state on the first frame instead of waiting on the /api/me round
+// trip. A display cache only — the server still authorises every read and write
+// against the token itself — and it is reconciled the moment /api/me answers, so
+// a session ended elsewhere is corrected within one page load.
+const SESSION_ACC_KEY="lech_session_acc";
+function saveSession(t,acc){try{if(t)localStorage.setItem(SESSION_KEY,t);if(acc)localStorage.setItem(SESSION_ACC_KEY,JSON.stringify(acc));}catch(e){}}
+// The cached account, for that optimistic first paint. Adopts the stored token
+// too, so the snapshot fetched on the same frame is made as the signed-in account.
+function cachedAccount(){
+  try{
+    var t=localStorage.getItem(SESSION_KEY); if(!t) return null;
+    var a=localStorage.getItem(SESSION_ACC_KEY); if(!a) return null;
+    AUTH_TOKEN=t; return JSON.parse(a);
+  }catch(e){ return null; }
+}
 // Drop the stored token locally. Never talks to the server, so a network hiccup
 // can never destroy a session that is still perfectly good.
-function clearSession(){try{localStorage.removeItem(SESSION_KEY);}catch(e){}AUTH_TOKEN=null;}
+function clearSession(){try{localStorage.removeItem(SESSION_KEY);localStorage.removeItem(SESSION_ACC_KEY);}catch(e){}AUTH_TOKEN=null;}
 // A deliberate sign-out: end the session on the server too. Only ever called
 // from a real "Sign Out" control — never from a failed restore.
 function forgetSession(){const t=AUTH_TOKEN;clearSession();try{if(t)fetch(API+"/api/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:t})});}catch(e){}}
@@ -320,7 +341,7 @@ async function srestore(){
     // simple request with no CORS preflight.
     const r=await fetch(API+"/api/me?token="+encodeURIComponent(t));
     const d=await r.json();
-    if(d&&d.ok&&d.account)return d.account;
+    if(d&&d.ok&&d.account){saveSession(t,d.account);return d.account;}   // refresh the cache
     clearSession();return null;      // the server rejected it — genuinely stale
   }catch(e){ return null; }          // offline/blocked — keep the token, retry next page
 }
@@ -330,6 +351,16 @@ async function sgetAll(){
     const d=await r.json();
     return (d&&d.ok)?(d.data||{}):{};
   }catch{return{};}
+}
+// Check a Minecraft name against Mojang without creating anything, returning the
+// canonical spelling. Used when pointing an account at a Minecraft account whose
+// name differs from the username it was registered under.
+async function verifyMcName(name){
+  try{
+    const r=await fetch(API+"/api/verify-mc?name="+encodeURIComponent(String(name||"").trim()));
+    const d=await r.json();
+    return (d&&d.ok)?{ok:true,name:d.name}:{ok:false,error:(d&&d.error)||"Could not check that name."};
+  }catch{return {ok:false,error:"Connection error."};}
 }
 // Reset another account's profile picture back to their Minecraft face. The
 // server allows this only for the Interior Ministry (or the Emperor).
@@ -345,7 +376,7 @@ async function slogin(username,password){
     const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({username:String(username||"").trim(),password})});
     const d=await r.json();
-    if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token);return {ok:true,account:d.account};}
+    if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token,d.account);return {ok:true,account:d.account};}
     return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};
   }catch(e){return {ok:false,error:"Connection error"};}
 }
@@ -2075,7 +2106,14 @@ function AccountRow({acc,bk,pfp,currentUser,onUpdate,notify,setProcessing,canSet
   // before the next full data refresh.
   const [pfpCleared,setPfpCleared]=useState(false);
   const hasCustomPfp=!!(pfp&&pfp.img)&&!pfpCleared;
-  const pfpSrc=hasCustomPfp?pfp.img:mcFace(acc.mcName||acc.username);
+  // Which Minecraft account this person's face comes from. Accounts made before
+  // registration checked names against Mojang may carry a username that is not a
+  // Minecraft account at all; this points them at the right one. Blank means the
+  // username is the Minecraft name, which is true of everyone who self-registered.
+  const [mcName,setMcName]=useState(acc.mcName||"");
+  const [mcCheck,setMcCheck]=useState(null);
+  const [mcBusy,setMcBusy]=useState(false);
+  const pfpSrc=hasCustomPfp?pfp.img:mcFace(mcName.trim()||acc.username);
   const [role,setRole]=useState(acc.role||"citizen");
   const [ministry,setMinistry]=useState(acc.ministry||"Civilian");
   const [isContractor,setIsContractor]=useState(acc.isContractor||false);
@@ -2273,6 +2311,25 @@ function AccountRow({acc,bk,pfp,currentUser,onUpdate,notify,setProcessing,canSet
               </div>
             </div>
           </div>
+          {/* The Republic of Vindex Nation shares these accounts, but it is a
+              foreign government: its offices are conferred on its own portal, and
+              this ministry only reports what it sees. */}
+          <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap",alignItems:"center",
+            background:"#0a1020",border:"1px solid #24406e",borderLeft:"3px solid #c9a05a",
+            borderRadius:"0 3px 3px 0",padding:"0.75rem 1rem"}}>
+            <div style={{flex:1,minWidth:200}}>
+              <FL>VINDEX NATION — STANDING</FL>
+              <div style={{fontSize:14,color:acc.vxRole?C.text:C.textD,
+                fontFamily:"'Crimson Text',serif",fontStyle:acc.vxRole?"normal":"italic"}}>
+                {VX_ROLE_LABEL[acc.vxRole]||"Holds no Vinish office"}
+              </div>
+            </div>
+            <div style={{flex:2,minWidth:240,fontSize:11,color:C.textD,fontStyle:"italic",lineHeight:1.6}}>
+              Read-only. Vinish office is conferred by the Republic's own government
+              on the <a href="vindex.html" style={{color:"#c9a05a"}}>Vindex government portal</a>,
+              not by this ministry.
+            </div>
+          </div>
           {/* Profile picture — reset the holder's image, or lock them out of changing it. */}
           <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",background:C.s1,border:`1px solid ${C.border}`,borderRadius:3,padding:"0.75rem 1rem"}}>
             <img src={pfpSrc} alt="" onError={e=>{e.currentTarget.style.visibility="hidden";}}
@@ -2281,6 +2338,28 @@ function AccountRow({acc,bk,pfp,currentUser,onUpdate,notify,setProcessing,canSet
               <FL>PROFILE PICTURE</FL>
               <div style={{fontSize:12,color:C.textD,fontStyle:"italic"}}>
                 {hasCustomPfp?"Custom image set by the holder.":"Using their Minecraft face (no custom image)."}
+              </div>
+            </div>
+            <div style={{flex:1,minWidth:260}}>
+              <FL>MINECRAFT ACCOUNT</FL>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <Inp value={mcName} onChange={v=>{setMcName(v);setMcCheck(null);}}
+                  placeholder={acc.username+" (same as username)"}/>
+                <Btn small variant="ghost" disabled={mcBusy||!mcName.trim()} onClick={async()=>{
+                  setMcBusy(true);
+                  const res=await verifyMcName(mcName);
+                  // Store Mojang's own spelling, so the saved override is exact.
+                  if(res.ok) setMcName(res.name);
+                  setMcCheck(res); setMcBusy(false);
+                }}>{mcBusy?"…":"Check"}</Btn>
+              </div>
+              <div style={{fontSize:11,fontStyle:"italic",marginTop:4,lineHeight:1.5,
+                color:mcCheck?(mcCheck.ok?"#7ad47a":C.redL):C.textD}}>
+                {mcCheck
+                  ?(mcCheck.ok?"✓ "+mcCheck.name+" is a real Minecraft account.":mcCheck.error)
+                  :(mcName.trim()
+                    ?"Their face comes from "+mcName.trim()+" instead of their username."
+                    :"Blank — their face comes from the username itself.")}
               </div>
             </div>
             {hasCustomPfp&&<ArmBtn small label="Reset Picture" confirmLabel="Reset to MC face?" onConfirm={async()=>{
@@ -2316,7 +2395,8 @@ function AccountRow({acc,bk,pfp,currentUser,onUpdate,notify,setProcessing,canSet
                 mdtRestricted,mdtClearance:mdtRestricted?mdtClearance:0,
                 mowAccess:!!mowRole,mowRole,canSetAlert:canSetAlert&&!!mowRole,mfaAccess,ijAccess,
                 mofRole,mofAccess:!!mofRole,pressRole,pressAccess:!!pressRole,imcRole,
-                clearance:parseInt(clearance),stateOfResidency:residency,pfpLocked};
+                clearance:parseInt(clearance),stateOfResidency:residency,pfpLocked,
+                mcName:mcName.trim()};
               // Hashed here; the backend salts it on the account's next login
               // (see the legacy-upgrade path in moi-backend.gs).
               if(newPw.trim()) patch.passwordHash=await sha256(newPw.trim());
@@ -2463,13 +2543,17 @@ function MainMenu({user,destinations,onSelect}){
 
 // ── APP ───────────────────────────────────────────────────────────────────────
 function App(){
-  const [user,setUser]=useState(null);
+  // The session cached beside the token. Holding one lets the ministry render its
+  // signed-in chrome on the first frame instead of flashing the sign-in screen
+  // while /api/me is asked — the records themselves still wait on the snapshot.
+  const [cached]=useState(()=>cachedAccount());
+  const [user,setUser]=useState(cached);
   const [raw,setRaw]=useState({});
   const [section,setSection]=useState(null);
   const [toast,setToast]=useState({msg:"",color:C.accent});
   const [processing,setProcessing]=useState(null);
   const [loading,setLoading]=useState(false);
-  const [restoring,setRestoring]=useState(true);   // resolving a saved session on load
+  const [restoring,setRestoring]=useState(!cached);   // resolving a saved session on load
 
   // Restore a session saved on another page, so signing in anywhere signs you in
   // here too. Verified against the server before it is trusted.
@@ -2482,6 +2566,10 @@ function App(){
       Object.entries(rawData["mi_accounts"]||{}).forEach(([k,v])=>{ if(!accs[k]) accs[k]=v; });
       setUser(acc); setRaw({...rawData,"mi_accounts":accs}); setSection(null);
     }
+    // clearSession() drops AUTH_TOKEN, so no token left means the server genuinely
+    // rejected it — turn the optimistic session away. A null with the token still
+    // held is only an unreachable server, so leave them where they are.
+    else if(!AUTH_TOKEN) setUser(null);
     setRestoring(false);
   })();},[]);
 

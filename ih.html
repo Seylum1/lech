@@ -130,10 +130,25 @@ let AUTH_TOKEN=null;
 // against the server on every page load and dropped at once if the server
 // rejects it; signing out clears it everywhere.
 const SESSION_KEY="lech_session";
-function saveSession(t){try{if(t)localStorage.setItem(SESSION_KEY,t);}catch(e){}}
+// The account the token belongs to, cached beside it so a page paints its
+// signed-in state on the first frame instead of waiting on the /api/me round
+// trip. A display cache only — the server still authorises every read and write
+// against the token itself — and it is reconciled the moment /api/me answers, so
+// a session ended elsewhere is corrected within one page load.
+const SESSION_ACC_KEY="lech_session_acc";
+function saveSession(t,acc){try{if(t)localStorage.setItem(SESSION_KEY,t);if(acc)localStorage.setItem(SESSION_ACC_KEY,JSON.stringify(acc));}catch(e){}}
+// The cached account, for that optimistic first paint. Adopts the stored token
+// too, so the snapshot fetched on the same frame is made as the signed-in account.
+function cachedAccount(){
+  try{
+    var t=localStorage.getItem(SESSION_KEY); if(!t) return null;
+    var a=localStorage.getItem(SESSION_ACC_KEY); if(!a) return null;
+    AUTH_TOKEN=t; return JSON.parse(a);
+  }catch(e){ return null; }
+}
 // Drop the stored token locally. Never talks to the server, so a network hiccup
 // can never destroy a session that is still perfectly good.
-function clearSession(){try{localStorage.removeItem(SESSION_KEY);}catch(e){}AUTH_TOKEN=null;}
+function clearSession(){try{localStorage.removeItem(SESSION_KEY);localStorage.removeItem(SESSION_ACC_KEY);}catch(e){}AUTH_TOKEN=null;}
 // A deliberate sign-out: end the session on the server too. Only ever called
 // from a real "Sign Out" control — never from a failed restore.
 function forgetSession(){const t=AUTH_TOKEN;clearSession();try{if(t)fetch(API+"/api/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:t})});}catch(e){}}
@@ -145,14 +160,14 @@ async function srestore(){
     // simple request with no CORS preflight.
     const r=await fetch(API+"/api/me?token="+encodeURIComponent(t));
     const d=await r.json();
-    if(d&&d.ok&&d.account)return d.account;
+    if(d&&d.ok&&d.account){saveSession(t,d.account);return d.account;}   // refresh the cache
     clearSession();return null;      // the server rejected it — genuinely stale
   }catch(e){ return null; }          // offline/blocked — keep the token, retry next page
 }
 async function sgetAll(){try{const r=await fetch(API+"/api/data"+(AUTH_TOKEN?"?token="+encodeURIComponent(AUTH_TOKEN):""));const d=await r.json();return (d&&d.ok)?(d.data||{}):{};}catch{return{};}}
 async function sset(k,v){try{const r=await fetch(API+"/api/set",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,key:k,value:v})});const d=await r.json();return !!(d&&d.ok);}catch{return false;}}
 async function sdel(k){try{await fetch(API+"/api/unset",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,key:k})});}catch{}}
-async function slogin(username,password){try{const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password})});const d=await r.json();if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token);return {ok:true,account:d.account};}return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};}catch(e){return {ok:false,error:"Connection error"};}}
+async function slogin(username,password){try{const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password})});const d=await r.json();if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token,d.account);return {ok:true,account:d.account};}return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};}catch(e){return {ok:false,error:"Connection error"};}}
 
 // ── UI ────────────────────────────────────────────────────────────────────────
 function Btn({children,onClick,variant="primary",disabled,small,full,style:ex={}}){
@@ -911,7 +926,9 @@ function App(){
   const [tab,setTab]=useState("peerage");
   const [raw,setRaw]=useState({});
   const [loaded,setLoaded]=useState(false);
-  const [panelUser,setPanelUser]=useState(null);
+  // Seeded from the cached session when it is the Throne's, so the Imperial Panel
+  // is open on the first frame rather than after /api/me answers.
+  const [panelUser,setPanelUser]=useState(()=>{const a=cachedAccount();return (a&&a.role==="emperor")?a:null;});
   const [panelAuth,setPanelAuth]=useState(false);
   const [toast,setToast]=useState({msg:"",color:""});
   const [processing,setProcessing]=useState(null);
@@ -937,7 +954,13 @@ function App(){
   // Restore a session signed in on another page. This panel is the Emperor's
   // alone, so only an Imperial account is admitted; anyone else stays signed out
   // here. Validated server-side before it is trusted.
-  useEffect(()=>{srestore().then(acc=>{if(acc&&acc.role==="emperor"){setPanelUser(acc);sgetAll().then(r=>setRaw(prev=>({...prev,...r})));}});},[]);
+  // A cached session that turns out not to be the Throne's — or one the server has
+  // rejected outright (clearSession drops AUTH_TOKEN) — closes the panel again. A
+  // null with the token still held is only an unreachable server; leave it open.
+  useEffect(()=>{srestore().then(acc=>{
+    if(acc&&acc.role==="emperor"){setPanelUser(acc);sgetAll().then(r=>setRaw(prev=>({...prev,...r})));}
+    else if(acc||!AUTH_TOKEN) setPanelUser(null);
+  });},[]);
 
   const bundesherren=useMemo(()=>raw["bk_bh"]||{},[raw]);
   const family=useMemo(()=>raw["ih_family"]||{},[raw]);

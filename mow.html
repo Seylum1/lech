@@ -334,10 +334,25 @@ let AUTH_TOKEN=null;
 // against the server on every page load and dropped at once if the server
 // rejects it; signing out clears it everywhere.
 const SESSION_KEY="lech_session";
-function saveSession(t){try{if(t)localStorage.setItem(SESSION_KEY,t);}catch(e){}}
+// The account the token belongs to, cached beside it so a page paints its
+// signed-in state on the first frame instead of waiting on the /api/me round
+// trip. A display cache only — the server still authorises every read and write
+// against the token itself — and it is reconciled the moment /api/me answers, so
+// a session ended elsewhere is corrected within one page load.
+const SESSION_ACC_KEY="lech_session_acc";
+function saveSession(t,acc){try{if(t)localStorage.setItem(SESSION_KEY,t);if(acc)localStorage.setItem(SESSION_ACC_KEY,JSON.stringify(acc));}catch(e){}}
+// The cached account, for that optimistic first paint. Adopts the stored token
+// too, so the snapshot fetched on the same frame is made as the signed-in account.
+function cachedAccount(){
+  try{
+    var t=localStorage.getItem(SESSION_KEY); if(!t) return null;
+    var a=localStorage.getItem(SESSION_ACC_KEY); if(!a) return null;
+    AUTH_TOKEN=t; return JSON.parse(a);
+  }catch(e){ return null; }
+}
 // Drop the stored token locally. Never talks to the server, so a network hiccup
 // can never destroy a session that is still perfectly good.
-function clearSession(){try{localStorage.removeItem(SESSION_KEY);}catch(e){}AUTH_TOKEN=null;}
+function clearSession(){try{localStorage.removeItem(SESSION_KEY);localStorage.removeItem(SESSION_ACC_KEY);}catch(e){}AUTH_TOKEN=null;}
 // A deliberate sign-out: end the session on the server too. Only ever called
 // from a real "Sign Out" control — never from a failed restore.
 function forgetSession(){const t=AUTH_TOKEN;clearSession();try{if(t)fetch(API+"/api/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:t})});}catch(e){}}
@@ -349,7 +364,7 @@ async function srestore(){
     // simple request with no CORS preflight.
     const r=await fetch(API+"/api/me?token="+encodeURIComponent(t));
     const d=await r.json();
-    if(d&&d.ok&&d.account)return d.account;
+    if(d&&d.ok&&d.account){saveSession(t,d.account);return d.account;}   // refresh the cache
     clearSession();return null;      // the server rejected it — genuinely stale
   }catch(e){ return null; }          // offline/blocked — keep the token, retry next page
 }
@@ -359,7 +374,7 @@ async function sdel(k){try{await fetch(API+"/api/unset",{method:"POST",headers:{
 // Account rows are per-record on the new backend (the server enforces who may
 // touch them), so account writes use saveRecord rather than the generic set.
 async function saveRecord(collection,record){try{const r=await fetch(API+"/api/write",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,collection,record})});const d=await r.json();return !!(d&&d.ok);}catch{return false;}}
-async function slogin(username,password){try{const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password})});const d=await r.json();if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token);return {ok:true,account:d.account};}return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};}catch(e){return {ok:false,error:"Connection error"};}}
+async function slogin(username,password){try{const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password})});const d=await r.json();if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token,d.account);return {ok:true,account:d.account};}return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};}catch(e){return {ok:false,error:"Connection error"};}}
 
 // ── SHARED COMPONENTS ─────────────────────────────────────────────────────────
 function Btn({children,onClick,variant="primary",disabled,small,style:ex={}}){
@@ -3225,13 +3240,18 @@ function DispositionPanel({personnel,ships}){
 }
 
 function App(){
-  const [user,setUser]=useState(null);
+  // A cached session that already carries War Office access lets the page render
+  // its signed-in chrome on the first frame instead of flashing the sign-in
+  // screen while /api/me is asked. Records still wait on the snapshot below, and
+  // the restore reconciles both against the server.
+  const [cached]=useState(()=>{const a=cachedAccount();return (a&&(a.mowAccess||a.role==="emperor"))?a:null;});
+  const [user,setUser]=useState(cached);
   const [raw,setRaw]=useState({});
   const [tab,setTab]=useState("home");
   const [toast,setToast]=useState({msg:"",color:C.accent});
   const [processing,setProcessing]=useState(null);
   const [showRanks,setShowRanks]=useState(false);
-  const [restoring,setRestoring]=useState(true);   // resolving a saved session on load
+  const [restoring,setRestoring]=useState(!cached);   // resolving a saved session on load
 
   const notify=useCallback((msg,color=C.accent)=>{
     setToast({msg,color}); setTimeout(()=>setToast(t=>t.msg===msg?{msg:"",color}:t),4000);
@@ -3262,6 +3282,13 @@ function App(){
   useEffect(()=>{(async()=>{
     const acc=await srestore();
     if(acc&&(acc.mowAccess||acc.role==="emperor")){ const rawData=await sgetAll(); handleLogin(acc,rawData); }
+    // Signed in elsewhere but no longer holding War Office access — the optimistic
+    // session must go back to the sign-in screen.
+    else if(acc) setUser(null);
+    // No account and no token left means clearSession() ran on a server rejection,
+    // so turn the optimistic session away too. A null with the token still held is
+    // only an unreachable server; leave them where they are.
+    else if(!AUTH_TOKEN) setUser(null);
     setRestoring(false);
   })();},[]);
 

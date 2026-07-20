@@ -104,10 +104,25 @@ var AUTH_TOKEN=null;
 // against the server on every page load and dropped at once if the server
 // rejects it; signing out clears it everywhere.
 var SESSION_KEY="lech_session";
-function saveSession(t){try{if(t)localStorage.setItem(SESSION_KEY,t);}catch(e){}}
+// The account the token belongs to, cached beside it so a page paints its
+// signed-in state on the first frame instead of waiting on the /api/me round
+// trip. A display cache only — the server still authorises every read and write
+// against the token itself — and it is reconciled the moment /api/me answers, so
+// a session ended elsewhere is corrected within one page load.
+var SESSION_ACC_KEY="lech_session_acc";
+function saveSession(t,acc){try{if(t)localStorage.setItem(SESSION_KEY,t);if(acc)localStorage.setItem(SESSION_ACC_KEY,JSON.stringify(acc));}catch(e){}}
+// The cached account, for that optimistic first paint. Adopts the stored token
+// too, so the snapshot fetched on the same frame is made as the signed-in account.
+function cachedAccount(){
+  try{
+    var t=localStorage.getItem(SESSION_KEY); if(!t) return null;
+    var a=localStorage.getItem(SESSION_ACC_KEY); if(!a) return null;
+    AUTH_TOKEN=t; return JSON.parse(a);
+  }catch(e){ return null; }
+}
 // Drop the stored token locally. Never talks to the server, so a network hiccup
 // can never destroy a session that is still perfectly good.
-function clearSession(){try{localStorage.removeItem(SESSION_KEY);}catch(e){}AUTH_TOKEN=null;}
+function clearSession(){try{localStorage.removeItem(SESSION_KEY);localStorage.removeItem(SESSION_ACC_KEY);}catch(e){}AUTH_TOKEN=null;}
 // A deliberate sign-out: end the session on the server too. Only ever called
 // from a real "Sign Out" control — never from a failed restore.
 function forgetSession(){var t=AUTH_TOKEN;clearSession();try{if(t)fetch(API+"/api/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:t})});}catch(e){}}
@@ -117,7 +132,7 @@ function srestore(){
   // Plain query token, exactly like every other call here, so this is a simple
   // request with no CORS preflight.
   return fetch(API+"/api/me?token="+encodeURIComponent(t)).then(function(r){return r.json();}).then(function(d){
-    if(d&&d.ok&&d.account)return d.account;
+    if(d&&d.ok&&d.account){saveSession(t,d.account);return d.account;}   // refresh the cache
     clearSession(); return null;                 // rejected by the server — stale
   }).catch(function(){return null;});            // offline/blocked — keep it, retry later
 }
@@ -154,7 +169,7 @@ async function slogin(username,password){
   try{
     var r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password:password})});
     var d=await r.json();
-    if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token);return {ok:true,account:d.account};}
+    if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token,d.account);return {ok:true,account:d.account};}
     return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};
   }catch(e){return {ok:false,error:"Connection error"};}
 }
@@ -1009,7 +1024,9 @@ function JournalistPanel(props){
 function App(){
   var s1=useState({}); var raw=s1[0]; var setRaw=s1[1];
   var s2=useState(false); var loaded=s2[0]; var setLoaded=s2[1];
-  var s3=useState(null); var pressUser=s3[0]; var setPressUser=s3[1];
+  // Seeded from the cached session when it already carries Press credentials, so
+  // the newsroom's controls appear on the first frame rather than after /api/me.
+  var s3=useState(function(){var a=cachedAccount();return (a&&(a.role==="emperor"||a.pressRole||a.pressAccess))?a:null;}); var pressUser=s3[0]; var setPressUser=s3[1];
   var s4=useState(false); var showAuth=s4[0]; var setShowAuth=s4[1];
   var s5=useState(false); var showPanel=s5[0]; var setShowPanel=s5[1];
   var s6=useState(null); var readingArticle=s6[0]; var setReadingArticle=s6[1];
@@ -1051,8 +1068,12 @@ function App(){
 
   // Restore a session signed in on another page. The newsroom admits only
   // accounts with Press credentials; others simply stay signed out here.
+  // A cached session that turns out to carry no Press credentials — or one the
+  // server has rejected outright (clearSession drops AUTH_TOKEN) — signs back out
+  // here. A null with the token still held is only an unreachable server.
   useEffect(function(){srestore().then(function(acc){
     if(acc&&(acc.role==="emperor"||acc.pressRole||acc.pressAccess)) setPressUser(acc);
+    else if(acc||!AUTH_TOKEN) setPressUser(null);
   });},[]);
 
   var articles=useMemo(function(){return raw["press_articles"]||{};},[raw]);

@@ -1021,10 +1021,25 @@ function loadForeignPolicy(){
   // any page keeps you signed in on the others (same origin). Validated on load,
   // dropped the moment the server rejects it; signing out clears it everywhere.
   var SESSION_KEY="lech_session";
-  function saveSession(t){try{if(t)localStorage.setItem(SESSION_KEY,t);}catch(e){}}
+  // The account the token belongs to, cached beside it so a page paints its
+  // signed-in state on the first frame instead of waiting on the /api/me round
+  // trip. A display cache only — the server still authorises every read and write
+  // against the token itself — and it is reconciled the moment /api/me answers, so
+  // a session ended elsewhere is corrected within one page load.
+  var SESSION_ACC_KEY="lech_session_acc";
+  function saveSession(t,acc){try{if(t)localStorage.setItem(SESSION_KEY,t);if(acc)localStorage.setItem(SESSION_ACC_KEY,JSON.stringify(acc));}catch(e){}}
+  // The cached account, for that optimistic first paint. Adopts the stored token
+  // too, so the snapshot fetched on the same frame is made as the signed-in account.
+  function cachedAccount(){
+    try{
+      var t=localStorage.getItem(SESSION_KEY); if(!t) return null;
+      var a=localStorage.getItem(SESSION_ACC_KEY); if(!a) return null;
+      AUTH_TOKEN=t; return JSON.parse(a);
+    }catch(e){ return null; }
+  }
   // Drop the stored token locally. Never talks to the server, so a network hiccup
   // can never destroy a session that is still perfectly good.
-  function clearSession(){try{localStorage.removeItem(SESSION_KEY);}catch(e){}AUTH_TOKEN=null;}
+  function clearSession(){try{localStorage.removeItem(SESSION_KEY);localStorage.removeItem(SESSION_ACC_KEY);}catch(e){}AUTH_TOKEN=null;}
   // A deliberate sign-out: end the session on the server too. Only ever called
   // from a real "Sign Out" control — never from a failed restore, and never from
   // merely closing the portal.
@@ -1035,12 +1050,14 @@ function loadForeignPolicy(){
     // Plain query token, exactly like every other call here, so this is a simple
     // request with no CORS preflight.
     return fetch(API+"/api/me?token="+encodeURIComponent(t)).then(function(r){return r.json();}).then(function(d){
-      if(d&&d.ok&&d.account)return d.account;
+      if(d&&d.ok&&d.account){saveSession(t,d.account);return d.account;}   // refresh the cache
       clearSession(); return null;                 // rejected by the server — stale
     }).catch(function(){return null;});            // offline/blocked — keep it, retry later
   }
   var CUR_ACC=null;      // the account currently shown in the hub, for refresh
   var RESTORED_RAW=null; // data snapshot loaded when a saved session is restored
+  var RESTORE=null;      // the in-flight session restore, so cpOpen can wait on it
+  var RESTORE_SETTLED=false;
   var WELCOME=false;     // show the first-time welcome banner after registration
   function val(id){var e=document.getElementById(id);return e?e.value:"";}
   function mcFace(name){return "https://mc-heads.net/avatar/"+encodeURIComponent(name||"")+"/128";}
@@ -1062,6 +1079,10 @@ function loadForeignPolicy(){
     // Already signed in (this visit or restored from another page)? Go straight
     // to the hub instead of asking for credentials again.
     if(CUR_ACC&&RESTORED_RAW){ renderHub(CUR_ACC,RESTORED_RAW,RESTORED_RAW); return; }
+    // A cached session is still being confirmed. Wait on it rather than ask someone
+    // who is already signed in for their credentials again; if it does not come
+    // good, this falls through to the sign-in pane on the second pass.
+    if(RESTORE&&!RESTORE_SETTLED){ RESTORE.then(function(){ window.cpOpen(); }); return; }
     document.getElementById("cp-login").classList.add("open");setTimeout(function(){var u=document.getElementById("ch-user");if(u)u.focus();},50);
   };
   window.cpClose=function(){document.getElementById("cp-login").classList.remove("open");};
@@ -1096,7 +1117,7 @@ function loadForeignPolicy(){
       return fetch(API+"/api/register",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u,passwordHash:hash,citizen:cit})});
     }).then(function(r){return r.json();}).then(function(d){
       if(d&&d.ok){
-        AUTH_TOKEN=d.token;saveSession(d.token);
+        AUTH_TOKEN=d.token;saveSession(d.token,d.account);
         fetchAll().then(function(raw){
           rgBusy(false);
           document.getElementById("rg-pass").value="";document.getElementById("rg-pass2").value="";
@@ -1174,7 +1195,7 @@ function loadForeignPolicy(){
     fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u,password:p})})
       .then(function(r){return r.json();})
       .then(function(d){
-        if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token);proceed(d.account);return;}
+        if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token,d.account);proceed(d.account);return;}
         chBusy(false);chErr((d&&d.error)||"Incorrect password.");
       }).catch(function(){chBusy(false);chErr("Connection error — try again.");});
   };
@@ -1560,14 +1581,26 @@ function loadForeignPolicy(){
 
   // On load, quietly restore a session signed in on another page so the portal
   // opens straight to the hub. Purely additive — the public page is unaffected.
-  srestore().then(function(acc){
-    if(!acc)return;
-    fetchAll().then(function(raw){
+  function fabLabel(acc){
+    var fab=document.querySelector(".cp-fab");
+    if(fab) fab.textContent="⬡ Citizen Portal · "+(acc?(acc.displayName||acc.username):"Sign in / Register");
+  }
+  // Name the holder from the cached session straight away, so the button does not
+  // sit reading "Sign in" for the length of the /api/me round trip.
+  var CACHED_ACC=cachedAccount();
+  if(CACHED_ACC) fabLabel(CACHED_ACC);
+  RESTORE=srestore().then(function(acc){
+    if(!acc){
+      // clearSession() drops AUTH_TOKEN, so no token left means the server rejected
+      // it — put the button back. Still holding one is only an unreachable server.
+      if(!AUTH_TOKEN) fabLabel(null);
+      return;
+    }
+    return fetchAll().then(function(raw){
       CUR_ACC=acc; RESTORED_RAW=raw;
-      var fab=document.querySelector(".cp-fab");
-      if(fab) fab.textContent="⬡ Citizen Portal · "+(acc.displayName||acc.username);
+      fabLabel(acc);
     }).catch(function(){});
-  });
+  }).then(function(){RESTORE_SETTLED=true;},function(){RESTORE_SETTLED=true;});
 })();
 </script>
 

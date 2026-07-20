@@ -108,10 +108,25 @@ let AUTH_TOKEN=null;
 // against the server on every page load and dropped at once if the server
 // rejects it; signing out clears it everywhere.
 const SESSION_KEY="lech_session";
-function saveSession(t){try{if(t)localStorage.setItem(SESSION_KEY,t);}catch(e){}}
+// The account the token belongs to, cached beside it so a page paints its
+// signed-in state on the first frame instead of waiting on the /api/me round
+// trip. A display cache only — the server still authorises every read and write
+// against the token itself — and it is reconciled the moment /api/me answers, so
+// a session ended elsewhere is corrected within one page load.
+const SESSION_ACC_KEY="lech_session_acc";
+function saveSession(t,acc){try{if(t)localStorage.setItem(SESSION_KEY,t);if(acc)localStorage.setItem(SESSION_ACC_KEY,JSON.stringify(acc));}catch(e){}}
+// The cached account, for that optimistic first paint. Adopts the stored token
+// too, so the snapshot fetched on the same frame is made as the signed-in account.
+function cachedAccount(){
+  try{
+    var t=localStorage.getItem(SESSION_KEY); if(!t) return null;
+    var a=localStorage.getItem(SESSION_ACC_KEY); if(!a) return null;
+    AUTH_TOKEN=t; return JSON.parse(a);
+  }catch(e){ return null; }
+}
 // Drop the stored token locally. Never talks to the server, so a network hiccup
 // can never destroy a session that is still perfectly good.
-function clearSession(){try{localStorage.removeItem(SESSION_KEY);}catch(e){}AUTH_TOKEN=null;}
+function clearSession(){try{localStorage.removeItem(SESSION_KEY);localStorage.removeItem(SESSION_ACC_KEY);}catch(e){}AUTH_TOKEN=null;}
 // A deliberate sign-out: end the session on the server too. Only ever called
 // from a real "Sign Out" control — never from a failed restore.
 function forgetSession(){const t=AUTH_TOKEN;clearSession();try{if(t)fetch(API+"/api/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:t})});}catch(e){}}
@@ -123,14 +138,14 @@ async function srestore(){
     // simple request with no CORS preflight.
     const r=await fetch(API+"/api/me?token="+encodeURIComponent(t));
     const d=await r.json();
-    if(d&&d.ok&&d.account)return d.account;
+    if(d&&d.ok&&d.account){saveSession(t,d.account);return d.account;}   // refresh the cache
     clearSession();return null;      // the server rejected it — genuinely stale
   }catch(e){ return null; }          // offline/blocked — keep the token, retry next page
 }
 async function sgetAll(){try{const r=await fetch(API+"/api/data"+(AUTH_TOKEN?"?token="+encodeURIComponent(AUTH_TOKEN):""));const d=await r.json();return (d&&d.ok)?(d.data||{}):{};}catch{return{};}}
 async function sset(k,v){try{const r=await fetch(API+"/api/set",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,key:k,value:v})});const d=await r.json();return !!(d&&d.ok);}catch{return false;}}
 async function sdel(k){try{await fetch(API+"/api/unset",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,key:k})});}catch{}}
-async function slogin(username,password){try{const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password})});const d=await r.json();if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token);return {ok:true,account:d.account};}return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};}catch(e){return {ok:false,error:"Connection error"};}}
+async function slogin(username,password){try{const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password})});const d=await r.json();if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token,d.account);return {ok:true,account:d.account};}return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};}catch(e){return {ok:false,error:"Connection error"};}}
 function fmtDate(d){if(d===undefined||d===null||d==="")return "—";const s=(typeof d==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(d))?d+"T12:00:00":d;const t=typeof s==="number"?s:new Date(s).getTime();if(isNaN(t))return ""+d;return new Date(t).toLocaleDateString("en-US",{month:"short",day:"2-digit",year:"numeric"});}
 
 const getAL=l=>ADVISORY_LEVELS.find(a=>a.level===l)||ADVISORY_LEVELS[0];
@@ -191,8 +206,13 @@ const SEED_VISAS={
   v_seed1:{id:"v_seed1",ref:"VDX-2026-004821",name:"Aldric Thorne",username:"athorne",nationality:"Empire of Lech",type:"business",purpose:"Trade delegation to Port Meridian.",status:"approved",submitted:Date.now()-86400000*20,issuedAt:Date.now()-86400000*15,validUntil:"2027-01-01"},
 };
 
-/* ── permissions (Vindex roles; admin inherits president) ────────────────── */
-const canPanel=u=>u&&(u.role==="president"||u.role==="admin");
+/* ── permissions ──────────────────────────────────────────────────────────────
+   Vinish standing lives on the shared account as vxRole, granted from the Empire's
+   Interior Ministry — accounts cross over, so there is one place they are set. The
+   Emperor appoints the President under TEA 4(1)(a), and so outranks the office. */
+const vxRole=u=>String((u&&u.vxRole)||"");
+const isVxHead=u=>!!u&&(vxRole(u)==="president"||u.role==="emperor");
+const canPanel=u=>isVxHead(u)||vxRole(u)==="cabinet";
 
 /* ── UI atoms ────────────────────────────────────────────────────────────── */
 function Btn({children,onClick,variant="primary",disabled,small,style:ex={}}){
@@ -932,7 +952,9 @@ function App(){
   const [raw,setRaw]=useState({});
   const [loaded,setLoaded]=useState(false);
   const [tab,setTab]=useState("advisories");
-  const [user,setUser]=useState(null);
+  // Seeded from the cached session so the header shows you signed in immediately;
+  // the effect below reconciles it against the server.
+  const [user,setUser]=useState(()=>cachedAccount());
   const [authOpen,setAuthOpen]=useState(false);
   const [toast,setToast]=useState({msg:"",color:V.gold});
   const [processing,setProcessing]=useState(null);
@@ -941,11 +963,19 @@ function App(){
   useEffect(()=>{sgetAll().then(r=>{setRaw(r);setLoaded(true);});},[]);
   // Restore a session signed in on another page (validated server-side), then
   // pull the snapshot again with the token so protected records load too.
-  useEffect(()=>{srestore().then(acc=>{if(acc){setUser(acc);sgetAll().then(r=>setRaw(prev=>({...prev,...r})));}});},[]);
+  // clearSession() drops AUTH_TOKEN, so a null account with no token left means the
+  // server genuinely rejected it — sign the optimistic user back out. A null with
+  // the token still held is just an unreachable server; keep showing them signed in.
+  useEffect(()=>{srestore().then(acc=>{if(acc){setUser(acc);sgetAll().then(r=>setRaw(prev=>({...prev,...r})));}else if(!AUTH_TOKEN)setUser(null);});},[]);
 
+  // Accounts are shared with the Empire and arrive in the snapshot as mi_accounts.
+  // vx_acc_* records are what the Republic kept before the two merged; they are
+  // still read so no one who predates the merge drops off the pickers.
   const accounts=useMemo(()=>{
     const out=[];const seen={};
-    Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("vx_acc_")&&v&&v.username&&!seen[v.username.toLowerCase()]){seen[v.username.toLowerCase()]=1;out.push(v);}});
+    const take=v=>{if(v&&v.username&&!seen[v.username.toLowerCase()]){seen[v.username.toLowerCase()]=1;out.push(v);}};
+    Object.values(raw["mi_accounts"]||{}).forEach(take);
+    Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("vx_acc_"))take(v);});
     return out.sort((x,y)=>((x.displayName||x.username)||"").localeCompare((y.displayName||y.username)||""));
   },[raw]);
   const countries=useMemo(()=>{const c=raw["vx_state_countries"];return c&&Object.keys(c).length?c:SEED_COUNTRIES;},[raw]);
