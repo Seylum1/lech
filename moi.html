@@ -290,50 +290,37 @@ async function sha256(t){
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
 }
 function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
+// ── MongoDB backend (Render API) ───────────────────────────────────────────────
+// This page now runs on the new server. Reads arrive already filtered to what
+// the signed-in account may see; writes go one record at a time and are
+// authorised server-side.
+const API="https://lech-backend.onrender.com";
+let AUTH_TOKEN=null;
 async function sgetAll(){
   try{
-    const r=await fetch(SCRIPT_URL+"?action=getall");
+    const r=await fetch(API+"/api/data"+(AUTH_TOKEN?"?token="+encodeURIComponent(AUTH_TOKEN):""));
     const d=await r.json();
-    if(!d.success) return {};
-    const out={};
-    Object.entries(d.data||{}).forEach(([k,v])=>{
-      if(v){try{out[k]=JSON.parse(v);}catch{}}
-    });
-    return out;
+    return (d&&d.ok)?(d.data||{}):{};
   }catch{return{};}
 }
-// Session token from the hardened backend, attached to every write.
-let AUTH_TOKEN=null;
-async function sset(k,v){
-  try{
-    await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
-      body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v),token:AUTH_TOKEN})});
-    return true;
-  }catch{return false;}
-}
-async function sdel(k){
-  try{await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
-    body:JSON.stringify({action:"del",key:k,token:AUTH_TOKEN})});}catch{}
-}
-// Dual-mode sign-in: hardened `login` endpoint first, legacy browser-side hash
-// check as fallback so the page works across the rollout. Returns the account.
 async function slogin(username,password){
-  const u=String(username||"").trim();
   try{
-    const r=await fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"login",username:u,password:password})});
+    const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({username:String(username||"").trim(),password})});
     const d=await r.json();
-    if(d&&d.success){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}
-    if(d&&d.error&&d.error!=="Unknown action")return {ok:false,error:d.error};
-  }catch(e){/* old backend or CORS — fall through */}
-  const raw=await sgetAll();
-  const accounts={};
-  Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v)accounts[v.username]=v;});
-  Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(!accounts[k])accounts[k]=v;});
-  const user=Object.values(accounts).find(a=>String(a.username||"").toLowerCase()===u.toLowerCase());
-  if(!user)return {ok:false,error:"ACCESS DENIED"};
-  const hash=await sha256(password);
-  if(hash!==user.passwordHash)return {ok:false,error:"ACCESS DENIED"};
-  return {ok:true,account:user};
+    if(d&&d.ok){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}
+    return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};
+  }catch(e){return {ok:false,error:"Connection error"};}
+}
+// Upsert or remove a single record; the server owns the collection and checks
+// the caller's authority before touching it.
+async function saveRecord(collection,record){
+  try{const r=await fetch(API+"/api/write",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({token:AUTH_TOKEN,collection,record})});const d=await r.json();return !!(d&&d.ok);}catch{return false;}
+}
+async function deleteRecord(collection,id){
+  try{await fetch(API+"/api/delete",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({token:AUTH_TOKEN,collection,id})});return true;}catch{return false;}
 }
 
 // ── COLORS / DESIGN TOKENS ────────────────────────────────────────────────────
@@ -2448,23 +2435,21 @@ function App(){
 
   const onUpdateAccount=useCallback(async(uname,patch,isNew=false)=>{
     const key=uname.toLowerCase();
-    const rowKey="mi_acc_"+key;
     // Build current accounts for existence check
     const curAccs={};
     Object.entries(raw).forEach(([k,v])=>{ if(k.startsWith("mi_acc_")&&v) curAccs[v.username]=v; });
     Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{ if(!curAccs[k]) curAccs[k]=v; });
     if(patch===null){
-      // Delete
-      await sdel(rowKey);
+      await deleteRecord("accounts",key);
       const next={...curAccs}; delete next[key];
-      setRaw(r=>({...r,[rowKey]:undefined,"mi_accounts":next}));
+      setRaw(r=>({...r,"mi_accounts":next}));
       return;
     }
     if(isNew&&curAccs[key]){return "exists";}
     const updated={...(curAccs[key]||{}), ...patch, username:key};
-    await sset(rowKey,updated);
+    await saveRecord("accounts",updated);
     const next={...curAccs,[key]:updated};
-    setRaw(r=>({...r,[rowKey]:updated,"mi_accounts":next}));
+    setRaw(r=>({...r,"mi_accounts":next}));
     if(user&&user.username===key) setUser({...user,...patch});
   },[raw,user]);
 
@@ -2474,80 +2459,74 @@ function App(){
       const key="mi_"+chamber+"_ops";
       const id="op_"+uid();
       const newOp={...op,id,created:Date.now()};
-      const ops={...raw[key]||{},[id]:newOp};
-      setRaw(r=>({...r,[key]:ops}));
-      await sset(key,ops);
+      setRaw(r=>({...r,[key]:{...r[key]||{},[id]:newOp}}));
+      await saveRecord(key,newOp);
     }
     else if(type==="updateOpStatus"){
       const {chamber,opId,status,progress}=payload;
       const key="mi_"+chamber+"_ops";
-      const ops={...raw[key]||{}};
-      if(ops[opId]) ops[opId]={...ops[opId],status,progress};
-      setRaw(r=>({...r,[key]:ops}));
-      await sset(key,ops);
+      const cur=raw[key]||{}; if(!cur[opId]) return;
+      const updated={...cur[opId],status,progress};
+      setRaw(r=>({...r,[key]:{...r[key]||{},[opId]:updated}}));
+      await saveRecord(key,updated);
     }
     else if(type==="addOpNote"){
       const {chamber,opId,note}=payload;
       const key="mi_"+chamber+"_ops";
-      const ops={...raw[key]||{}};
-      if(ops[opId]) ops[opId]={...ops[opId],notes:[...(ops[opId].notes||[]),note]};
-      setRaw(r=>({...r,[key]:ops}));
-      await sset(key,ops);
+      const cur=raw[key]||{}; if(!cur[opId]) return;
+      const updated={...cur[opId],notes:[...(cur[opId].notes||[]),note]};
+      setRaw(r=>({...r,[key]:{...r[key]||{},[opId]:updated}}));
+      await saveRecord(key,updated);
     }
     else if(type==="deleteOp"){
       const {chamber,opId}=payload;
       const key="mi_"+chamber+"_ops";
-      const ops={...raw[key]||{}};
-      delete ops[opId];
+      const ops={...raw[key]||{}}; delete ops[opId];
       setRaw(r=>({...r,[key]:ops}));
-      await sset(key,ops);
+      await deleteRecord(key,opId);
     }
     else if(type==="createDoc"){
       const {chamber,doc}=payload;
       const key="mi_"+chamber+"_docs";
       const id="doc_"+uid();
       const newDoc={...doc,id,created:Date.now()};
-      const docs={...raw[key]||{},[id]:newDoc};
-      setRaw(r=>({...r,[key]:docs}));
-      await sset(key,docs);
+      setRaw(r=>({...r,[key]:{...r[key]||{},[id]:newDoc}}));
+      await saveRecord(key,newDoc);
     }
     else if(type==="deleteDoc"){
       const {chamber,docId}=payload;
       const key="mi_"+chamber+"_docs";
-      const docs={...raw[key]||{}};
-      delete docs[docId];
+      const docs={...raw[key]||{}}; delete docs[docId];
       setRaw(r=>({...r,[key]:docs}));
-      await sset(key,docs);
+      await deleteRecord(key,docId);
     }
     else if(type==="createArrest"){
       const {arrest}=payload;
       const id="arr_"+uid();
       const caseNum="LFP-"+String(Date.now()).slice(-6);
       const newArrest={...arrest,id,caseNumber:caseNum,created:Date.now()};
-      const arr={...raw["mi_arrests"]||{},[id]:newArrest};
-      setRaw(r=>({...r,"mi_arrests":arr}));
-      await sset("mi_arrests",arr);
+      setRaw(r=>({...r,"mi_arrests":{...r["mi_arrests"]||{},[id]:newArrest}}));
+      await saveRecord("mi_arrests",newArrest);
     }
     else if(type==="addArrestNote"){
       const {arrestId,note}=payload;
-      const arr={...raw["mi_arrests"]||{}};
-      if(arr[arrestId]) arr[arrestId]={...arr[arrestId],notes:[...(arr[arrestId].notes||[]),note]};
-      setRaw(r=>({...r,"mi_arrests":arr}));
-      await sset("mi_arrests",arr);
+      const cur=raw["mi_arrests"]||{}; if(!cur[arrestId]) return;
+      const updated={...cur[arrestId],notes:[...(cur[arrestId].notes||[]),note]};
+      setRaw(r=>({...r,"mi_arrests":{...r["mi_arrests"]||{},[arrestId]:updated}}));
+      await saveRecord("mi_arrests",updated);
     }
     else if(type==="updateArrestStatus"){
       const {arrestId,status}=payload;
-      const arr={...raw["mi_arrests"]||{}};
-      if(arr[arrestId]) arr[arrestId]={...arr[arrestId],status};
-      setRaw(r=>({...r,"mi_arrests":arr}));
-      await sset("mi_arrests",arr);
+      const cur=raw["mi_arrests"]||{}; if(!cur[arrestId]) return;
+      const updated={...cur[arrestId],status};
+      setRaw(r=>({...r,"mi_arrests":{...r["mi_arrests"]||{},[arrestId]:updated}}));
+      await saveRecord("mi_arrests",updated);
     }
     else if(type==="deleteArrest"){
       const {arrestId}=payload;
-      const arr={...raw["mi_arrests"]||{}};
-      delete arr[arrestId];
+      const arr={...raw["mi_arrests"]||{}}; delete arr[arrestId];
       setRaw(r=>({...r,"mi_arrests":arr}));
-      await sset("mi_arrests",arr);
+      await deleteRecord("mi_arrests",arrestId);
     }
   },[raw]);
 

@@ -733,20 +733,21 @@ function convertTo24(timeStr){
 
 async function sget(k) {
   try {
-    const r = await fetch(SCRIPT_URL+"?action=get&key="+encodeURIComponent(k));
+    const r = await fetch(API+"/api/data"+(AUTH_TOKEN?"?token="+encodeURIComponent(AUTH_TOKEN):""));
     const d = await r.json();
-    return (d.success && d.value!=null && d.value!=="") ? JSON.parse(d.value) : null;
+    return (d&&d.ok&&d.data&&d.data[k]!=null) ? d.data[k] : null;
   } catch(e){ return null; }
 }
+// ── MongoDB backend (Render API) ───────────────────────────────────────────────
+const API="https://lech-backend.onrender.com";
+let AUTH_TOKEN=null;
 async function sgetAll(prefix) {
   try {
-    const r = await fetch(SCRIPT_URL+"?action=getall");
+    const r = await fetch(API+"/api/data"+(AUTH_TOKEN?"?token="+encodeURIComponent(AUTH_TOKEN):""));
     const d = await r.json();
-    if (!d.success) return {};
-    const out={};
-    Object.entries(d.data||{}).forEach(([k,v])=>{
-      if(k.startsWith(prefix)&&v){ try{ out[k]=JSON.parse(v); }catch{} }
-    });
+    if (!d||!d.ok) return {};
+    const out={}; const p=prefix||"";
+    Object.entries(d.data||{}).forEach(([k,v])=>{ if(k.startsWith(p)) out[k]=v; });  // values already parsed
     return out;
   } catch(e){ return {}; }
 }
@@ -768,67 +769,33 @@ window.addEventListener("beforeunload", function(e) {
 async function sset(k,v) {
   try {
     if(_writeTx) _writeTx.keys.push(k);
-    await fetch(SCRIPT_URL,{
-      method:"POST",mode:"no-cors",
-      headers:{"Content-Type":"text/plain"},
-      body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v)}),
-    });
-    return true;
+    const r=await fetch(API+"/api/set",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({token:AUTH_TOKEN,key:k,value:v})});
+    const d=await r.json(); return !!(d&&d.ok);
   } catch(e){ return false; }
 }
-// Writes to the shared ministry store rather than the chamber's own. Needed
-// only where a Bundeskongress decision takes effect in another ministry — a
-// ratified Prosecutor General appointment landing in the Judiciary.
-// Token for the hardened ministry store. Only writes to MAIN_SCRIPT_URL carry
-// it; the chamber's own store (SCRIPT_URL) is a separate backend.
-let AUTH_TOKEN=null;
-async function ssetMain(k,v) {
-  try {
-    await fetch(MAIN_SCRIPT_URL,{
-      method:"POST",mode:"no-cors",
-      headers:{"Content-Type":"text/plain"},
-      body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v),token:AUTH_TOKEN}),
-    });
-    return true;
-  } catch(e){ return false; }
-}
+// One backend now — writes that used to target the ministry store (e.g. a
+// ratified Prosecutor General landing in the Judiciary) go through the same
+// authorised endpoint.
+async function ssetMain(k,v){ return sset(k,v); }
 async function sgetMain(k) {
   try {
-    const r=await fetch(MAIN_SCRIPT_URL+"?action=getall");
+    const r=await fetch(API+"/api/data"+(AUTH_TOKEN?"?token="+encodeURIComponent(AUTH_TOKEN):""));
     const d=await r.json();
-    if(!d.success) return null;
-    return d.data[k]?JSON.parse(d.data[k]):null;
+    return (d&&d.ok&&d.data)?(d.data[k]??null):null;
   } catch(e){ return null; }
 }
-// Dual-mode sign-in against the ministry store (MAIN_SCRIPT_URL): hardened
-// `login` first, legacy hash check as fallback so it works across the rollout.
 async function slogin(username,password){
-  const u=String(username||"").trim();
   try{
-    const r=await fetch(MAIN_SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"login",username:u,password:password})});
+    const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password})});
     const d=await r.json();
-    if(d&&d.success){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}
-    if(d&&d.error&&d.error!=="Unknown action")return {ok:false,error:d.error};
-  }catch(e){/* old backend or CORS — fall through */}
-  try{
-    const r=await fetch(MAIN_SCRIPT_URL+"?action=getall");const d=await r.json();
-    const data=(d&&d.success)?(d.data||{}):{};const accounts={};
-    Object.entries(data).forEach(([k,v])=>{if(!v)return;let a;try{a=JSON.parse(v);}catch{return;}if(k.startsWith("mi_acc_")&&a)accounts[a.username]=a;});
-    let blob={};try{blob=data["mi_accounts"]?JSON.parse(data["mi_accounts"]):{};}catch{}
-    Object.entries(blob).forEach(([k,v])=>{if(!accounts[k])accounts[k]=v;});
-    const user=Object.values(accounts).find(a=>String(a.username||"").toLowerCase()===u.toLowerCase());
-    if(!user)return {ok:false,error:"ACCESS DENIED"};
-    const hash=await sha256(password);
-    if(hash!==user.passwordHash)return {ok:false,error:"ACCESS DENIED"};
-    return {ok:true,account:user};
+    if(d&&d.ok){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}
+    return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};
   }catch(e){return {ok:false,error:"Connection error"};}
 }
-
 async function sdel(k) {
-  try {
-    await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
-      body:JSON.stringify({action:"del",key:k})});
-  } catch{}
+  try { await fetch(API+"/api/unset",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({token:AUTH_TOKEN,key:k})}); } catch{}
 }
 
 // Seats are taken from the vote snapshot first, so a member who has since left
@@ -7157,27 +7124,20 @@ function App() {
       // The shared ministry backend holds IJ records and the MOI account
       // register (mi_acc_*). The Bundeskongress only ever reads accounts —
       // permissions are granted in the Ministry of the Interior.
+      // IJ records, honours, and the MOI account register all arrive in the same
+      // snapshot now — the Bundeskongress still only reads accounts; permissions
+      // are granted in the Ministry of the Interior.
       try {
-        const ijRaw = await fetch(MAIN_SCRIPT_URL+"?action=getall").then(r=>r.json());
-        if(ijRaw.success){
-          const parse=(k)=>{try{return ijRaw.data[k]?JSON.parse(ijRaw.data[k]):{};}catch{return{};}};
-          setIjStatutes(parse("ij_statutes"));
-          setIjCases(parse("ij_cases"));
-          setIjJudgments(parse("ij_judgments"));
-          // Decorations are conferred by the Imperial Household and judicial
-          // office by the Judiciary; both are read here only to display styles.
-          setIhHonours(parse("ih_honours"));
-          setIjAppointments(parse("ij_appointments"));
-          // Holds decorations awarded before honours moved to the Household.
-          setMowPersonnel(parse("mow_personnel"));
-          const accs={};
-          Object.entries(ijRaw.data||{}).forEach(([k,v])=>{
-            if(!k.startsWith("mi_acc_")||!v) return;
-            try{ const a=JSON.parse(v); if(a?.username) accs[a.username]=a; }catch{}
-          });
-          Object.entries(parse("mi_accounts")).forEach(([k,v])=>{ if(!accs[k]) accs[k]=v; });
-          setAccounts(accs);
-        }
+        const parse=(k)=> raw[k]||{};
+        setIjStatutes(parse("ij_statutes"));
+        setIjCases(parse("ij_cases"));
+        setIjJudgments(parse("ij_judgments"));
+        setIhHonours(parse("ih_honours"));
+        setIjAppointments(parse("ij_appointments"));
+        setMowPersonnel(parse("mow_personnel"));
+        const accs={};
+        Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{ if(!accs[k]) accs[k]=v; });
+        setAccounts(accs);
       } catch(e){}
       setLoading(false);
     })();

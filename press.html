@@ -87,68 +87,45 @@ function compressImage(file){
     reader.readAsDataURL(file);
   });
 }
+// ── MongoDB backend (Render API) ───────────────────────────────────────────────
+var API="https://lech-backend.onrender.com";
+var AUTH_TOKEN=null;
 function sgetAll(){
-  return fetch(SCRIPT_URL+"?action=getall").then(function(r){return r.json();}).then(function(d){
-    if(!d.success)return{};
-    var out={};
-    var articleMap={};
-    var imageMap={};
-    Object.entries(d.data||{}).forEach(function(entry){
-      var k=entry[0]; var v=entry[1];
-      if(v){
-        try{
-          var parsed=JSON.parse(v);
-          if(k.startsWith("press_article_img_")){
-            // image stored separately - keyed by article id
-            var artId=k.slice("press_article_img_".length);
-            imageMap[artId]=parsed;
-          } else if(k.startsWith("press_article_")){
-            if(parsed&&parsed.id) articleMap[parsed.id]=parsed;
-          } else {
-            out[k]=parsed;
-          }
-        }catch(e){}
-      }
+  return fetch(API+"/api/data"+(AUTH_TOKEN?"?token="+encodeURIComponent(AUTH_TOKEN):"")).then(function(r){return r.json();}).then(function(d){
+    if(!d||!d.ok)return{};
+    // /api/data already returns parsed values — no JSON.parse needed.
+    var data=d.data||{}; var out={}; var articleMap={}; var imageMap={};
+    Object.entries(data).forEach(function(entry){
+      var k=entry[0], parsed=entry[1];
+      if(k.indexOf("press_article_img_")===0){ imageMap[k.slice("press_article_img_".length)]=parsed; }
+      else if(k.indexOf("press_article_")===0){ if(parsed&&parsed.id) articleMap[parsed.id]=parsed; }
+      else { out[k]=parsed; }
     });
-    // Merge images back onto articles
-    Object.keys(imageMap).forEach(function(artId){
-      if(articleMap[artId]) articleMap[artId].coverImage=imageMap[artId];
-    });
+    Object.keys(imageMap).forEach(function(artId){ if(articleMap[artId]) articleMap[artId].coverImage=imageMap[artId]; });
     var legacy=out["press_articles"]||{};
     out["press_articles"]=Object.assign({},legacy,articleMap);
     return out;
   }).catch(function(){return{};});
 }
-var AUTH_TOKEN=null;
 function sset(k,v){
-  var bodyStr=JSON.stringify({action:"set",key:k,value:JSON.stringify(v),token:AUTH_TOKEN});
-  return fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
-    body:bodyStr
-  }).then(function(){return true;}).catch(function(){return false;});
+  return fetch(API+"/api/set",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({token:AUTH_TOKEN,key:k,value:v})
+  }).then(function(r){return r.json();}).then(function(d){return !!(d&&d.ok);}).catch(function(){return false;});
 }
 function sdel(k){
-  return fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
-    body:JSON.stringify({action:"del",key:k,token:AUTH_TOKEN})
+  return fetch(API+"/api/unset",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({token:AUTH_TOKEN,key:k})
   }).then(function(){return true;}).catch(function(){return false;});
 }
 // Dual-mode sign-in: hardened `login` endpoint first, legacy hash check as
 // fallback so the page works across the rollout. Returns the account.
 async function slogin(username,password){
-  var u=String(username||"").trim();
   try{
-    var r=await fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"login",username:u,password:password})});
+    var r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password:password})});
     var d=await r.json();
-    if(d&&d.success){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}
-    if(d&&d.error&&d.error!=="Unknown action")return {ok:false,error:d.error};
-  }catch(e){/* old backend or CORS — fall through */}
-  var raw=await sgetAll();var accounts={};
-  Object.entries(raw).forEach(function(e){var k=e[0],val=e[1];if(k.indexOf("mi_acc_")===0&&val)accounts[val.username]=val;});
-  Object.entries(raw["mi_accounts"]||{}).forEach(function(e){if(!accounts[e[0]])accounts[e[0]]=e[1];});
-  var user=Object.values(accounts).find(function(a){return String(a.username||"").toLowerCase()===u.toLowerCase();});
-  if(!user)return {ok:false,error:"ACCESS DENIED"};
-  var hash=await sha256(password);
-  if(hash!==user.passwordHash)return {ok:false,error:"ACCESS DENIED"};
-  return {ok:true,account:user};
+    if(d&&d.ok){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}
+    return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};
+  }catch(e){return {ok:false,error:"Connection error"};}
 }
 function fmtDateLong(ts){
   return new Date(ts).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"});

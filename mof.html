@@ -122,29 +122,13 @@ function budgetCooldownUntil(ratifiedAt){const d=new Date(ratifiedAt);return new
 
 async function sha256(t){const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");}
 function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
-async function sgetAll(){try{const r=await fetch(SCRIPT_URL+"?action=getall");const d=await r.json();if(!d.success)return{};const out={};Object.entries(d.data||{}).forEach(([k,v])=>{if(v){try{out[k]=JSON.parse(v);}catch{}}});return out;}catch{return{};}}
-// Session token from the hardened backend. Held in memory for the tab session
-// and attached to every write; the backend enforces it only in secure mode.
+// ── MongoDB backend (Render API) ───────────────────────────────────────────────
+const API="https://lech-backend.onrender.com";
 let AUTH_TOKEN=null;
-async function sset(k,v){try{await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v),token:AUTH_TOKEN})});return true;}catch{return false;}}
-// Dual-mode sign-in: try the hardened `login` endpoint, and if this is still the
-// old backend (or CORS blocks the read), fall back to the legacy browser-side
-// hash check so the page keeps working right across the rollout.
-async function slogin(username,password){
-  const u=String(username||"").trim();
-  try{
-    const r=await fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"login",username:u,password:password})});
-    const d=await r.json();
-    if(d&&d.success){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}
-    if(d&&d.error&&d.error!=="Unknown action")return {ok:false,error:d.error};
-  }catch(e){/* old backend or CORS — fall through to legacy */}
-  const raw=await sgetAll();
-  const user=accountsFrom(raw).find(a=>String(a.username||"").toLowerCase()===u.toLowerCase());
-  if(!user)return {ok:false,error:"ACCESS DENIED"};
-  const hash=await sha256(password);
-  if(hash!==user.passwordHash)return {ok:false,error:"ACCESS DENIED"};
-  return {ok:true,account:user};
-}
+async function sgetAll(){try{const r=await fetch(API+"/api/data"+(AUTH_TOKEN?"?token="+encodeURIComponent(AUTH_TOKEN):""));const d=await r.json();return (d&&d.ok)?(d.data||{}):{};}catch{return{};}}
+async function sset(k,v){try{const r=await fetch(API+"/api/set",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,key:k,value:v})});const d=await r.json();return !!(d&&d.ok);}catch{return false;}}
+async function sdel(k){try{await fetch(API+"/api/unset",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,key:k})});}catch{}}
+async function slogin(username,password){try{const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password})});const d=await r.json();if(d&&d.ok){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};}catch(e){return {ok:false,error:"Connection error"};}}
 function fmtCur(n){if(n===null||n===undefined||n==="")return "\u2014";const abs=Math.abs(Number(n));const s=abs>=1000000?(abs/1000000).toFixed(2)+"M":abs>=1000?(abs/1000).toFixed(1)+"K":Number(abs).toLocaleString();return "$"+(Number(n)<0?"-":"")+s;}
 function fmtDate(ts){return new Date(ts).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"});}
 function fmtDateShort(ts){return new Date(ts).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});}
@@ -1725,10 +1709,8 @@ function App(){
   const notify=useCallback((msg,color=C.gold)=>{setToast({msg:msg,color:color});setTimeout(()=>setToast(t=>t.msg===msg?{msg:"",color:color}:t),4000);},[]);
 
   useEffect(()=>{
-    Promise.all([
-      sgetAll(),
-      fetch(BK_URL+"?action=getall").then(r=>r.json()).then(d=>{if(!d.success)return{};const out={};Object.entries(d.data||{}).forEach(([k,v])=>{if(v){try{out[k]=JSON.parse(v);}catch{}}});return out;}).catch(()=>({}))
-    ]).then(([sharedRaw,bkRaw])=>{setRaw({...sharedRaw,...bkRaw});setLoaded(true);});
+    // One backend now — /api/data already carries the Bundeskongress data too.
+    sgetAll().then(sharedRaw=>{setRaw(sharedRaw);setLoaded(true);});
   },[]);
 
   const activeBudget=useMemo(()=>raw["bk_active_budget"]||null,[raw]);

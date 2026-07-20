@@ -96,21 +96,26 @@ async function sha256(t){
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
 }
 function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
+// ── MongoDB backend (Render API) ───────────────────────────────────────────────
+// NOTE: the curator here is passcode-gated (bk_hist_hash), not account-based, so
+// it has no session token. Reads work; curator SAVES need a scoped passcode
+// token from the server — a small follow-up before the curator can persist.
+const API="https://lech-backend.onrender.com";
 async function sgetAll(prefix){
   try{
-    const r=await fetch(SCRIPT_URL+"?action=getall");
+    const r=await fetch(API+"/api/data");
     const d=await r.json();
-    if(!d.success) return {};
-    const out={};
-    Object.entries(d.data||{}).forEach(([k,v])=>{ if(k.startsWith(prefix||"")&&v){ try{out[k]=JSON.parse(v);}catch{} } });
+    if(!d||!d.ok) return {};
+    const out={}; const p=prefix||"";
+    Object.entries(d.data||{}).forEach(([k,v])=>{ if(k.startsWith(p)) out[k]=v; });
     return out;
   }catch(e){return {};}
 }
 async function sset(k,v){
   try{
-    await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
-      body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v)})});
-    return true;
+    const r=await fetch(API+"/api/set",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({key:k,value:v})});
+    const d=await r.json(); return !!(d&&d.ok);
   }catch(e){return false;}
 }
 function fmtDate(ts){ if(ts==null||isNaN(ts)) return "—"; return new Date(ts).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}); }

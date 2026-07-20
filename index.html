@@ -584,15 +584,11 @@ function loadForeignPolicy(){
   }
 
   function loadData(){
-    fetch(SCRIPT_URL+"?action=getall")
+    fetch("https://lech-backend.onrender.com/api/data")
       .then(function(r){return r.json();})
       .then(function(d){
-        if(!d.success) throw new Error("Backend error");
-        var raw={};
-        Object.entries(d.data||{}).forEach(function(kv){
-          if(kv[1]){try{raw[kv[0]]=JSON.parse(kv[1]);}catch{}}
-        });
-        render(raw);
+        if(!d||!d.ok) throw new Error("Backend error");
+        render(d.data||{});   // /api/data already returns parsed values
       })
       .catch(function(){
         document.getElementById("fp-content").innerHTML='<div style="font-family:\'Share Tech Mono\',monospace;font-size:0.65rem;color:#5a3a30;text-align:center;padding:2rem 0;">Could not load live data.<br>Visit the <a href="mfa.html" style="color:#C9A84C;">Foreign Affairs Portal</a> for current policy.</div>';
@@ -969,10 +965,10 @@ function loadForeignPolicy(){
   function dateStr(d){if(!d)return "";if(typeof d==="number")return new Date(d).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});return d;}
 
   function fetchAll(url){
-    return fetch(url+"?action=getall").then(function(r){return r.json();}).then(function(d){
-      if(!d.success)throw new Error("backend");
-      var o={};Object.keys(d.data||{}).forEach(function(k){var v=d.data[k];if(v){try{o[k]=JSON.parse(v);}catch(e){}}});
-      return o;
+    // One backend now — /api/data carries both the ministry and chamber data.
+    return fetch("https://lech-backend.onrender.com/api/data").then(function(r){return r.json();}).then(function(d){
+      if(!d||!d.ok)throw new Error("backend");
+      return d.data||{};
     });
   }
   function sha256(t){return crypto.subtle.digest("SHA-256",new TextEncoder().encode(t)).then(function(b){return Array.prototype.map.call(new Uint8Array(b),function(x){return x.toString(16).padStart(2,"0");}).join("");});}
@@ -990,34 +986,17 @@ function loadForeignPolicy(){
     document.getElementById("ch-err").style.display="none";
     if(!u||!p){chErr("Enter your credentials.");return;}
     chBusy(true);
-    // Hub data still loads for the signed-in account after either auth path.
+    // After sign-in, load the hub data snapshot (one backend now).
     function proceed(acc){
-      fetchAll(MOI_URL).then(function(raw){
-        fetchAll(BK_URL).then(function(bk){finish(acc,raw,bk);}).catch(function(){finish(acc,raw,{});});
-      }).catch(function(){chBusy(false);chErr("Connection error — try again.");});
+      fetchAll().then(function(raw){ finish(acc,raw,raw); })
+        .catch(function(){chBusy(false);chErr("Connection error — try again.");});
     }
-    // Legacy fallback: old backend still hands out the hash to compare here.
-    function legacy(){
-      fetchAll(MOI_URL).then(function(raw){
-        var accounts={};
-        Object.keys(raw).forEach(function(k){if(k.indexOf("mi_acc_")===0&&raw[k])accounts[raw[k].username]=raw[k];});
-        var ma=raw["mi_accounts"]||{};Object.keys(ma).forEach(function(k){if(!accounts[k])accounts[k]=ma[k];});
-        var acc=null;Object.keys(accounts).forEach(function(k){var a=accounts[k];if(a&&a.username&&a.username.toLowerCase()===u.toLowerCase())acc=a;});
-        if(!acc){chBusy(false);chErr("No such account.");return;}
-        sha256(p).then(function(h){
-          if(h!==acc.passwordHash){chBusy(false);chErr("Incorrect password.");return;}
-          fetchAll(BK_URL).then(function(bk){finish(acc,raw,bk);}).catch(function(){finish(acc,raw,{});});
-        });
-      }).catch(function(){chBusy(false);chErr("Connection error — try again.");});
-    }
-    // Hardened `login` endpoint first; fall back to legacy if it's the old backend.
-    fetch(MOI_URL,{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"login",username:u,password:p})})
+    fetch("https://lech-backend.onrender.com/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u,password:p})})
       .then(function(r){return r.json();})
       .then(function(d){
-        if(d&&d.success){proceed(d.account);return;}
-        if(d&&d.error&&d.error!=="Unknown action"){chBusy(false);chErr("Incorrect password.");return;}
-        legacy();
-      }).catch(function(){legacy();});
+        if(d&&d.ok){proceed(d.account);return;}
+        chBusy(false);chErr((d&&d.error)||"Incorrect password.");
+      }).catch(function(){chBusy(false);chErr("Connection error — try again.");});
   };
 
   function finish(acc,raw,bk){

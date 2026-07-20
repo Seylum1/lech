@@ -325,43 +325,16 @@ async function sha256(t){
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
 }
 function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
-async function sgetAll(){
-  try{
-    const r=await fetch(SCRIPT_URL+"?action=getall");
-    const d=await r.json();
-    if(!d.success) return {};
-    const out={};
-    Object.entries(d.data||{}).forEach(([k,v])=>{if(v){try{out[k]=JSON.parse(v);}catch{}}});
-    return out;
-  }catch{return{};}
-}
+// ── MongoDB backend (Render API) ───────────────────────────────────────────────
+const API="https://lech-backend.onrender.com";
 let AUTH_TOKEN=null;
-async function sset(k,v){
-  try{
-    await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
-      body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v),token:AUTH_TOKEN})});
-    return true;
-  }catch{return false;}
-}
-// Dual-mode sign-in: hardened `login` endpoint first, legacy hash check as
-// fallback so the page works across the rollout. Returns the account.
-async function slogin(username,password){
-  const u=String(username||"").trim();
-  try{
-    const r=await fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"login",username:u,password:password})});
-    const d=await r.json();
-    if(d&&d.success){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}
-    if(d&&d.error&&d.error!=="Unknown action")return {ok:false,error:d.error};
-  }catch(e){/* old backend or CORS — fall through */}
-  const raw=await sgetAll();const accounts={};
-  Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v)accounts[v.username]=v;});
-  Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(!accounts[k])accounts[k]=v;});
-  const user=Object.values(accounts).find(a=>String(a.username||"").toLowerCase()===u.toLowerCase());
-  if(!user)return {ok:false,error:"ACCESS DENIED"};
-  const hash=await sha256(password);
-  if(hash!==user.passwordHash)return {ok:false,error:"ACCESS DENIED"};
-  return {ok:true,account:user};
-}
+async function sgetAll(){try{const r=await fetch(API+"/api/data"+(AUTH_TOKEN?"?token="+encodeURIComponent(AUTH_TOKEN):""));const d=await r.json();return (d&&d.ok)?(d.data||{}):{};}catch{return{};}}
+async function sset(k,v){try{const r=await fetch(API+"/api/set",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,key:k,value:v})});const d=await r.json();return !!(d&&d.ok);}catch{return false;}}
+async function sdel(k){try{await fetch(API+"/api/unset",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,key:k})});}catch{}}
+// Account rows are per-record on the new backend (the server enforces who may
+// touch them), so account writes use saveRecord rather than the generic set.
+async function saveRecord(collection,record){try{const r=await fetch(API+"/api/write",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,collection,record})});const d=await r.json();return !!(d&&d.ok);}catch{return false;}}
+async function slogin(username,password){try{const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password})});const d=await r.json();if(d&&d.ok){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};}catch(e){return {ok:false,error:"Connection error"};}}
 
 // ── SHARED COMPONENTS ─────────────────────────────────────────────────────────
 function Btn({children,onClick,variant="primary",disabled,small,style:ex={}}){
@@ -3397,9 +3370,10 @@ function App(){
     // Account MOW access
     else if(type==="updateAccountMow"){
       const {username,...patch}=payload;
-      const rowKey="mi_acc_"+username;
-      const updated={...accounts[username],...patch};
-      setRaw(r=>({...r,[rowKey]:updated})); await sset(rowKey,updated);
+      const updated={...accounts[username],...patch,username:String(username).toLowerCase()};
+      // Update the in-memory account map the same way the login path builds it.
+      setRaw(r=>({...r,"mi_accounts":{...r["mi_accounts"]||{},[username]:updated}}));
+      await saveRecord("accounts",updated);
     }
     // Map borders
     else if(type==="saveBorder"){

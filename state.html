@@ -99,28 +99,13 @@ const ppType=v=>PASSPORT_TYPES.find(t=>t.v===v)||PASSPORT_TYPES[0];
 /* ── backend ─────────────────────────────────────────────────────────────── */
 async function sha256(t){const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,"0")).join("");}
 function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
-async function sgetAll(){try{const r=await fetch(SCRIPT_URL+"?action=getall");const d=await r.json();if(!d.success)return{};const o={};Object.entries(d.data||{}).forEach(([k,v])=>{if(v){try{o[k]=JSON.parse(v);}catch{}}});return o;}catch{return{};}}
+// ── MongoDB backend (Render API) ───────────────────────────────────────────────
+const API="https://lech-backend.onrender.com";
 let AUTH_TOKEN=null;
-async function sset(k,v){try{await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v),token:AUTH_TOKEN})});return true;}catch{return false;}}
-// Dual-mode sign-in: hardened `login` endpoint first, legacy hash check as
-// fallback so the page works across the rollout. Returns the account.
-async function slogin(username,password){
-  const u=String(username||"").trim();
-  try{
-    const r=await fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"login",username:u,password:password})});
-    const d=await r.json();
-    if(d&&d.success){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}
-    if(d&&d.error&&d.error!=="Unknown action")return {ok:false,error:d.error};
-  }catch(e){/* old backend or CORS — fall through */}
-  const raw=await sgetAll();const accounts={};
-  Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v)accounts[v.username]=v;});
-  Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(!accounts[k])accounts[k]=v;});
-  const user=Object.values(accounts).find(a=>String(a.username||"").toLowerCase()===u.toLowerCase());
-  if(!user)return {ok:false,error:"ACCESS DENIED"};
-  const hash=await sha256(password);
-  if(hash!==user.passwordHash)return {ok:false,error:"ACCESS DENIED"};
-  return {ok:true,account:user};
-}
+async function sgetAll(){try{const r=await fetch(API+"/api/data"+(AUTH_TOKEN?"?token="+encodeURIComponent(AUTH_TOKEN):""));const d=await r.json();return (d&&d.ok)?(d.data||{}):{};}catch{return{};}}
+async function sset(k,v){try{const r=await fetch(API+"/api/set",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,key:k,value:v})});const d=await r.json();return !!(d&&d.ok);}catch{return false;}}
+async function sdel(k){try{await fetch(API+"/api/unset",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,key:k})});}catch{}}
+async function slogin(username,password){try{const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password})});const d=await r.json();if(d&&d.ok){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};}catch(e){return {ok:false,error:"Connection error"};}}
 function fmtDate(d){if(d===undefined||d===null||d==="")return "—";const s=(typeof d==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(d))?d+"T12:00:00":d;const t=typeof s==="number"?s:new Date(s).getTime();if(isNaN(t))return ""+d;return new Date(t).toLocaleDateString("en-US",{month:"short",day:"2-digit",year:"numeric"});}
 
 const getAL=l=>ADVISORY_LEVELS.find(a=>a.level===l)||ADVISORY_LEVELS[0];
