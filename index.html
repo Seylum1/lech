@@ -1028,7 +1028,7 @@ function loadForeignPolicy(){
   // A deliberate sign-out: end the session on the server too. Only ever called
   // from a real "Sign Out" control — never from a failed restore, and never from
   // merely closing the portal.
-  function forgetSession(){var t=AUTH_TOKEN;clearSession();try{if(t)fetch(API+"/api/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:t}));}catch(e){}}
+  function forgetSession(){var t=AUTH_TOKEN;clearSession();try{if(t)fetch(API+"/api/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:t})});}catch(e){}}
   function srestore(){
     var t=null;try{t=localStorage.getItem(SESSION_KEY);}catch(e){}
     if(!t)return Promise.resolve(null);AUTH_TOKEN=t;

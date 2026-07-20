@@ -110,7 +110,7 @@ function saveSession(t){try{if(t)localStorage.setItem(SESSION_KEY,t);}catch(e){}
 function clearSession(){try{localStorage.removeItem(SESSION_KEY);}catch(e){}AUTH_TOKEN=null;}
 // A deliberate sign-out: end the session on the server too. Only ever called
 // from a real "Sign Out" control — never from a failed restore.
-function forgetSession(){var t=AUTH_TOKEN;clearSession();try{if(t)fetch(API+"/api/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:t}));}catch(e){}}
+function forgetSession(){var t=AUTH_TOKEN;clearSession();try{if(t)fetch(API+"/api/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:t})});}catch(e){}}
 function srestore(){
   var t=null;try{t=localStorage.getItem(SESSION_KEY);}catch(e){}
   if(!t)return Promise.resolve(null);AUTH_TOKEN=t;
