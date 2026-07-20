@@ -1022,13 +1022,22 @@ function loadForeignPolicy(){
   // dropped the moment the server rejects it; signing out clears it everywhere.
   var SESSION_KEY="lech_session";
   function saveSession(t){try{if(t)localStorage.setItem(SESSION_KEY,t);}catch(e){}}
-  function forgetSession(){try{localStorage.removeItem(SESSION_KEY);}catch(e){}try{if(AUTH_TOKEN)fetch(API+"/api/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN})});}catch(e){}AUTH_TOKEN=null;}
+  // Drop the stored token locally. Never talks to the server, so a network hiccup
+  // can never destroy a session that is still perfectly good.
+  function clearSession(){try{localStorage.removeItem(SESSION_KEY);}catch(e){}AUTH_TOKEN=null;}
+  // A deliberate sign-out: end the session on the server too. Only ever called
+  // from a real "Sign Out" control — never from a failed restore, and never from
+  // merely closing the portal.
+  function forgetSession(){var t=AUTH_TOKEN;clearSession();try{if(t)fetch(API+"/api/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:t}));}catch(e){}}
   function srestore(){
     var t=null;try{t=localStorage.getItem(SESSION_KEY);}catch(e){}
     if(!t)return Promise.resolve(null);AUTH_TOKEN=t;
-    return fetch(API+"/api/me",{headers:{Authorization:"Bearer "+t}}).then(function(r){return r.json();}).then(function(d){
-      if(d&&d.ok&&d.account)return d.account; forgetSession(); return null;
-    }).catch(function(){forgetSession();return null;});
+    // Plain query token, exactly like every other call here, so this is a simple
+    // request with no CORS preflight.
+    return fetch(API+"/api/me?token="+encodeURIComponent(t)).then(function(r){return r.json();}).then(function(d){
+      if(d&&d.ok&&d.account)return d.account;
+      clearSession(); return null;                 // rejected by the server — stale
+    }).catch(function(){return null;});            // offline/blocked — keep it, retry later
   }
   var CUR_ACC=null;      // the account currently shown in the hub, for refresh
   var RESTORED_RAW=null; // data snapshot loaded when a saved session is restored
@@ -1056,7 +1065,15 @@ function loadForeignPolicy(){
     document.getElementById("cp-login").classList.add("open");setTimeout(function(){var u=document.getElementById("ch-user");if(u)u.focus();},50);
   };
   window.cpClose=function(){document.getElementById("cp-login").classList.remove("open");};
-  window.chLogout=function(){forgetSession();CUR_ACC=null;RESTORED_RAW=null;var h=document.getElementById("cp-hub");h.classList.remove("open");h.innerHTML="";var fab=document.querySelector(".cp-fab");if(fab)fab.textContent="⬡ Citizen Portal · Sign in / Register";};
+  // Closing the portal is just that — it hides the hub and keeps you signed in,
+  // so reopening it (or visiting another page) does not ask for credentials.
+  window.chClose=function(){var h=document.getElementById("cp-hub");h.classList.remove("open");h.innerHTML="";};
+  // Signing out is deliberate: it ends the session here and on every other page.
+  window.chSignOut=function(){
+    forgetSession();CUR_ACC=null;RESTORED_RAW=null;
+    var h=document.getElementById("cp-hub");h.classList.remove("open");h.innerHTML="";
+    var fab=document.querySelector(".cp-fab");if(fab)fab.textContent="⬡ Citizen Portal · Sign in / Register";
+  };
   window.cpTab=function(which){
     var isIn=which==="in";
     document.getElementById("cp-tab-in").classList.toggle("active",isIn);
@@ -1244,7 +1261,8 @@ function loadForeignPolicy(){
     html+='</div>';
     html+='<span class="ch-badge" style="color:'+cl.color+';border-color:'+cl.color+'66;background:'+cl.color+'11;">'+cl.short+' · '+esc(cl.code)+'</span>';
     html+='<a class="ch-link" href="howto.html" style="padding:0.5rem 1rem;">Help · How-To</a>';
-    html+='<button class="cp-btn" style="width:auto;padding:0.5rem 1.2rem;" onclick="chLogout()">Close</button>';
+    html+='<button class="ch-mbtn ghost" onclick="chSignOut()">Sign Out</button>';
+    html+='<button class="cp-btn" style="width:auto;padding:0.5rem 1.2rem;" onclick="chClose()">Close</button>';
     html+='</div>';
 
     html+='<div class="ch-grid">';

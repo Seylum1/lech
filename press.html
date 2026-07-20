@@ -105,13 +105,21 @@ var AUTH_TOKEN=null;
 // rejects it; signing out clears it everywhere.
 var SESSION_KEY="lech_session";
 function saveSession(t){try{if(t)localStorage.setItem(SESSION_KEY,t);}catch(e){}}
-function forgetSession(){try{localStorage.removeItem(SESSION_KEY);}catch(e){}try{if(AUTH_TOKEN)fetch(API+"/api/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN})});}catch(e){}AUTH_TOKEN=null;}
+// Drop the stored token locally. Never talks to the server, so a network hiccup
+// can never destroy a session that is still perfectly good.
+function clearSession(){try{localStorage.removeItem(SESSION_KEY);}catch(e){}AUTH_TOKEN=null;}
+// A deliberate sign-out: end the session on the server too. Only ever called
+// from a real "Sign Out" control — never from a failed restore.
+function forgetSession(){var t=AUTH_TOKEN;clearSession();try{if(t)fetch(API+"/api/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:t}));}catch(e){}}
 function srestore(){
   var t=null;try{t=localStorage.getItem(SESSION_KEY);}catch(e){}
   if(!t)return Promise.resolve(null);AUTH_TOKEN=t;
-  return fetch(API+"/api/me",{headers:{Authorization:"Bearer "+t}}).then(function(r){return r.json();}).then(function(d){
-    if(d&&d.ok&&d.account)return d.account; forgetSession(); return null;
-  }).catch(function(){forgetSession();return null;});
+  // Plain query token, exactly like every other call here, so this is a simple
+  // request with no CORS preflight.
+  return fetch(API+"/api/me?token="+encodeURIComponent(t)).then(function(r){return r.json();}).then(function(d){
+    if(d&&d.ok&&d.account)return d.account;
+    clearSession(); return null;                 // rejected by the server — stale
+  }).catch(function(){return null;});            // offline/blocked — keep it, retry later
 }
 function sgetAll(){
   return fetch(API+"/api/data"+(AUTH_TOKEN?"?token="+encodeURIComponent(AUTH_TOKEN):"")).then(function(r){return r.json();}).then(function(d){
