@@ -54,6 +54,17 @@ const PEERAGE_RANKS=[
 const RANK_ORDER={crown_prince:0,prince:1,princess:2,duke:3,marquess:4,count:5,viscount:6,baron:7,baronet:8};
 const PR=(v)=>PEERAGE_RANKS.find(r=>r.v===v)||null;
 
+// The player's Minecraft face, as their ID card carries it. Renders nothing when
+// a record has no account behind it, so unlinked entries stay clean.
+function mcFace(n){return "https://mc-heads.net/avatar/"+encodeURIComponent(n||"")+"/64";}
+function McFace({name,size=36,style:ex={}}){
+  if(!name) return null;
+  return <img src={mcFace(name)} alt="" width={size} height={size} loading="lazy"
+    onError={e=>{e.currentTarget.style.visibility="hidden";}}
+    style={{width:size,height:size,borderRadius:2,imageRendering:"pixelated",
+      border:`1px solid ${C.border}`,background:C.s2,flexShrink:0,...ex}}/>;
+}
+
 const MIL_MEDAL_TYPES=[
   {v:"IIC",  l:"Imperial Iron Cross",             cat:"military_grand",   prestige:1},
   {v:"OBE",  l:"Order of the Black Eagle",        cat:"military_grand",   prestige:2},
@@ -218,7 +229,11 @@ function Overlay({label}){
 }
 
 // ── PEERAGE TAB ───────────────────────────────────────────────────────────────
-function PeerageTab({bundesherren}){
+function PeerageTab({bundesherren,accounts}){
+  // Keyed lowercase — the roster and the account list do not agree on casing.
+  const accByUser=useMemo(()=>{
+    const m={}; (accounts||[]).forEach(a=>{if(a?.username) m[a.username.toLowerCase()]=a;}); return m;
+  },[accounts]);
   const peers=Object.values(bundesherren||{})
     .sort((a,b)=>(RANK_ORDER[a.rank]??9)-(RANK_ORDER[b.rank]??9)||(a.name||"").localeCompare(b.name||""));
   const royals=peers.filter(p=>PR(p.rank)?.royal);
@@ -239,7 +254,7 @@ function PeerageTab({bundesherren}){
         Imperial Family {"&"} Royal Princes
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
-        {royals.map(p=><PeerCard key={p.name} peer={p}/>)}
+        {royals.map(p=><PeerCard key={p.name} peer={p} accByUser={accByUser}/>)}
       </div>
       <GoldRule/>
     </div>}
@@ -250,17 +265,20 @@ function PeerageTab({bundesherren}){
           {rd.l}s
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:"0.6rem"}}>
-          {(grouped[rd.v]||[]).map(p=><PeerCard key={p.name} peer={p}/>)}
+          {(grouped[rd.v]||[]).map(p=><PeerCard key={p.name} peer={p} accByUser={accByUser}/>)}
         </div>
       </div>
     ))}
   </div>;
 }
-function PeerCard({peer}){
+function PeerCard({peer,accByUser}){
   const rd=PR(peer.rank);
   if(!rd) return null;
+  const acc=(accByUser||{})[String(peer.username||"").toLowerCase()];
+  const face=acc?.mcName||peer.username;
   return <div style={{background:rd.bg||C.s1,border:`1px solid ${rd.border||C.border}`,borderRadius:2,
     padding:"0.85rem 1.25rem",display:"flex",alignItems:"center",gap:"1rem",flexWrap:"wrap"}}>
+    <McFace name={face} style={{borderColor:(rd.border||C.border)}}/>
     <div style={{flex:1,minWidth:200}}>
       <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:C.text,marginBottom:2}}>{peer.name}</div>
       <div style={{fontSize:13,color:rd.color,fontStyle:"italic"}}>{rd.style} {" \u2014 "} {rd.l}</div>
@@ -1023,7 +1041,7 @@ function App(){
       {loaded&&panelAuth&&!panelUser&&<PanelAuth
         onAuth={(u,r)=>{setPanelUser(u);setRaw(prev=>({...prev,...r}));setPanelAuth(false);setTab("panel");notify("Authenticated.",C.gold);}}
         onCancel={()=>setPanelAuth(false)}/>}
-      {loaded&&!panelAuth&&tab==="peerage"&&<PeerageTab bundesherren={bundesherren}/>}
+      {loaded&&!panelAuth&&tab==="peerage"&&<PeerageTab bundesherren={bundesherren} accounts={accounts}/>}
       {loaded&&!panelAuth&&tab==="family"&&<FamilyTab family={family}/>}
       {loaded&&!panelAuth&&tab==="proclamations"&&<ProclamationsTab proclamations={proclamations}/>}
       {loaded&&!panelAuth&&tab==="honours"&&<HonoursTab civilHonours={civilHonours} personnel={personnel}/>}

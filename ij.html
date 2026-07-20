@@ -1471,6 +1471,22 @@ function honorifics(person,ctx){
 
 const HonoursCtx=createContext(null);
 const useHonours=()=>useContext(HonoursCtx);
+
+// The player's Minecraft face, as their ID card carries it. Drawn from the
+// account behind the record, so an unlinked entry simply shows nothing.
+function mcFace(n){return "https://mc-heads.net/avatar/"+encodeURIComponent(n||"")+"/64";}
+function McFace({person,size=30,style:ex={}}){
+  const ctx=useHonours();
+  // Records made before usernames were stored hold one in the name field, which
+  // is also what the lists show — so the face follows the name on screen.
+  const u=person?.username||person?.name;
+  if(!u) return null;
+  const acc=ctx?.accounts?.[u]||ctx?.accounts?.[String(u).toLowerCase()];
+  return <img src={mcFace(acc?.mcName||u)} alt="" width={size} height={size} loading="lazy"
+    onError={e=>{e.currentTarget.style.visibility="hidden";}}
+    style={{width:size,height:size,borderRadius:2,imageRendering:"pixelated",
+      border:`1px solid ${C.border}`,background:C.s2,flexShrink:0,...ex}}/>;
+}
 function honorificsFor(person,ctx){
   if(!ctx||!person) return {prefix:null,styles:[],suffixes:[]};
   return honorifics(person,{...ctx,
@@ -1681,6 +1697,9 @@ function MemberFactsheet({person,members,bundesherren,formerMembers,officials,bi
         borderTop:`3px solid ${party?.color||C.silver}`,borderRadius:"0 0 4px 4px",maxWidth:620,width:"100%"}}>
         <div style={{padding:"1.25rem 1.5rem",borderBottom:`1px solid ${C.border}`,
           display:"flex",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
+          {/* Opened from a stub the face falls back to the roster record, which
+              is the one that actually carries the linked account. */}
+          <McFace person={person.username?person:rec} size={56} style={{borderColor:(party?.color||C.silver)+"66"}}/>
           <div style={{flex:1,minWidth:0}}>
             {hon.prefix&&(
               <div title={hon.styles.map(s=>s.style+" — "+s.why).join("\n")}

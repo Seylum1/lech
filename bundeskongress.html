@@ -2578,7 +2578,11 @@ function BundestagTab({members,officials,bills,bundesherren,session,nextElection
                                             borderRadius:"0 0 3px 3px",padding:"0.85rem 1rem"}}>
                 <div style={{fontFamily:"'Cinzel',serif",fontSize:8,letterSpacing:"0.2em",color:C.textDD,marginBottom:5,textTransform:"uppercase"}}>{portfolio}</div>
                 <div style={{display:"flex",alignItems:"center",gap:7}}>
-                  <span style={{fontSize:18}}>🎖</span>
+                  {/* The minister's own face where the portfolio is filled; the
+                      decoration stands in for a vacancy. */}
+                  {vacant
+                    ?<span style={{fontSize:18}}>🎖</span>
+                    :<McFace person={person} style={{borderColor:(p?.color||C.gold)+"66"}}/>}
                   {vacant
                     ?<span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.textDD,fontWeight:700,fontStyle:"italic"}}>Vacant</span>
                     :<span>
@@ -3591,6 +3595,22 @@ const activityColor=(pct)=>pct>=75?"#7ad47a":pct>=50?C.gold:pct>=25?"#cc6a10":C.
 const HonoursCtx=createContext(null);
 const useHonours=()=>useContext(HonoursCtx);
 
+// The player's Minecraft face, as their ID card carries it. Drawn from the
+// account behind the record, so an unlinked entry simply shows nothing.
+function mcFace(n){return "https://mc-heads.net/avatar/"+encodeURIComponent(n||"")+"/64";}
+function McFace({person,size=30,style:ex={}}){
+  const ctx=useHonours();
+  // Records made before usernames were stored hold one in the name field, which
+  // is also what the lists show — so the face follows the name on screen.
+  const u=person?.username||person?.name;
+  if(!u) return null;
+  const acc=ctx?.accounts?.[u]||ctx?.accounts?.[String(u).toLowerCase()];
+  return <img src={mcFace(acc?.mcName||u)} alt="" width={size} height={size} loading="lazy"
+    onError={e=>{e.currentTarget.style.visibility="hidden";}}
+    style={{width:size,height:size,borderRadius:2,imageRendering:"pixelated",
+      border:`1px solid ${C.border}`,background:C.s2,flexShrink:0,...ex}}/>;
+}
+
 // Fills in the per-person parts of the context — their account, and the offices
 // they held under past governments (which is what retains a style for life).
 function honorificsFor(person,ctx){
@@ -3829,6 +3849,9 @@ function MemberFactsheet({person,members,bundesherren,formerMembers,officials,bi
         {/* Header */}
         <div style={{padding:"1.25rem 1.5rem",borderBottom:`1px solid ${C.border}`,
           display:"flex",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
+          {/* Opened from a stub the face falls back to the roster record, which
+              is the one that actually carries the linked account. */}
+          <McFace person={person.username?person:rec} size={56} style={{borderColor:(party?.color||C.gold)+"66"}}/>
           <div style={{flex:1,minWidth:0}}>
             {/* Style of address, per the Imperial Honors & Medals Register. */}
             {hon.prefix&&(
