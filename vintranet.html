@@ -5,297 +5,179 @@
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Vintranet</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link href="https://fonts.googleapis.com/css2?family=Titillium+Web:ital,wght@0,300;0,400;0,600;0,700;0,900;1,400&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400&display=swap" rel="stylesheet"/>
 <style>
 /* ═══════════════════════════════════════════════════════════════════════════
    VINTRANET
-   The way in to the three national intranets. It belongs to no one government,
-   so it wears none of their liveries — it has a language of its own: Frutiger
-   Aero. Sky and water, glass and gloss, bubbles and bright optimism. Each nation
-   appears only by its arms and its name.
-   Everything here is self-contained CSS; the only images are the three coats of
-   arms, each of which falls back to a glass roundel if it is not on disk.
+   The way in to the three national networks. It belongs to no one government, so
+   it wears none of their liveries — cream stock, a fine serif, double rules and
+   letterspaced caps: the register of a printed treaty rather than of any one
+   crown. Each nation is presented by its arms and its name, and nothing else.
+   Self-contained but for the three coats of arms, each of which falls back to a
+   glyph if the file is not beside this page.
    ═══════════════════════════════════════════════════════════════════════════ */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 
 :root{
-  --sky1:#bfe9ff; --sky2:#89d2f5; --sky3:#54b4e6; --sky4:#2b86c5;
-  --aqua:#25c2d6; --grass:#7ec845; --grassD:#4b9c2a;
-  --ink:#0f2f45; --inkS:#2c5a75; --inkF:#5f849b;
-  --glass:rgba(255,255,255,.5);
-  --glassLine:rgba(255,255,255,.85);
-  --shadow:0 10px 30px rgba(12,58,92,.22);
-  --lech:#c9a223; --vindex:#2f6fb5; --wilden:#5f9c74;
+  --paper:#f5f0e6; --paperD:#ede6d8;
+  --ink:#201d18; --ink2:#544c40; --ink3:#8a7c68;
+  --rule:#c3b8a4; --ruleD:#a89880;
+  --seal:#6d2a2a;
 }
 
-html,body{height:100%;}
+html{-webkit-text-size-adjust:100%;}
 body{
-  font-family:'Titillium Web','Segoe UI',Frutiger,'Myriad Pro',Tahoma,sans-serif;
+  min-height:100vh;display:flex;flex-direction:column;
+  font-family:Spectral,Georgia,'Times New Roman',serif;
   color:var(--ink);
-  min-height:100%;
-  display:flex;flex-direction:column;
-  /* Sky: a bright horizon fading up into deeper blue, with a low sun-glow. */
+  /* Laid stock: a faint warm grain, and the page a shade lighter at the centre. */
   background:
-    radial-gradient(ellipse 60% 40% at 78% 8%, rgba(255,255,255,.85), transparent 62%),
-    radial-gradient(ellipse 120% 60% at 50% 108%, rgba(126,200,69,.5), transparent 60%),
-    radial-gradient(ellipse 140% 70% at 50% 100%, rgba(37,194,214,.42), transparent 68%),
-    linear-gradient(180deg, var(--sky4) 0%, var(--sky3) 26%, var(--sky2) 55%, var(--sky1) 100%);
-  background-attachment:fixed;
-  overflow-x:hidden;
+    radial-gradient(ellipse 90% 60% at 50% 0%, rgba(255,255,255,.55), transparent 70%),
+    repeating-linear-gradient(0deg, rgba(140,120,86,.018) 0 1px, transparent 1px 4px),
+    var(--paper);
 }
 
-/* ── clouds & bubbles: the ambient layer ─────────────────────────────────── */
-.sky{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden;}
-.cloud{position:absolute;border-radius:50%;background:radial-gradient(circle at 40% 40%,rgba(255,255,255,.9),rgba(255,255,255,.35) 60%,transparent 72%);filter:blur(6px);}
-.c1{width:420px;height:150px;top:9%;left:-14%;animation:drift 92s linear infinite;}
-.c2{width:300px;height:110px;top:24%;left:-24%;opacity:.75;animation:drift 130s linear infinite 12s;}
-.c3{width:520px;height:180px;top:52%;left:-30%;opacity:.5;animation:drift 168s linear infinite 30s;}
-@keyframes drift{from{transform:translateX(0);}to{transform:translateX(155vw);}}
-
-.bub{position:absolute;bottom:-14vh;border-radius:50%;
-  background:
-    radial-gradient(circle at 30% 26%, rgba(255,255,255,.95), rgba(255,255,255,.28) 22%, transparent 42%),
-    radial-gradient(circle at 68% 76%, rgba(255,255,255,.42), transparent 38%),
-    radial-gradient(circle at 50% 50%, rgba(190,238,255,.24), rgba(120,205,245,.16));
-  box-shadow:inset 0 0 14px rgba(255,255,255,.55), 0 3px 12px rgba(20,80,120,.14);
-  animation:rise linear infinite;}
-@keyframes rise{
-  from{transform:translateY(0) translateX(0) scale(.85);opacity:0;}
-  10%{opacity:.9;}
-  90%{opacity:.7;}
-  to{transform:translateY(-124vh) translateX(38px) scale(1.05);opacity:0;}}
-.b1{width:74px;height:74px;left:7%;animation-duration:26s;}
-.b2{width:34px;height:34px;left:19%;animation-duration:19s;animation-delay:4s;}
-.b3{width:116px;height:116px;left:33%;animation-duration:36s;animation-delay:9s;}
-.b4{width:48px;height:48px;left:52%;animation-duration:23s;animation-delay:2s;}
-.b5{width:88px;height:88px;left:69%;animation-duration:31s;animation-delay:13s;}
-.b6{width:28px;height:28px;left:83%;animation-duration:17s;animation-delay:7s;}
-.b7{width:62px;height:62px;left:93%;animation-duration:28s;animation-delay:17s;}
-
-@media(prefers-reduced-motion:reduce){
-  .cloud,.bub{animation:none;}
-  .bub{opacity:.5;bottom:auto;top:40%;}
-}
-
-/* ── shared gloss: the highlight that makes a surface read as glass ──────── */
-.gloss::before{
-  content:'';position:absolute;left:0;right:0;top:0;height:52%;
-  background:linear-gradient(180deg, rgba(255,255,255,.72), rgba(255,255,255,.16) 72%, rgba(255,255,255,0));
-  border-radius:inherit;border-bottom-left-radius:50% 22%;border-bottom-right-radius:50% 22%;
-  pointer-events:none;}
-
-.wrap{max-width:1060px;margin:0 auto;padding:0 1.1rem;width:100%;position:relative;z-index:1;}
+.sheet{max-width:960px;margin:0 auto;padding:0 2rem;width:100%;}
+@media(max-width:640px){.sheet{padding:0 1.25rem;}}
 
 /* ── masthead ────────────────────────────────────────────────────────────── */
-.top{position:relative;z-index:2;backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);
-  background:linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.24));
-  border-bottom:1px solid rgba(255,255,255,.7);
-  box-shadow:0 3px 18px rgba(16,70,110,.16);}
-.top-in{display:flex;align-items:center;gap:12px;padding:.7rem 0;}
-.orb{position:relative;width:38px;height:38px;border-radius:50%;flex-shrink:0;overflow:hidden;
-  background:radial-gradient(circle at 34% 28%, #eafcff, #57c8ea 45%, #1d76b8 100%);
-  box-shadow:inset 0 -6px 12px rgba(8,50,88,.5), 0 2px 8px rgba(12,60,100,.35);
-  display:flex;align-items:center;justify-content:center;}
-.orb b{position:relative;z-index:1;color:#fff;font-weight:700;font-size:17px;
-  text-shadow:0 1px 2px rgba(6,40,70,.6);}
-.top-name{font-weight:700;font-size:19px;letter-spacing:.01em;line-height:1.05;
-  text-shadow:0 1px 0 rgba(255,255,255,.8);}
-.top-sub{font-size:10.5px;letter-spacing:.19em;color:var(--inkS);text-transform:uppercase;font-weight:600;margin-top:1px;}
+.masthead{border-bottom:3px double var(--ink);}
+.masthead .sheet{text-align:center;padding:2.1rem 2rem 1.35rem;}
+.wordmark{font-size:clamp(1.75rem,5.6vw,2.6rem);font-weight:700;letter-spacing:.2em;
+  text-transform:uppercase;line-height:1;text-indent:.2em;}
+.masthead .meta{font-size:.6rem;font-weight:500;letter-spacing:.42em;text-transform:uppercase;
+  color:var(--ink3);margin-top:.75rem;text-indent:.42em;}
 
-/* ── hero ────────────────────────────────────────────────────────────────── */
-.hero{text-align:center;padding:3rem 0 2rem;}
-.hero h1{font-size:clamp(2.7rem,8vw,4.4rem);font-weight:700;letter-spacing:-.005em;line-height:1;
-  color:#fff;text-shadow:0 1px 0 rgba(255,255,255,.5), 0 3px 14px rgba(14,72,116,.5), 0 1px 2px rgba(12,60,100,.35);}
-.hero .sub{margin-top:.85rem;font-size:1.12rem;color:#fff;font-weight:300;line-height:1.65;
-  max-width:560px;margin-left:auto;margin-right:auto;text-shadow:0 1px 6px rgba(14,72,116,.55);}
-.pill{display:inline-flex;align-items:center;gap:8px;margin-top:1.05rem;position:relative;overflow:hidden;
-  padding:5px 16px;border-radius:999px;background:linear-gradient(180deg, rgba(255,255,255,.85), rgba(255,255,255,.42));
-  border:1px solid rgba(255,255,255,.9);box-shadow:0 3px 12px rgba(16,70,110,.2);
-  font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--inkS);}
-.pill i{width:7px;height:7px;border-radius:50%;background:linear-gradient(180deg,#a8e86a,var(--grassD));
-  box-shadow:0 0 7px rgba(126,200,69,.9), inset 0 1px 1px rgba(255,255,255,.8);display:block;}
+/* ── lede ────────────────────────────────────────────────────────────────── */
+.lede{text-align:center;max-width:440px;margin:2.3rem auto 2.5rem;
+  font-size:1.06rem;font-style:italic;font-weight:300;color:var(--ink2);line-height:1.75;}
 
-/* ── nation cards ────────────────────────────────────────────────────────── */
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(272px,1fr));gap:18px;padding-bottom:.4rem;}
-.nation{position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;
-  text-decoration:none;color:inherit;padding:1.6rem 1.3rem 1.25rem;border-radius:20px;overflow:hidden;
-  background:linear-gradient(180deg, rgba(255,255,255,.72), rgba(255,255,255,.34) 46%, rgba(255,255,255,.5));
-  border:1px solid rgba(255,255,255,.88);
-  backdrop-filter:blur(11px);-webkit-backdrop-filter:blur(11px);
-  box-shadow:var(--shadow), inset 0 1px 0 rgba(255,255,255,.95), inset 0 -18px 32px rgba(255,255,255,.28);
-  transition:transform .22s cubic-bezier(.2,.7,.3,1), box-shadow .22s, border-color .22s;}
-.nation .tint{position:absolute;inset:0;border-radius:inherit;pointer-events:none;
-  background:radial-gradient(ellipse 120% 62% at 50% 0%, var(--tint), transparent 68%);opacity:.55;}
-.nation.live{cursor:pointer;}
-.nation.live:hover{transform:translateY(-5px);border-color:#fff;
-  box-shadow:0 18px 44px rgba(12,58,92,.3), inset 0 1px 0 rgba(255,255,255,1), inset 0 -18px 32px rgba(255,255,255,.4);}
-.nation.live:hover .arms{transform:scale(1.05);}
-.nation.soon{opacity:.9;border-style:dashed;border-color:rgba(255,255,255,.75);}
+/* ── the three nations ───────────────────────────────────────────────────── */
+.nations{display:grid;grid-template-columns:repeat(3,1fr);
+  border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);}
+.nation{display:flex;flex-direction:column;align-items:center;text-align:center;
+  padding:2.4rem 1.5rem 2.2rem;border-right:1px solid var(--rule);
+  text-decoration:none;color:inherit;transition:background .18s;}
+.nation:last-child{border-right:0;}
+a.nation:hover{background:rgba(255,255,255,.42);}
 
-/* the arms, on a glass roundel with a water reflection beneath */
-.arms{position:relative;width:118px;height:118px;border-radius:50%;flex-shrink:0;
-  display:flex;align-items:center;justify-content:center;margin-bottom:.2rem;
-  background:radial-gradient(circle at 36% 26%, rgba(255,255,255,.98), rgba(255,255,255,.62) 42%, rgba(214,240,255,.5));
-  border:1px solid rgba(255,255,255,.95);
-  box-shadow:0 6px 18px rgba(16,70,110,.24), inset 0 -8px 16px rgba(150,205,235,.35), inset 0 2px 3px rgba(255,255,255,1);
-  transition:transform .22s cubic-bezier(.2,.7,.3,1);
-  -webkit-box-reflect:below 5px linear-gradient(transparent 62%, rgba(255,255,255,.26));}
-.arms img{width:78%;height:78%;object-fit:contain;position:relative;z-index:1;
-  filter:drop-shadow(0 2px 4px rgba(14,60,96,.34));}
-.arms .fb{display:none;font-size:44px;line-height:1;color:var(--tintSolid);position:relative;z-index:1;
-  text-shadow:0 2px 3px rgba(255,255,255,.9);}
-.arms::after{content:'';position:absolute;left:12%;right:12%;top:5%;height:36%;border-radius:50%;
-  background:linear-gradient(180deg, rgba(255,255,255,.9), rgba(255,255,255,0));pointer-events:none;z-index:2;}
+/* the arms, on the stock behind a fine ring */
+.arms{position:relative;width:92px;height:92px;border-radius:50%;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 50% 38%, #fffdf8, var(--paperD));
+  box-shadow:0 0 0 1px var(--ruleD), 0 0 0 5px var(--paper), 0 0 0 6px var(--rule);
+  transition:box-shadow .18s;}
+a.nation:hover .arms{box-shadow:0 0 0 1px var(--seal), 0 0 0 5px var(--paper), 0 0 0 6px var(--seal);}
+.arms img{width:74%;height:74%;object-fit:contain;}
+.arms .fb{display:none;font-size:36px;line-height:1;color:var(--seal);}
 
-/* The name carries the country on its own — no eyebrow label above it. */
-.n-name{margin-top:1.5rem;font-size:1.42rem;font-weight:700;line-height:1.15;color:var(--ink);
-  text-shadow:0 1px 0 rgba(255,255,255,.9);}
-.n-desc{margin-top:.7rem;font-size:.96rem;font-weight:300;color:var(--inkS);line-height:1.7;flex:1;}
-.n-tags{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:1rem;}
-.n-tag{font-size:10px;font-weight:600;letter-spacing:.06em;color:var(--inkS);
-  background:linear-gradient(180deg, rgba(255,255,255,.9), rgba(255,255,255,.5));
-  border:1px solid rgba(255,255,255,.95);border-radius:999px;padding:3px 10px;
-  box-shadow:0 1px 3px rgba(16,70,110,.14);}
+/* Two lines' worth of box whether the name takes one or two, so the rules and the
+   seals below them stay on a line across all three columns. */
+.name{margin-top:1.5rem;min-height:3.3rem;display:flex;align-items:center;justify-content:center;
+  font-size:1.3rem;font-weight:600;line-height:1.25;letter-spacing:.005em;}
+.divider{width:34px;height:1px;background:var(--seal);margin:1rem 0 1.4rem;opacity:.65;}
 
-/* the glass button — the most Aero object on the page */
-.enter{position:relative;overflow:hidden;margin-top:1.15rem;display:inline-block;
-  padding:9px 30px;border-radius:999px;font-size:13px;font-weight:700;letter-spacing:.11em;
-  text-transform:uppercase;color:#fff;text-shadow:0 1px 2px rgba(8,44,74,.55);
-  background:linear-gradient(180deg, var(--btn1) 0%, var(--btn2) 49%, var(--btn3) 51%, var(--btn4) 100%);
-  border:1px solid var(--btnB);
-  box-shadow:0 4px 12px rgba(14,64,102,.32), inset 0 1px 0 rgba(255,255,255,.75), inset 0 -2px 5px rgba(0,0,0,.16);
-  transition:filter .18s, transform .18s;}
-.nation.live:hover .enter{filter:brightness(1.09);transform:translateY(-1px);}
-.soon-tag{margin-top:1.15rem;display:inline-block;padding:8px 22px;border-radius:999px;
-  font-size:11.5px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:var(--inkF);
-  background:linear-gradient(180deg, rgba(255,255,255,.7), rgba(255,255,255,.34));
-  border:1px dashed rgba(255,255,255,.95);box-shadow:inset 0 1px 0 rgba(255,255,255,.9);}
+/* the seal-press button */
+.enter{font-size:.66rem;font-weight:600;letter-spacing:.26em;text-transform:uppercase;
+  color:var(--seal);border-top:1px solid var(--seal);border-bottom:1px solid var(--seal);
+  padding:7px 20px;text-indent:.26em;transition:background .18s,color .18s;}
+a.nation:hover .enter{background:var(--seal);color:var(--paper);}
+.pending{font-size:.62rem;font-weight:500;letter-spacing:.26em;text-transform:uppercase;
+  color:var(--ink3);border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);
+  padding:7px 18px;text-indent:.26em;}
+.nation.soon .arms{opacity:.62;}
+.nation.soon .name{color:var(--ink2);}
+.nation.soon .divider{background:var(--rule);}
 
-/* ── note & footer ───────────────────────────────────────────────────────── */
-.note{position:relative;overflow:hidden;margin:1.7rem 0 2.2rem;padding:1.05rem 1.3rem;border-radius:16px;
-  background:linear-gradient(180deg, rgba(255,255,255,.66), rgba(255,255,255,.32));
-  border:1px solid rgba(255,255,255,.85);backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);
-  box-shadow:0 6px 20px rgba(16,70,110,.16), inset 0 1px 0 rgba(255,255,255,.9);}
-.note h2{font-size:11px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:var(--inkF);margin-bottom:6px;}
-.note p{font-size:.97rem;font-weight:300;color:var(--inkS);line-height:1.75;}
+/* ── colophon ────────────────────────────────────────────────────────────── */
+.colophon{text-align:center;max-width:520px;margin:2.6rem auto 3rem;}
+.colophon .head{font-size:.58rem;font-weight:600;letter-spacing:.32em;text-transform:uppercase;
+  color:var(--ink3);text-indent:.32em;}
+.colophon p{font-size:.95rem;font-weight:300;color:var(--ink2);line-height:1.8;margin-top:.7rem;}
 
-.foot{margin-top:auto;position:relative;z-index:1;
-  background:linear-gradient(180deg, rgba(255,255,255,.3), rgba(255,255,255,.62));
-  border-top:1px solid rgba(255,255,255,.8);}
-.foot-in{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;padding:1.05rem 0 1.25rem;}
-.foot-l{font-size:10px;font-weight:600;letter-spacing:.2em;color:var(--inkF);text-transform:uppercase;}
-.powered{display:inline-flex;align-items:center;gap:9px;}
-.powered-l{font-size:9px;font-weight:600;letter-spacing:.2em;color:var(--inkF);text-transform:uppercase;}
-.powered img{height:30px;width:auto;object-fit:contain;border-radius:5px;}
-.powered .fb{font-weight:700;font-size:12.5px;color:var(--inkS);}
+/* ── imprint ─────────────────────────────────────────────────────────────── */
+.imprint{margin-top:auto;border-top:1px solid var(--rule);}
+.imprint .sheet{display:flex;justify-content:space-between;align-items:center;gap:18px;
+  flex-wrap:wrap;padding:1.15rem 2rem 1.4rem;}
+.imprint .who{font-size:.58rem;font-weight:600;letter-spacing:.26em;text-transform:uppercase;color:var(--ink3);}
+.powered{display:inline-flex;align-items:center;gap:10px;}
+.powered .by{font-size:.55rem;font-weight:600;letter-spacing:.24em;text-transform:uppercase;color:var(--ink3);}
+.powered img{height:30px;width:auto;object-fit:contain;}
+.powered .fb{display:none;font-size:.82rem;font-weight:600;color:var(--ink2);letter-spacing:.02em;}
+
+@media(max-width:760px){
+  .nations{grid-template-columns:1fr;}
+  .nation{border-right:0;border-bottom:1px solid var(--rule);padding:2rem 1.5rem;}
+  .nation:last-child{border-bottom:0;}
+}
 </style>
 </head>
 <body>
 
-<div class="sky" aria-hidden="true">
-  <div class="cloud c1"></div><div class="cloud c2"></div><div class="cloud c3"></div>
-  <div class="bub b1"></div><div class="bub b2"></div><div class="bub b3"></div><div class="bub b4"></div>
-  <div class="bub b5"></div><div class="bub b6"></div><div class="bub b7"></div>
-</div>
-
-<header class="top">
-  <div class="wrap top-in">
-    <div class="orb gloss"><b>V</b></div>
-    <div>
-      <div class="top-name">Vintranet</div>
-      <div class="top-sub">Intergovernmental Network</div>
-    </div>
+<header class="masthead">
+  <div class="sheet">
+    <div class="wordmark">Vintranet</div>
+    <div class="meta">Intergovernmental Network</div>
   </div>
 </header>
 
-<main class="wrap">
+<main class="sheet">
 
-  <section class="hero">
-    <h1>Vintranet</h1>
-    <p class="sub">One way in to three national networks.</p>
-    <span class="pill gloss"><i></i>Three Nations</span>
-  </section>
+  <p class="lede">The way in to three national networks. Select a government below to enter its own.</p>
 
-  <section class="grid">
+  <section class="nations">
 
-    <!-- ── Empire of Lech ── -->
-    <a class="nation live gloss" href="index.html"
-       style="--tint:rgba(201,162,35,.34);--tintSolid:var(--lech);
-              --btn1:#f0d786;--btn2:#dcb63f;--btn3:#c99f21;--btn4:#a37c12;--btnB:#8a6810;"
-       aria-label="Enter the intranet of the Empire of Lech">
-      <span class="tint" aria-hidden="true"></span>
+    <a class="nation" href="index.html" aria-label="Enter the network of the Empire of Lech">
       <span class="arms">
-        <img src="lechcoa.png" alt="Coat of arms of the Empire of Lech"
+        <img src="lechcoa.png" alt="Arms of the Empire of Lech"
              onerror="this.style.display='none';this.nextElementSibling.style.display='block';"/>
-        <span class="fb" aria-hidden="true">⚜</span>
+        <span class="fb" aria-hidden="true">&#9884;</span>
       </span>
-      <span class="n-name">Empire of Lech</span>
-      <span class="n-desc">The Imperial Intranet — the Citizen Portal, the Bundeskongress, the
-        Imperial Household and the ministries of state.</span>
-      <span class="n-tags">
-        <span class="n-tag">Citizen Portal</span><span class="n-tag">Bundeskongress</span>
-        <span class="n-tag">Judiciary</span><span class="n-tag">Ministries</span>
-      </span>
+      <span class="name">Empire of Lech</span>
+      <span class="divider"></span>
       <span class="enter">Enter</span>
     </a>
 
-    <!-- ── Republic of Vindex Nation ── -->
-    <a class="nation live gloss" href="vindex.html"
-       style="--tint:rgba(47,111,181,.34);--tintSolid:var(--vindex);
-              --btn1:#9fd0f5;--btn2:#4b95d8;--btn3:#2f6fb5;--btn4:#1d5290;--btnB:#17457a;"
-       aria-label="Enter the government portal of the Republic of Vindex Nation">
-      <span class="tint" aria-hidden="true"></span>
+    <a class="nation" href="vindex.html" aria-label="Enter the network of the Republic of Vindex Nation">
       <span class="arms">
-        <img src="vindexcoa.png" alt="Coat of arms of the Republic of Vindex Nation"
+        <img src="vindexcoa.png" alt="Arms of the Republic of Vindex Nation"
              onerror="this.style.display='none';this.nextElementSibling.style.display='block';"/>
-        <span class="fb" aria-hidden="true">★</span>
+        <span class="fb" aria-hidden="true">&#9733;</span>
       </span>
-      <span class="n-name">Republic of Vindex Nation</span>
-      <span class="n-desc">The Government Portal — the Executive, the House of Representatives
-        and its legislation, and the Department of State.</span>
-      <span class="n-tags">
-        <span class="n-tag">Executive</span><span class="n-tag">Legislature</span>
-        <span class="n-tag">Judiciary</span><span class="n-tag">Dept. of State</span>
-      </span>
+      <span class="name">Republic of Vindex Nation</span>
+      <span class="divider"></span>
       <span class="enter">Enter</span>
     </a>
 
-    <!-- ── Wilden ── -->
-    <div class="nation soon gloss"
-         style="--tint:rgba(95,156,116,.3);--tintSolid:var(--wilden);"
-         aria-label="Wilden — intranet coming soon">
-      <span class="tint" aria-hidden="true"></span>
+    <div class="nation soon" aria-label="Wilden — network not yet open">
       <span class="arms">
-        <img src="wildencoa.png" alt="Coat of arms of Wilden"
+        <img src="wildencoa.png" alt="Arms of Wilden"
              onerror="this.style.display='none';this.nextElementSibling.style.display='block';"/>
-        <span class="fb" aria-hidden="true">◈</span>
+        <span class="fb" aria-hidden="true">&#9672;</span>
       </span>
-      <span class="n-name">Wilden</span>
-      <span class="n-desc">The Wilden network is being built. Its crown, its council and its
-        public registers will be reachable from here once it opens.</span>
-      <span class="n-tags"><span class="n-tag">Not yet open</span></span>
-      <span class="soon-tag">Coming soon</span>
+      <span class="name">Wilden</span>
+      <span class="divider"></span>
+      <span class="pending">Coming soon</span>
     </div>
 
   </section>
 
-  <section class="note gloss">
-    <h2>One sign-in</h2>
+  <section class="colophon">
+    <div class="head">One sign-in</div>
     <p>Lech and Vindex share accounts, so signing in on either network carries you into the
-      other. Each government still confers its own offices: what you may do inside a nation's
-      network is that nation's to decide.</p>
+      other. Each government still confers its own offices.</p>
   </section>
 
 </main>
 
-<footer class="foot">
-  <div class="wrap foot-in">
-    <div class="foot-l">Vintranet · Intergovernmental Network</div>
+<footer class="imprint">
+  <div class="sheet">
+    <div class="who">Vintranet · Intergovernmental Network</div>
     <div class="powered">
-      <span class="powered-l">Powered by</span>
+      <span class="by">Powered by</span>
       <img src="vindex/saudkruger.png" alt="Saud Kruger Information Systems" draggable="false"
            onerror="this.style.display='none';this.nextElementSibling.style.display='inline';"/>
-      <span class="fb" style="display:none;">Saud Kruger Information Systems</span>
+      <span class="fb">Saud Kruger Information Systems</span>
     </div>
   </div>
 </footer>
