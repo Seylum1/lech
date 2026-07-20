@@ -63,7 +63,7 @@ const RELATION_TYPES=[{v:"full",l:"Full Diplomatic Relations",color:"#2a9a4a",ba
 const ADVISORY_LEVELS=[{level:1,code:"Level 1",label:"Exercise Normal Caution",color:"#2a9a4a",bg:"#0a1a0e",border:"#1a4a2a"},{level:2,code:"Level 2",label:"Exercise Increased Caution",color:"#C9A84C",bg:"#1a1200",border:"#4a3a00"},{level:3,code:"Level 3",label:"Avoid Non-Essential Travel",color:"#cc6a10",bg:"#1a0e00",border:"#6a3a00"},{level:4,code:"Level 4",label:"Do Not Travel",color:"#cc2222",bg:"#1a0808",border:"#6a1010"}];
 const VISA_TYPES=[{v:"tourist",l:"Tourist / Short-Stay"},{v:"business",l:"Business"},{v:"student",l:"Student"},{v:"work",l:"Work Permit"},{v:"diplomatic",l:"Diplomatic"},{v:"transit",l:"Transit"},{v:"residence",l:"Permanent Residence"},{v:"other",l:"Other"}];
 const VISA_STATUSES=[{v:"pending",l:"Under Review",color:"#C9A84C"},{v:"approved",l:"Approved",color:"#2a9a4a"},{v:"rejected",l:"Rejected",color:"#cc2222"},{v:"additional",l:"Additional Info Req.",color:"#cc6a10"},{v:"withdrawn",l:"Withdrawn",color:"#7a7a7a"}];
-const CITIZENSHIP_STATUSES=[{v:"citizen",l:"Citizen",color:"#2a9a4a"},{v:"naturalised",l:"Naturalised",color:"#4a8a5a"},{v:"resident",l:"Permanent Resident",color:"#4a7aaa"},{v:"revoked",l:"Revoked",color:"#cc2222"},{v:"renounced",l:"Renounced",color:"#7a7a7a"}];
+const CITIZENSHIP_STATUSES=[{v:"citizen",l:"Citizen",color:"#2a9a4a"},{v:"naturalised",l:"Naturalised",color:"#4a8a5a"},{v:"resident",l:"Permanent Resident",color:"#4a7aaa"},{v:"alien",l:"Registered Alien",color:"#9a7ab0"},{v:"revoked",l:"Revoked",color:"#cc2222"},{v:"renounced",l:"Renounced",color:"#7a7a7a"}];
 const RESTRICTION_TYPES=[{v:"travel_ban",l:"Travel Ban"},{v:"entry_denied",l:"Entry Denied"},{v:"persona_non_grata",l:"Persona Non Grata"},{v:"watch_list",l:"Watch List"},{v:"asset_freeze",l:"Asset Freeze"}];
 const C={bg:"#080e0a",s1:"#0e1a0c",s2:"#121e10",s3:"#16221a",border:"#1a3a18",text:"#d4e4cc",textD:"#7a9870",textDD:"#3a5830",accent:"#3a8a4a",accentD:"#225a2a",red:"#8b1a1a",redD:"#6a0808",redL:"#c05050",gold:"#C9A84C"};
 const getAL=(l)=>ADVISORY_LEVELS.find(a=>a.level===l)||ADVISORY_LEVELS[0];
@@ -988,6 +988,9 @@ function PanelCitizenship({citizens,accounts,user,onAction,notify,setProcessing}
   const [acct,setAcct]=useState("");const [name,setName]=useState("");const [username,setUsername]=useState("");const [nationality,setNationality]=useState("");const [status,setStatus]=useState("citizen");const [since,setSince]=useState(new Date().toISOString().slice(0,10));const [notes,setNotes]=useState("");const [saving,setSaving]=useState(false);
   const list=Object.values(citizens||{}).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
   const claims=list.filter(c=>c.claimStatus==="pending");
+  // New self-registered accounts who ticked "I hold citizenship" — surfaced here
+  // so the Ministry can review and set their status.
+  const reviews=list.filter(c=>c.reviewRequested);
   const acctOpts=[{v:"",l:"— Manual entry (no account) —"},...((accounts||[]).map(a=>({v:a.username,l:(a.displayName?a.displayName+" ":"")+"@"+a.username})))];
   function pickAccount(u){
     setAcct(u);
@@ -997,6 +1000,18 @@ function PanelCitizenship({citizens,accounts,user,onAction,notify,setProcessing}
   }
   return <div>
     <STitle>Citizenship Registry</STitle>
+
+    {reviews.length>0&&<div style={{background:"#160f1e",border:`1px solid #6a4a8a`,borderLeft:`3px solid #b89ac8`,borderRadius:"0 3px 3px 0",padding:"1rem 1.25rem",marginBottom:"1.25rem"}}>
+      <div className="mono" style={{fontSize:9,color:"#b89ac8",letterSpacing:"0.15em",marginBottom:"0.75rem"}}>CITIZENSHIP REVIEW REQUESTS ({reviews.length})</div>
+      {reviews.map(c=>{const cst=CITIZENSHIP_STATUSES.find(s=>s.v===c.status)||CITIZENSHIP_STATUSES[0];return <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"0.5rem 0",borderBottom:`1px solid ${C.border}`}}>
+        <span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text}}>{c.name}</span>
+        {c.username&&<span className="mono" style={{fontSize:11,color:C.textD}}>@{c.username}</span>}
+        <span className="mono" style={{fontSize:10,color:cst.color,flex:1}}>currently {cst.l}</span>
+        <Btn small variant="gold" onClick={async()=>{setProcessing("Granting citizenship...");await onAction("updateCitizen",{id:c.id,status:"citizen",since:new Date().toISOString().slice(0,10),reviewRequested:false,reviewRequestedAt:null});setProcessing(null);notify(c.name+" granted citizenship.",C.accent);}}>Grant Citizen</Btn>
+        <ArmBtn small label="Dismiss" confirmLabel="Dismiss request?" onConfirm={async()=>{setProcessing("Dismissing...");await onAction("updateCitizen",{id:c.id,reviewRequested:false,reviewRequestedAt:null});setProcessing(null);notify("Request dismissed.",C.textD);}}/>
+      </div>;})}
+      <div style={{fontSize:12,color:C.textD,fontStyle:"italic",marginTop:"0.6rem"}}>Need another status (resident, naturalised)? Set it on their record below — saving clears the request.</div>
+    </div>}
 
     {claims.length>0&&<div style={{background:"#1a1400",border:`1px solid ${C.gold}44`,borderLeft:`3px solid ${C.gold}`,borderRadius:"0 3px 3px 0",padding:"1rem 1.25rem",marginBottom:"1.25rem"}}>
       <div className="mono" style={{fontSize:9,color:C.gold,letterSpacing:"0.15em",marginBottom:"0.75rem"}}>PENDING ACCOUNT CLAIMS ({claims.length})</div>
@@ -1033,12 +1048,12 @@ function CitizenRow({citizen,st,accounts,onAction,notify,setProcessing}){
   const [open,setOpen]=useState(false);const [status,setStatus]=useState(citizen.status||"citizen");const [uname,setUname]=useState(citizen.username||"");const [notes,setNotes]=useState(citizen.notes||"");const [saving,setSaving]=useState(false);
   const linked=!!(citizen.username&&(accounts||[]).some(a=>a.username.toLowerCase()===citizen.username.toLowerCase()));
   return <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${st.color}`,borderRadius:"0 3px 3px 0",overflow:"hidden",marginBottom:4}}>
-    <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"0.65rem 1rem",cursor:"pointer",flexWrap:"wrap"}}><span className="mono" style={{fontSize:9,color:st.color,padding:"2px 8px",background:C.s2,border:`1px solid ${st.color}44`}}>{st.l.toUpperCase()}</span><span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{citizen.name}</span>{citizen.claimStatus==="pending"&&<span className="mono" style={{fontSize:8,color:C.gold,border:`1px solid ${C.gold}44`,borderRadius:2,padding:"1px 6px"}}>CLAIM PENDING</span>}{citizen.username?<span className="mono" style={{fontSize:10,color:linked?"#5aaa7a":C.textD}}>{citizen.username}{linked?" ✓":""}</span>:<span className="mono" style={{fontSize:9,color:C.textDD,fontStyle:"italic"}}>unlinked</span>}{citizen.since&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{citizen.since}</span>}<span style={{fontSize:11,color:C.textDD}}>{open?"A":"V"}</span></div>
+    <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"0.65rem 1rem",cursor:"pointer",flexWrap:"wrap"}}><span className="mono" style={{fontSize:9,color:st.color,padding:"2px 8px",background:C.s2,border:`1px solid ${st.color}44`}}>{st.l.toUpperCase()}</span><span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{citizen.name}</span>{citizen.claimStatus==="pending"&&<span className="mono" style={{fontSize:8,color:C.gold,border:`1px solid ${C.gold}44`,borderRadius:2,padding:"1px 6px"}}>CLAIM PENDING</span>}{citizen.reviewRequested&&<span className="mono" style={{fontSize:8,color:"#b89ac8",border:`1px solid #6a4a8a`,borderRadius:2,padding:"1px 6px"}}>REVIEW REQUESTED</span>}{citizen.username?<span className="mono" style={{fontSize:10,color:linked?"#5aaa7a":C.textD}}>{citizen.username}{linked?" ✓":""}</span>:<span className="mono" style={{fontSize:9,color:C.textDD,fontStyle:"italic"}}>unlinked</span>}{citizen.since&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{citizen.since}</span>}<span style={{fontSize:11,color:C.textDD}}>{open?"A":"V"}</span></div>
     {open&&<div style={{borderTop:`1px solid ${C.border}`,padding:"0.85rem",background:C.s2,display:"flex",gap:"0.75rem",flexWrap:"wrap",alignItems:"flex-end"}}>
       <div style={{flex:1,minWidth:150}}><FL>STATUS</FL><DD value={status} onChange={setStatus} options={CITIZENSHIP_STATUSES.map(s=>({v:s.v,l:s.l}))}/></div>
       <div style={{flex:1,minWidth:150}}><FL>LINKED USERNAME</FL><Inp value={uname} onChange={setUname} placeholder="MOI username (blank = unlinked)"/></div>
       <div style={{flex:2,minWidth:180}}><FL>NOTES</FL><Inp value={notes} onChange={setNotes} placeholder="Notes..."/></div>
-      <Btn small variant="gold" disabled={saving} onClick={async()=>{setSaving(true);setProcessing("Updating...");await onAction("updateCitizen",{id:citizen.id,status,username:uname.trim(),notes:notes.trim()});setProcessing(null);setSaving(false);notify(citizen.name+" updated.",C.gold);}}>{saving?"Saving...":"Save"}</Btn>
+      <Btn small variant="gold" disabled={saving} onClick={async()=>{setSaving(true);setProcessing("Updating...");await onAction("updateCitizen",{id:citizen.id,status,username:uname.trim(),notes:notes.trim(),reviewRequested:false,reviewRequestedAt:null});setProcessing(null);setSaving(false);notify(citizen.name+" updated.",C.gold);}}>{saving?"Saving...":"Save"}</Btn>
       <ArmBtn small label="Remove" confirmLabel="Remove?" onConfirm={async()=>{setProcessing("Removing...");await onAction("deleteCitizen",{id:citizen.id});setProcessing(null);notify(citizen.name+" removed.",C.textD);}}/>
     </div>}
   </div>;

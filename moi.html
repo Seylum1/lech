@@ -220,7 +220,8 @@ function guillochePath(cx,cy,rad,petals,depth,copies){
       d+=(i?"L":"M")+(cx+rr*Math.cos(a)).toFixed(1)+" "+(cy+rr*Math.sin(a)).toFixed(1)+" ";}}
   return d;
 }
-function idCardHTML(acc){
+function mcFace(n){return "https://mc-heads.net/avatar/"+encodeURIComponent(n||"")+"/128";}
+function idCardHTML(acc,pfp){
   var key=(acc&&acc.stateOfResidency||"").toLowerCase();
   var P=PROVINCES[key]; if(!P) return "";
   var e=function(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");};
@@ -261,7 +262,9 @@ function idCardHTML(acc){
        // body
        '<div style="position:relative;padding:12px 15px 4px;display:flex;gap:12px;align-items:flex-start;">'+
          '<div style="width:76px;flex:none;">'+
-           '<div style="width:76px;height:92px;border-radius:3px;border:1px solid '+P.foil+'77;box-shadow:inset 0 0 0 2px '+P.c2+';background:radial-gradient(circle at 50% 33%, rgba(255,255,255,.32) 0 25%, transparent 26%),radial-gradient(ellipse 46% 33% at 50% 102%, rgba(255,255,255,.32) 0 60%, transparent 61%),linear-gradient(160deg, rgba(255,255,255,.10), rgba(0,0,0,.30));"></div>'+
+           (pfp
+             ? '<img src="'+e(pfp)+'" alt="" style="width:76px;height:92px;border-radius:3px;border:1px solid '+P.foil+'77;box-shadow:inset 0 0 0 2px '+P.c2+';object-fit:cover;display:block;" onerror="this.style.display=\'none\';"/>'
+             : '<div style="width:76px;height:92px;border-radius:3px;border:1px solid '+P.foil+'77;box-shadow:inset 0 0 0 2px '+P.c2+';background:radial-gradient(circle at 50% 33%, rgba(255,255,255,.32) 0 25%, transparent 26%),radial-gradient(ellipse 46% 33% at 50% 102%, rgba(255,255,255,.32) 0 60%, transparent 61%),linear-gradient(160deg, rgba(255,255,255,.10), rgba(0,0,0,.30));"></div>')+
            '<div style="font-family:\'Crimson Text\',Georgia,serif;font-style:italic;font-size:14px;text-align:center;margin-top:5px;transform:rotate(-2deg);line-height:1;color:'+P.ink+';">'+e(name)+'</div>'+
            '<div style="font-size:6.5px;letter-spacing:.16em;opacity:.6;text-align:center;border-top:1px solid '+P.foil+'44;margin-top:2px;padding-top:2px;">SIGNATURE OF BEARER</div>'+
          '</div>'+
@@ -282,7 +285,7 @@ function idCardHTML(acc){
      '</div>'+
    '</div>';
 }
-function IDCard({acc}){return <div dangerouslySetInnerHTML={{__html:idCardHTML(acc)}}/>;}
+function IDCard({acc,pfp}){return <div dangerouslySetInnerHTML={{__html:idCardHTML(acc,pfp)}}/>;}
 
 // ── BACKEND ───────────────────────────────────────────────────────────────────
 async function sha256(t){
@@ -302,6 +305,15 @@ async function sgetAll(){
     const d=await r.json();
     return (d&&d.ok)?(d.data||{}):{};
   }catch{return{};}
+}
+// Reset another account's profile picture back to their Minecraft face. The
+// server allows this only for the Interior Ministry (or the Emperor).
+async function resetProfilePicture(username){
+  try{
+    const r=await fetch(API+"/api/profile-picture",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({token:AUTH_TOKEN,username:String(username||"").toLowerCase(),clear:true})});
+    const d=await r.json(); return !!(d&&d.ok);
+  }catch{return false;}
 }
 async function slogin(username,password){
   try{
@@ -1920,7 +1932,7 @@ function PermissionsReference(){
       <Note>{"Officer = read-only registry access. Registrar adds approval of ship & port requests and manual registration. Commissioner adds IMC account management."}</Note>
     </Sec>
   </div>;
-}function MinisterPanel({currentUser,accounts,onUpdate,notify,setProcessing}){
+}function MinisterPanel({currentUser,accounts,pfps,onUpdate,notify,setProcessing}){
   const [sub,setSub]=useState("accounts");
   const [showPerms,setShowPerms]=useState(false);
   return(
@@ -1948,14 +1960,14 @@ function PermissionsReference(){
           </button>
         ))}
       </div>
-      {sub==="accounts"&&<AccountManager currentUser={currentUser} accounts={accounts} onUpdate={onUpdate} notify={notify} setProcessing={setProcessing} canSetMinister={false}/>}
+      {sub==="accounts"&&<AccountManager currentUser={currentUser} accounts={accounts} pfps={pfps} onUpdate={onUpdate} notify={notify} setProcessing={setProcessing} canSetMinister={false}/>}
       {sub==="clearances"&&<ClearanceTracker accounts={accounts} currentUser={{...currentUser,role:"minister"}} onUpdate={onUpdate} notify={notify} setProcessing={setProcessing}/>}
     </div>
   );
 }
 
 // ── EMPEROR PANEL ─────────────────────────────────────────────────────────────
-function EmperorPanel({currentUser,accounts,onUpdate,notify,setProcessing}){
+function EmperorPanel({currentUser,accounts,pfps,onUpdate,notify,setProcessing}){
   const [sub,setSub]=useState("accounts");
   const [showPerms,setShowPerms]=useState(false);
   return(
@@ -1983,14 +1995,14 @@ function EmperorPanel({currentUser,accounts,onUpdate,notify,setProcessing}){
           </button>
         ))}
       </div>
-      {sub==="accounts"&&<AccountManager currentUser={currentUser} accounts={accounts} onUpdate={onUpdate} notify={notify} setProcessing={setProcessing} canSetMinister={true}/>}
+      {sub==="accounts"&&<AccountManager currentUser={currentUser} accounts={accounts} pfps={pfps} onUpdate={onUpdate} notify={notify} setProcessing={setProcessing} canSetMinister={true}/>}
       {sub==="clearances"&&<ClearanceTracker accounts={accounts} currentUser={currentUser} onUpdate={onUpdate} notify={notify} setProcessing={setProcessing}/>}
     </div>
   );
 }
 
 // ── ACCOUNT MANAGER ───────────────────────────────────────────────────────────
-function AccountManager({currentUser,accounts,onUpdate,notify,setProcessing,canSetMinister}){
+function AccountManager({currentUser,accounts,pfps,onUpdate,notify,setProcessing,canSetMinister}){
   const [search,setSearch]=useState("");
   const [creating,setCreating]=useState(false);
   const [bk,setBk]=useState(null);
@@ -2023,16 +2035,22 @@ function AccountManager({currentUser,accounts,onUpdate,notify,setProcessing,canS
       {creating&&<CreateAccountForm onUpdate={onUpdate} notify={notify} setProcessing={setProcessing} onClose={()=>setCreating(false)} canSetMinister={canSetMinister}/>}
       <div style={{display:"flex",flexDirection:"column",gap:4}}>
         {list.map(acc=>(
-          <AccountRow key={acc.username} acc={acc} bk={bk} currentUser={currentUser} onUpdate={onUpdate} notify={notify} setProcessing={setProcessing} canSetMinister={canSetMinister}/>
+          <AccountRow key={acc.username} acc={acc} bk={bk} pfp={(pfps||{})[(acc.username||"").toLowerCase()]} currentUser={currentUser} onUpdate={onUpdate} notify={notify} setProcessing={setProcessing} canSetMinister={canSetMinister}/>
         ))}
       </div>
     </div>
   );
 }
 
-function AccountRow({acc,bk,currentUser,onUpdate,notify,setProcessing,canSetMinister}){
+function AccountRow({acc,bk,pfp,currentUser,onUpdate,notify,setProcessing,canSetMinister}){
   const bkStanding=bkStandingFor(acc,bk);
   const [open,setOpen]=useState(false);
+  const [pfpLocked,setPfpLocked]=useState(!!acc.pfpLocked);
+  // Locally track a reset so the preview drops to the Minecraft face at once,
+  // before the next full data refresh.
+  const [pfpCleared,setPfpCleared]=useState(false);
+  const hasCustomPfp=!!(pfp&&pfp.img)&&!pfpCleared;
+  const pfpSrc=hasCustomPfp?pfp.img:mcFace(acc.mcName||acc.username);
   const [role,setRole]=useState(acc.role||"citizen");
   const [ministry,setMinistry]=useState(acc.ministry||"Civilian");
   const [isContractor,setIsContractor]=useState(acc.isContractor||false);
@@ -2097,7 +2115,7 @@ function AccountRow({acc,bk,currentUser,onUpdate,notify,setProcessing,canSetMini
                 {residency?"Provincial ID auto-issued: "+genIdNumber(acc.username,PROVINCES[residency].code):"No province — bearer receives no identity card."}
               </div>
             </div>
-            {residency&&<div style={{flex:1,minWidth:280,maxWidth:400}}><IDCard acc={{...acc,stateOfResidency:residency}}/></div>}
+            {residency&&<div style={{flex:1,minWidth:280,maxWidth:400}}><IDCard acc={{...acc,stateOfResidency:residency}} pfp={pfpSrc}/></div>}
           </div>
           {/* Agency standing — set the same way as every other ministry below. */}
           <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
@@ -2230,6 +2248,33 @@ function AccountRow({acc,bk,currentUser,onUpdate,notify,setProcessing,canSetMini
               </div>
             </div>
           </div>
+          {/* Profile picture — reset the holder's image, or lock them out of changing it. */}
+          <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",background:C.s1,border:`1px solid ${C.border}`,borderRadius:3,padding:"0.75rem 1rem"}}>
+            <img src={pfpSrc} alt="" onError={e=>{e.currentTarget.style.visibility="hidden";}}
+              style={{width:52,height:52,borderRadius:4,objectFit:"cover",border:`1px solid ${C.border}`,background:C.s3}}/>
+            <div style={{flex:1,minWidth:160}}>
+              <FL>PROFILE PICTURE</FL>
+              <div style={{fontSize:12,color:C.textD,fontStyle:"italic"}}>
+                {hasCustomPfp?"Custom image set by the holder.":"Using their Minecraft face (no custom image)."}
+              </div>
+            </div>
+            {hasCustomPfp&&<ArmBtn small label="Reset Picture" confirmLabel="Reset to MC face?" onConfirm={async()=>{
+              setProcessing("Resetting picture…");
+              const ok=await resetProfilePicture(acc.username);
+              setProcessing(null);
+              if(ok){setPfpCleared(true);notify("Profile picture reset.",C.gold);}else notify("Reset failed.",C.redL);
+            }}/>}
+            <button onClick={()=>setPfpLocked(v=>!v)}
+              style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",
+                padding:"6px 12px",borderRadius:2,cursor:"pointer",
+                border:`1px solid ${pfpLocked?C.redL:C.border}`,
+                background:pfpLocked?"#2a0f0f":"transparent",color:pfpLocked?C.redL:C.textD}}>
+              {pfpLocked?"🔒 Changes Locked":"🔓 Lock Changes"}
+            </button>
+          </div>
+          {pfpLocked!==!!acc.pfpLocked&&<div className="mono" style={{fontSize:10,color:C.gold}}>
+            Picture lock {pfpLocked?"will be applied":"will be lifted"} when you Save Changes.
+          </div>}
           <div style={{display:"flex",gap:8,alignItems:"flex-end",flexWrap:"wrap"}}>
             <div style={{flex:1,minWidth:180}}>
               <FL>RESET PASSWORD (optional)</FL>
@@ -2246,7 +2291,7 @@ function AccountRow({acc,bk,currentUser,onUpdate,notify,setProcessing,canSetMini
                 mdtRestricted,mdtClearance:mdtRestricted?mdtClearance:0,
                 mowAccess:!!mowRole,mowRole,canSetAlert:canSetAlert&&!!mowRole,mfaAccess,ijAccess,
                 mofRole,mofAccess:!!mofRole,pressRole,pressAccess:!!pressRole,imcRole,
-                clearance:parseInt(clearance),stateOfResidency:residency};
+                clearance:parseInt(clearance),stateOfResidency:residency,pfpLocked};
               // Hashed here; the backend salts it on the account's next login
               // (see the legacy-upgrade path in moi-backend.gs).
               if(newPw.trim()) patch.passwordHash=await sha256(newPw.trim());
@@ -2412,6 +2457,7 @@ function App(){
     Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{ if(!a[k]) a[k]=v; });
     return a;
   },[raw]);
+  const pfps=useMemo(()=>raw["mi_pfp"]||{},[raw]);
   const lssOps=useMemo(()=>raw["mi_lss_ops"]||{},[raw]);
   const lssDocs=useMemo(()=>raw["mi_lss_docs"]||{},[raw]);
   const lfpOps=useMemo(()=>raw["mi_lfp_ops"]||{},[raw]);
@@ -2637,8 +2683,8 @@ function App(){
           {section==="clearances"&&<ClearanceTracker accounts={accounts} currentUser={user} onUpdate={onUpdateAccount} notify={notify} setProcessing={setProcessing}/>}
           {section==="lss"&&isLSS&&<LSSSection currentUser={user} accounts={accounts} lssOps={lssOps} lssDocs={lssDocs} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
           {section==="lfp"&&isLFP&&<LFPSection currentUser={user} accounts={accounts} lfpOps={lfpOps} arrests={arrests} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
-          {section==="minister"&&isMinister&&<MinisterPanel currentUser={user} accounts={accounts} onUpdate={onUpdateAccount} notify={notify} setProcessing={setProcessing}/>}
-          {section==="emperor"&&isEmperor&&<EmperorPanel currentUser={user} accounts={accounts} onUpdate={onUpdateAccount} notify={notify} setProcessing={setProcessing}/>}
+          {section==="minister"&&isMinister&&<MinisterPanel currentUser={user} accounts={accounts} pfps={pfps} onUpdate={onUpdateAccount} notify={notify} setProcessing={setProcessing}/>}
+          {section==="emperor"&&isEmperor&&<EmperorPanel currentUser={user} accounts={accounts} pfps={pfps} onUpdate={onUpdateAccount} notify={notify} setProcessing={setProcessing}/>}
         </div>
       )}
 

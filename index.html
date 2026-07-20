@@ -642,24 +642,70 @@ function loadForeignPolicy(){
 .ch-v{font-size:0.95rem;color:#e8d8c8;}
 .ch-link{font-family:'Cinzel',serif;font-size:0.55rem;letter-spacing:0.15em;text-transform:uppercase;
   color:#C9A84C;text-decoration:none;border:1px solid #5a4000;border-radius:2px;padding:3px 9px;}
+/* ── Auth (sign in / register) ── */
+.cp-eyebrow{font-family:'Cinzel',serif;font-size:0.55rem;letter-spacing:0.4em;color:#C9A84C;margin-bottom:0.6rem;}
+.cp-title{font-family:'Cinzel',serif;font-weight:700;font-size:1.35rem;letter-spacing:0.06em;color:#e8d8c8;}
+.cp-sub{font-size:0.82rem;color:#9a8070;font-style:italic;margin-top:0.4rem;}
+.cp-tabs{display:flex;gap:0;margin-bottom:1.25rem;border:1px solid #3a1a1a;border-radius:3px;overflow:hidden;}
+.cp-tab{flex:1;font-family:'Cinzel',serif;font-size:0.62rem;letter-spacing:0.16em;text-transform:uppercase;
+  padding:0.6rem;background:#160e0e;color:#8a6a5a;border:none;cursor:pointer;transition:all .2s;}
+.cp-tab.active{background:linear-gradient(135deg,#3a2a00,#5a4000);color:#C9A84C;}
+.cp-err{font-family:'Share Tech Mono',monospace;font-size:0.7rem;color:#c05050;background:#1a0808;
+  border:1px solid #6a1010;padding:0.5rem 0.7rem;border-radius:2px;}
+.cp-foot{font-family:'Share Tech Mono',monospace;font-size:0.6rem;color:#5a3a30;margin-top:1.25rem;
+  text-align:center;line-height:1.6;}
+.cp-hint{font-size:0.72rem;color:#7a5a4a;font-style:italic;margin-top:-0.35rem;}
+.cp-check{display:flex;align-items:flex-start;gap:0.5rem;font-size:0.78rem;color:#b8a090;line-height:1.5;cursor:pointer;}
+.cp-check input{margin-top:3px;flex-shrink:0;}
+/* ── Account management (pfp, password) ── */
+.ch-pfp{width:96px;height:96px;border-radius:6px;object-fit:cover;border:1px solid #5a4000;
+  background:#201414;display:block;margin:0 auto 0.5rem;}
+.ch-mini{font-family:'Cinzel',serif;font-size:0.55rem;letter-spacing:0.18em;text-transform:uppercase;
+  color:#9a8070;text-align:center;margin-bottom:0.6rem;}
+.ch-mbtn{font-family:'Cinzel',serif;font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;
+  padding:0.45rem 0.9rem;background:#201414;border:1px solid #5a4000;color:#C9A84C;cursor:pointer;
+  border-radius:2px;transition:all .2s;}
+.ch-mbtn:hover{background:#2a1e00;}
+.ch-mbtn.ghost{border-color:#3a1a1a;color:#9a8070;}
+.ch-cta{display:block;background:linear-gradient(135deg,#14120a,#1a1610);border:1px solid #5a4000;
+  border-left:3px solid #C9A84C;border-radius:0 3px 3px 0;padding:0.85rem 1.1rem;margin-bottom:1rem;
+  text-decoration:none;}
 </style>
 
-<button class="cp-fab" onclick="cpOpen()">⬡ Citizen Portal</button>
+<button class="cp-fab" onclick="cpOpen()">⬡ Citizen Portal · Sign in / Register</button>
 
 <div id="cp-login" class="cp-modal" onclick="if(event.target===this)cpClose()">
   <div class="cp-login-box">
     <div style="text-align:center;margin-bottom:1.5rem;">
-      <div style="font-family:'Cinzel',serif;font-size:0.55rem;letter-spacing:0.4em;color:#C9A84C;margin-bottom:0.6rem;">EMPIRE OF LECH</div>
-      <div style="font-family:'Cinzel',serif;font-weight:700;font-size:1.35rem;letter-spacing:0.06em;color:#e8d8c8;">Citizen Portal</div>
-      <div style="font-size:0.82rem;color:#9a8070;font-style:italic;margin-top:0.4rem;">Your complete record across the Imperial Network</div>
+      <div class="cp-eyebrow">EMPIRE OF LECH</div>
+      <div class="cp-title">Citizen Portal</div>
+      <div class="cp-sub">Your complete record across the Imperial Network</div>
     </div>
-    <div style="display:flex;flex-direction:column;gap:0.8rem;">
-      <input id="ch-user" class="cp-inp" placeholder="Username" autocomplete="username" onkeydown="if(event.key==='Enter')chLogin()"/>
-      <input id="ch-pass" class="cp-inp" type="password" placeholder="Password" autocomplete="current-password" onkeydown="if(event.key==='Enter')chLogin()"/>
-      <div id="ch-err" style="display:none;font-family:'Share Tech Mono',monospace;font-size:0.7rem;color:#c05050;background:#1a0808;border:1px solid #6a1010;padding:0.5rem 0.7rem;border-radius:2px;"></div>
-      <button id="ch-go" class="cp-btn" onclick="chLogin()">Sign In</button>
+    <div class="cp-tabs">
+      <button id="cp-tab-in" class="cp-tab active" onclick="cpTab('in')">Sign In</button>
+      <button id="cp-tab-reg" class="cp-tab" onclick="cpTab('reg')">Register</button>
     </div>
-    <div style="font-family:'Share Tech Mono',monospace;font-size:0.6rem;color:#5a3a30;margin-top:1.25rem;text-align:center;line-height:1.6;">Uses your Ministry of the Interior credentials.</div>
+    <div id="cp-pane-in">
+      <div style="display:flex;flex-direction:column;gap:0.8rem;">
+        <input id="ch-user" class="cp-inp" placeholder="Username" autocomplete="username" onkeydown="if(event.key==='Enter')chLogin()"/>
+        <input id="ch-pass" class="cp-inp" type="password" placeholder="Password" autocomplete="current-password" onkeydown="if(event.key==='Enter')chLogin()"/>
+        <div id="ch-err" class="cp-err" style="display:none;"></div>
+        <button id="ch-go" class="cp-btn" onclick="chLogin()">Sign In</button>
+      </div>
+      <div class="cp-foot">Uses your Ministry of the Interior credentials.</div>
+    </div>
+    <div id="cp-pane-reg" style="display:none;">
+      <div style="display:flex;flex-direction:column;gap:0.75rem;">
+        <input id="rg-user" class="cp-inp" placeholder="Minecraft username" autocomplete="username"/>
+        <div class="cp-hint">Must be your real Minecraft username — we verify it with Mojang.</div>
+        <input id="rg-pass" class="cp-inp" type="password" placeholder="Choose a password" autocomplete="new-password"/>
+        <input id="rg-pass2" class="cp-inp" type="password" placeholder="Confirm password" autocomplete="new-password" onkeydown="if(event.key==='Enter')chRegister()"/>
+        <label class="cp-check"><input type="checkbox" id="rg-cit"/><span>I believe I hold citizenship of the Empire — ask Foreign Affairs to review my status.</span></label>
+        <div id="rg-err" class="cp-err" style="display:none;"></div>
+        <button id="rg-go" class="cp-btn" onclick="chRegister()">Create Account</button>
+      </div>
+      <div class="cp-foot">New accounts begin as a <b style="color:#b89ac8;">Registered Alien</b>.<br/>Citizenship is granted by the Ministry of Foreign Affairs.</div>
+    </div>
   </div>
 </div>
 
@@ -716,7 +762,7 @@ function loadForeignPolicy(){
   function genIdNumber(username,code){var six=(idHash("id:"+username)%900000)+100000;return "LEC-"+code+"-"+six;}
   function idIssueDate(username){var start=new Date(2022,0,1).getTime();var span=new Date(2026,0,1).getTime()-start;return new Date(start+(idHash("date:"+username)%span));}
   function fmtIdDate(d){var m=["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];return (d.getDate()<10?"0":"")+d.getDate()+" "+m[d.getMonth()]+" "+d.getFullYear();}
-  function idCardHTML(acc){
+  function idCardHTML(acc,pfp){
     var key=(acc&&acc.stateOfResidency||"").toLowerCase();
     var P=PROVINCES[key]; if(!P) return "";
     var name=acc.displayName||acc.username||"—";
@@ -745,7 +791,9 @@ function loadForeignPolicy(){
          '</div>'+
          '<div style="position:relative;padding:14px 16px 6px;display:flex;gap:14px;">'+
            '<div style="width:84px;flex:none;">'+
-             '<div style="width:84px;height:104px;border-radius:4px;border:1px solid '+P.foil+'66;background:radial-gradient(circle at 50% 32%, rgba(255,255,255,.30) 0 26%, transparent 27%),radial-gradient(ellipse 48% 34% at 50% 100%, rgba(255,255,255,.30) 0 60%, transparent 61%),linear-gradient(160deg, rgba(255,255,255,.12), rgba(0,0,0,.28));"></div>'+
+             (pfp
+               ? '<img src="'+esc(pfp)+'" alt="" style="width:84px;height:104px;border-radius:4px;border:1px solid '+P.foil+'66;object-fit:cover;display:block;" onerror="this.style.display=\'none\';"/>'
+               : '<div style="width:84px;height:104px;border-radius:4px;border:1px solid '+P.foil+'66;background:radial-gradient(circle at 50% 32%, rgba(255,255,255,.30) 0 26%, transparent 27%),radial-gradient(ellipse 48% 34% at 50% 100%, rgba(255,255,255,.30) 0 60%, transparent 61%),linear-gradient(160deg, rgba(255,255,255,.12), rgba(0,0,0,.28));"></div>')+
              '<div style="font-family:\'Crimson Text\',Georgia,serif;font-style:italic;font-size:15px;text-align:center;margin-top:6px;transform:rotate(-2deg);line-height:1;">'+esc(name)+'</div>'+
              '<div style="font-size:7px;letter-spacing:.15em;opacity:.6;text-align:center;border-top:1px solid '+P.foil+'44;margin-top:2px;padding-top:2px;">SIGNATURE OF BEARER</div>'+
            '</div>'+
@@ -966,9 +1014,17 @@ function loadForeignPolicy(){
   ];
   function dateStr(d){if(!d)return "";if(typeof d==="number")return new Date(d).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});return d;}
 
+  var API="https://lech-backend.onrender.com";
+  var AUTH_TOKEN=null;   // held after sign-in/registration for account actions
+  var CUR_ACC=null;      // the account currently shown in the hub, for refresh
+  var WELCOME=false;     // show the first-time welcome banner after registration
+  function val(id){var e=document.getElementById(id);return e?e.value:"";}
+  function mcFace(name){return "https://mc-heads.net/avatar/"+encodeURIComponent(name||"")+"/128";}
   function fetchAll(url){
     // One backend now — /api/data carries both the ministry and chamber data.
-    return fetch("https://lech-backend.onrender.com/api/data").then(function(r){return r.json();}).then(function(d){
+    // Pass the token when we have one so a signed-in officer still sees the
+    // protected records their clearance allows.
+    return fetch(API+"/api/data"+(AUTH_TOKEN?"?token="+encodeURIComponent(AUTH_TOKEN):"")).then(function(r){return r.json();}).then(function(d){
       if(!d||!d.ok)throw new Error("backend");
       return d.data||{};
     });
@@ -980,7 +1036,92 @@ function loadForeignPolicy(){
 
   window.cpOpen=function(){document.getElementById("cp-login").classList.add("open");setTimeout(function(){var u=document.getElementById("ch-user");if(u)u.focus();},50);};
   window.cpClose=function(){document.getElementById("cp-login").classList.remove("open");};
-  window.chLogout=function(){var h=document.getElementById("cp-hub");h.classList.remove("open");h.innerHTML="";};
+  window.chLogout=function(){AUTH_TOKEN=null;CUR_ACC=null;var h=document.getElementById("cp-hub");h.classList.remove("open");h.innerHTML="";};
+  window.cpTab=function(which){
+    var isIn=which==="in";
+    document.getElementById("cp-tab-in").classList.toggle("active",isIn);
+    document.getElementById("cp-tab-reg").classList.toggle("active",!isIn);
+    document.getElementById("cp-pane-in").style.display=isIn?"block":"none";
+    document.getElementById("cp-pane-reg").style.display=isIn?"none":"block";
+    setTimeout(function(){var el=document.getElementById(isIn?"ch-user":"rg-user");if(el)el.focus();},40);
+  };
+
+  function rgErr(m){var e=document.getElementById("rg-err");e.textContent=m;e.style.display=m?"block":"none";}
+  function rgBusy(b){var g=document.getElementById("rg-go");g.textContent=b?"Verifying…":"Create Account";g.disabled=b;}
+  window.chRegister=function(){
+    var u=val("rg-user").trim(),p=val("rg-pass"),p2=val("rg-pass2"),cit=document.getElementById("rg-cit").checked;
+    rgErr("");
+    if(!/^[A-Za-z0-9_]{3,16}$/.test(u)){rgErr("Enter a valid Minecraft username (3–16 letters, numbers or underscore).");return;}
+    if(p.length<6){rgErr("Choose a password of at least 6 characters.");return;}
+    if(p!==p2){rgErr("The two passwords do not match.");return;}
+    rgBusy(true);
+    sha256(p).then(function(hash){
+      return fetch(API+"/api/register",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u,passwordHash:hash,citizen:cit})});
+    }).then(function(r){return r.json();}).then(function(d){
+      if(d&&d.ok){
+        AUTH_TOKEN=d.token;
+        fetchAll().then(function(raw){
+          rgBusy(false);
+          document.getElementById("rg-pass").value="";document.getElementById("rg-pass2").value="";
+          cpClose();WELCOME=true;renderHub(d.account,raw,raw);
+        }).catch(function(){rgBusy(false);rgErr("Account created, but loading failed. Try signing in.");});
+        return;
+      }
+      rgBusy(false);rgErr((d&&d.error)||"Registration failed.");
+    }).catch(function(){rgBusy(false);rgErr("Connection error — try again.");});
+  };
+
+  // ── Account self-service (used from the hub) ──
+  window.refreshHub=function(){ if(!CUR_ACC)return; fetchAll().then(function(raw){ renderHub(CUR_ACC,raw,raw); }).catch(function(){}); };
+  window.chChangePw=function(){
+    var o=val("cpw-old"),n=val("cpw-new"),n2=val("cpw-new2");
+    var msg=document.getElementById("cpw-msg");
+    function say(m,err){if(msg){msg.textContent=m;msg.style.color=err?"#c05050":"#7aa87a";}}
+    if(!o||!n){say("Fill in every field.",true);return;}
+    if(n.length<6){say("New password must be at least 6 characters.",true);return;}
+    if(n!==n2){say("New passwords do not match.",true);return;}
+    say("Updating…");
+    sha256(n).then(function(h){
+      return fetch(API+"/api/change-password",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,oldPassword:o,newPasswordHash:h})});
+    }).then(function(r){return r.json();}).then(function(d){
+      if(d&&d.ok){say("Password updated.");["cpw-old","cpw-new","cpw-new2"].forEach(function(id){var e=document.getElementById(id);if(e)e.value="";});}
+      else say((d&&d.error)||"Update failed.",true);
+    }).catch(function(){say("Connection error.",true);});
+  };
+  window.chUploadPfp=function(input){
+    var f=input.files&&input.files[0];input.value="";
+    var msg=document.getElementById("pfp-msg");
+    function say(m,err){if(msg){msg.textContent=m;msg.style.color=err?"#c05050":"#7aa87a";}}
+    if(!f)return;
+    say("Processing…");
+    var reader=new FileReader();
+    reader.onload=function(e){
+      var img=new Image();
+      img.onload=function(){
+        var S=256,c=document.createElement("canvas");c.width=S;c.height=S;
+        var ctx=c.getContext("2d"),side=Math.min(img.width,img.height);
+        ctx.drawImage(img,(img.width-side)/2,(img.height-side)/2,side,side,0,0,S,S);
+        var b64=c.toDataURL("image/jpeg",0.85);
+        fetch(API+"/api/profile-picture",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,img:b64})})
+          .then(function(r){return r.json();}).then(function(d){
+            if(d&&d.ok){say("Updated.");refreshHub();}else say((d&&d.error)||"Upload failed.",true);
+          }).catch(function(){say("Connection error.",true);});
+      };
+      img.onerror=function(){say("Could not read that image.",true);};
+      img.src=e.target.result;
+    };
+    reader.onerror=function(){say("Could not read the file.",true);};
+    reader.readAsDataURL(f);
+  };
+  window.chRemovePfp=function(){
+    var msg=document.getElementById("pfp-msg");
+    function say(m,err){if(msg){msg.textContent=m;msg.style.color=err?"#c05050":"#7aa87a";}}
+    say("Resetting…");
+    fetch(API+"/api/profile-picture",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,clear:true})})
+      .then(function(r){return r.json();}).then(function(d){
+        if(d&&d.ok){say("Reset to Minecraft face.");refreshHub();}else say((d&&d.error)||"Reset failed.",true);
+      }).catch(function(){say("Connection error.",true);});
+  };
 
   window.chLogin=function(){
     var u=document.getElementById("ch-user").value.trim();
@@ -993,10 +1134,10 @@ function loadForeignPolicy(){
       fetchAll().then(function(raw){ finish(acc,raw,raw); })
         .catch(function(){chBusy(false);chErr("Connection error — try again.");});
     }
-    fetch("https://lech-backend.onrender.com/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u,password:p})})
+    fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u,password:p})})
       .then(function(r){return r.json();})
       .then(function(d){
-        if(d&&d.ok){proceed(d.account);return;}
+        if(d&&d.ok){AUTH_TOKEN=d.token;proceed(d.account);return;}
         chBusy(false);chErr((d&&d.error)||"Incorrect password.");
       }).catch(function(){chBusy(false);chErr("Connection error — try again.");});
   };
@@ -1012,7 +1153,14 @@ function loadForeignPolicy(){
   function kv(k,v){return '<div class="ch-k">'+esc(k)+'</div><div class="ch-v">'+v+'</div>';}
 
   function renderHub(acc,raw,bk){
+    CUR_ACC=acc;
     ME={u:(acc.username||"").toLowerCase(),n:((acc.displayName||acc.username)||"").toLowerCase()};
+    // Profile picture: a custom upload if one exists, otherwise the account's
+    // Minecraft face. pfpLocked (set by the Interior Ministry) hides the controls.
+    var pfpRec=(raw.mi_pfp||{})[ME.u];
+    var pfpIsCustom=!!(pfpRec&&pfpRec.img);
+    var pfpImg=pfpIsCustom?pfpRec.img:mcFace(acc.mcName||acc.username);
+    var pfpLocked=!!acc.pfpLocked;
     var personnel=raw.mow_personnel||{}, honours=raw.ih_honours||{}, ships=raw.imc_ships||{},
         ports=raw.imc_ports||{}, shipReqs=raw.imc_ship_reqs||{}, cases=raw.ij_cases||{},
         businesses=raw.mof_businesses||{}, debts=raw.mof_debts||{},
@@ -1075,10 +1223,50 @@ function loadForeignPolicy(){
     html+='<div style="font-family:\'Cinzel\',serif;font-weight:700;font-size:1.15rem;letter-spacing:0.05em;color:#e8d8c8;">'+esc(acc.displayName||acc.username)+'</div>';
     html+='</div>';
     html+='<span class="ch-badge" style="color:'+cl.color+';border-color:'+cl.color+'66;background:'+cl.color+'11;">'+cl.short+' · '+esc(cl.code)+'</span>';
+    html+='<a class="ch-link" href="howto.html" style="padding:0.5rem 1rem;">Help · How-To</a>';
     html+='<button class="cp-btn" style="width:auto;padding:0.5rem 1.2rem;" onclick="chLogout()">Close</button>';
     html+='</div>';
 
     html+='<div class="ch-grid">';
+
+    // ── First-time welcome (after registration) ──
+    if(WELCOME){ WELCOME=false;
+      html+='<a class="ch-cta" href="howto.html" style="grid-column:1/-1;">';
+      html+='<div style="font-family:\'Cinzel\',serif;font-size:0.62rem;letter-spacing:0.28em;text-transform:uppercase;color:#C9A84C;margin-bottom:4px;">Welcome to the Empire of Lech</div>';
+      html+='<div style="font-size:0.95rem;color:#e8d8c8;line-height:1.5;">Your account is created. You are currently a <b style="color:#b89ac8;">Registered Alien</b> — the Ministry of Foreign Affairs updates citizenship. New here? <b style="color:#C9A84C;">Read the how-to guide →</b></div>';
+      html+='</a>';
+    }
+
+    // ── Manage Account (profile picture + password) ──
+    html+='<div class="ch-panel full" style="--pa:#C9A84C">';
+    html+='<div class="ch-title">⚙ Manage Account</div>';
+    html+='<div style="display:flex;gap:2rem;flex-wrap:wrap;align-items:flex-start;">';
+    // Profile picture
+    html+='<div style="width:150px;text-align:center;">';
+    html+='<div class="ch-mini">Profile Picture</div>';
+    html+='<img class="ch-pfp" src="'+esc(pfpImg)+'" onerror="this.style.visibility=\'hidden\'"/>';
+    if(pfpLocked){
+      html+='<div style="font-size:0.72rem;color:#c08a5a;font-style:italic;line-height:1.5;">Locked by the Ministry of the Interior. You cannot change it.</div>';
+    } else {
+      html+='<input type="file" id="pfp-file" accept="image/png,image/jpeg,image/webp" style="display:none;" onchange="chUploadPfp(this)"/>';
+      html+='<div style="display:flex;flex-direction:column;gap:6px;align-items:center;">';
+      html+='<button class="ch-mbtn" onclick="document.getElementById(\'pfp-file\').click()">Upload Image</button>';
+      if(pfpIsCustom) html+='<button class="ch-mbtn ghost" onclick="chRemovePfp()">Reset to MC Face</button>';
+      html+='</div>';
+      html+='<div id="pfp-msg" style="font-family:\'Share Tech Mono\',monospace;font-size:0.62rem;margin-top:6px;min-height:1em;"></div>';
+    }
+    html+='</div>';
+    // Change password
+    html+='<div style="flex:1;min-width:240px;">';
+    html+='<div class="ch-mini" style="text-align:left;">Change Password</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:0.6rem;max-width:340px;">';
+    html+='<input id="cpw-old" class="cp-inp" type="password" placeholder="Current password" autocomplete="current-password"/>';
+    html+='<input id="cpw-new" class="cp-inp" type="password" placeholder="New password" autocomplete="new-password"/>';
+    html+='<input id="cpw-new2" class="cp-inp" type="password" placeholder="Confirm new password" autocomplete="new-password"/>';
+    html+='<div id="cpw-msg" style="font-family:\'Share Tech Mono\',monospace;font-size:0.68rem;min-height:1em;"></div>';
+    html+='<button class="ch-mbtn" style="align-self:flex-start;" onclick="chChangePw()">Update Password</button>';
+    html+='</div></div>';
+    html+='</div></div>';
 
     // ── Identity & Access (full) ──
     html+='<div class="ch-panel full" style="--pa:#C9A84C">';
@@ -1109,7 +1297,7 @@ function loadForeignPolicy(){
     html+='<div class="ch-panel full" style="--pa:'+(prov?prov.foil:"#7a6a50")+'">';
     html+='<div class="ch-title">🪪 Provincial Identity Card</div>';
     if(prov){
-      html+='<div style="display:flex;justify-content:center;padding:0.5rem 0 0.75rem;">'+idCardHTML(acc)+'</div>';
+      html+='<div style="display:flex;justify-content:center;padding:0.5rem 0 0.75rem;">'+idCardHTML(acc,pfpImg)+'</div>';
       html+='<div class="ch-k" style="text-align:center;">Issued by the Province of '+esc(prov.name)+' · Empire of Lech</div>';
     } else {
       html+='<div class="ch-empty">No provincial identity card on file. An ID is issued automatically once a state of residency is assigned by the Ministry of the Interior.</div>';
@@ -1195,6 +1383,15 @@ function loadForeignPolicy(){
     // ── Foreign Affairs ──
     html+='<div class="ch-panel" style="--pa:#4a93a8">';
     html+='<div class="ch-title">🌐 Citizenship &amp; Travel <a class="ch-link" href="mfa.html" style="margin-left:auto;">Foreign Affairs →</a></div>';
+    // Registered Aliens (the default for every new account) get a clear prompt to
+    // have the Ministry of Foreign Affairs review and update their status.
+    var _cstatus=myCitizenship.length?myCitizenship[0].status:(acc.citizenshipStatus||"");
+    if(_cstatus==="alien"||(!myCitizenship.length&&(acc.citizenshipStatus==="alien"))){
+      html+='<div style="background:#1a1224;border:1px solid #6a4a8a;border-left:3px solid #b89ac8;border-radius:0 3px 3px 0;padding:0.75rem 1rem;margin-bottom:0.85rem;">';
+      html+='<div style="font-family:\'Cinzel\',serif;font-size:0.68rem;letter-spacing:0.16em;text-transform:uppercase;color:#b89ac8;margin-bottom:4px;">Registered Alien</div>';
+      html+='<div style="font-size:0.88rem;color:#d8c8e0;line-height:1.55;">You are registered but not yet a citizen. Contact the <a href="mfa.html" style="color:#C9A84C;">Ministry of Foreign Affairs</a> to have your citizenship status reviewed and updated.</div>';
+      html+='</div>';
+    }
     if(myCitizenship.length||myVisas.length){
       myCitizenship.forEach(function(c){
         var st=CITIZENSHIP_STATUS[c.status]||{l:pretty(c.status||"Citizen"),color:"#4a93a8"};
