@@ -115,6 +115,20 @@ function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2
 // ── MongoDB backend (Render API) ───────────────────────────────────────────────
 const API="https://lech-backend.onrender.com";
 let AUTH_TOKEN=null;
+// ── Shared sign-in across the Imperial Network ─────────────────────────────────
+// One session token, kept in localStorage under a single key, so signing in on
+// any page keeps you signed in on the others (same origin). It is re-validated
+// against the server on every page load and dropped at once if the server
+// rejects it; signing out clears it everywhere.
+const SESSION_KEY="lech_session";
+function saveSession(t){try{if(t)localStorage.setItem(SESSION_KEY,t);}catch(e){}}
+function forgetSession(){try{localStorage.removeItem(SESSION_KEY);}catch(e){}try{if(AUTH_TOKEN)fetch(API+"/api/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN})});}catch(e){}AUTH_TOKEN=null;}
+async function srestore(){
+  let t=null;try{t=localStorage.getItem(SESSION_KEY);}catch(e){}
+  if(!t)return null;AUTH_TOKEN=t;
+  try{const r=await fetch(API+"/api/me",{headers:{Authorization:"Bearer "+t}});const d=await r.json();if(d&&d.ok&&d.account)return d.account;}catch(e){}
+  forgetSession();return null;
+}
 async function sgetAll(){try{const r=await fetch(API+"/api/data"+(AUTH_TOKEN?"?token="+encodeURIComponent(AUTH_TOKEN):""));const d=await r.json();return (d&&d.ok)?(d.data||{}):{};}catch{return{};}}
 async function sset(k,v){try{const r=await fetch(API+"/api/set",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,key:k,value:v})});const d=await r.json();return !!(d&&d.ok);}catch{return false;}}
 async function sdel(k){try{await fetch(API+"/api/unset",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,key:k})});}catch{}}
@@ -122,7 +136,7 @@ async function slogin(username,password){
   try{
     const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password})});
     const d=await r.json();
-    if(d&&d.ok){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}
+    if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token);return {ok:true,account:d.account};}
     return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};
   }catch(e){return {ok:false,error:"Connection error"};}
 }
@@ -156,6 +170,10 @@ function App(){
 
   const loadAll=useCallback(async()=>{const r=await sgetAll();setRaw(r);setLoading(false);return r;},[]);
   useEffect(()=>{loadAll();},[loadAll]);
+  // Restore a session signed in on another page (validated server-side). The
+  // returning-officer view opens only for accounts that meet the clearance bar;
+  // for everyone else the token is still restored so a signed-in citizen can vote.
+  useEffect(()=>{srestore().then(acc=>{if(acc&&(acc.clearance||0)>=ADMIN_MIN_CLEARANCE)setAdmin(acc);});},[]);
 
   /* derive */
   const elections=useMemo(()=>raw["el_elections"]||{},[raw]);
@@ -214,9 +232,9 @@ function App(){
             onSwitch={setResultsId}
             admin={admin}
             onAdmin={()=>{if(admin)setView("admin");else setAuthOpen(true);}}
-            onLogout={()=>setAdmin(null)}/>
+            onLogout={()=>{forgetSession();setAdmin(null);}}/>
         : <>
-            <Header view={view} setView={setView} admin={admin} onAdmin={()=>{if(admin)setView("admin");else setAuthOpen(true);}} onLogout={()=>{setAdmin(null);setView("hall");}}/>
+            <Header view={view} setView={setView} admin={admin} onAdmin={()=>{if(admin)setView("admin");else setAuthOpen(true);}} onLogout={()=>{forgetSession();setAdmin(null);setView("hall");}}/>
             <main style={{position:"relative",zIndex:2,maxWidth:1120,margin:"0 auto",padding:"1.75rem 1.1rem 4rem"}}>
               {view==="admin"&&admin
                 ? <AdminPanel admin={admin} elections={elections} elList={elList} ballotsByEl={ballotsByEl} citizens={citizens}

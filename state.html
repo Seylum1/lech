@@ -102,10 +102,24 @@ function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
 // ── MongoDB backend (Render API) ───────────────────────────────────────────────
 const API="https://lech-backend.onrender.com";
 let AUTH_TOKEN=null;
+// ── Shared sign-in across the Imperial Network ─────────────────────────────────
+// One session token, kept in localStorage under a single key, so signing in on
+// any page keeps you signed in on the others (same origin). It is re-validated
+// against the server on every page load and dropped at once if the server
+// rejects it; signing out clears it everywhere.
+const SESSION_KEY="lech_session";
+function saveSession(t){try{if(t)localStorage.setItem(SESSION_KEY,t);}catch(e){}}
+function forgetSession(){try{localStorage.removeItem(SESSION_KEY);}catch(e){}try{if(AUTH_TOKEN)fetch(API+"/api/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN})});}catch(e){}AUTH_TOKEN=null;}
+async function srestore(){
+  let t=null;try{t=localStorage.getItem(SESSION_KEY);}catch(e){}
+  if(!t)return null;AUTH_TOKEN=t;
+  try{const r=await fetch(API+"/api/me",{headers:{Authorization:"Bearer "+t}});const d=await r.json();if(d&&d.ok&&d.account)return d.account;}catch(e){}
+  forgetSession();return null;
+}
 async function sgetAll(){try{const r=await fetch(API+"/api/data"+(AUTH_TOKEN?"?token="+encodeURIComponent(AUTH_TOKEN):""));const d=await r.json();return (d&&d.ok)?(d.data||{}):{};}catch{return{};}}
 async function sset(k,v){try{const r=await fetch(API+"/api/set",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,key:k,value:v})});const d=await r.json();return !!(d&&d.ok);}catch{return false;}}
 async function sdel(k){try{await fetch(API+"/api/unset",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,key:k})});}catch{}}
-async function slogin(username,password){try{const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password})});const d=await r.json();if(d&&d.ok){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};}catch(e){return {ok:false,error:"Connection error"};}}
+async function slogin(username,password){try{const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password})});const d=await r.json();if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token);return {ok:true,account:d.account};}return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};}catch(e){return {ok:false,error:"Connection error"};}}
 function fmtDate(d){if(d===undefined||d===null||d==="")return "—";const s=(typeof d==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(d))?d+"T12:00:00":d;const t=typeof s==="number"?s:new Date(s).getTime();if(isNaN(t))return ""+d;return new Date(t).toLocaleDateString("en-US",{month:"short",day:"2-digit",year:"numeric"});}
 
 const getAL=l=>ADVISORY_LEVELS.find(a=>a.level===l)||ADVISORY_LEVELS[0];
@@ -914,6 +928,9 @@ function App(){
   const notify=useCallback((msg,color=V.gold)=>{setToast({msg,color});setTimeout(()=>setToast(t=>t.msg===msg?{msg:"",color}:t),4000);},[]);
 
   useEffect(()=>{sgetAll().then(r=>{setRaw(r);setLoaded(true);});},[]);
+  // Restore a session signed in on another page (validated server-side), then
+  // pull the snapshot again with the token so protected records load too.
+  useEffect(()=>{srestore().then(acc=>{if(acc){setUser(acc);sgetAll().then(r=>setRaw(prev=>({...prev,...r})));}});},[]);
 
   const accounts=useMemo(()=>{
     const out=[];const seen={};
@@ -970,7 +987,7 @@ function App(){
             <div className="pf" style={{fontWeight:700,fontSize:12.5,color:V.text}}>{user.displayName||user.username}</div>
             <div className="mono" style={{fontSize:7.5,letterSpacing:"0.14em",color:iCanPanel?V.goldL:V.textDD}}>{iCanPanel?"DEPARTMENT ACCESS":"SIGNED IN"}</div>
           </div>
-          <Btn small variant="ghost" onClick={()=>{setUser(null);if(tab==="panel")setTab("advisories");notify("Signed out.",V.textD);}}>Sign out</Btn>
+          <Btn small variant="ghost" onClick={()=>{forgetSession();setUser(null);if(tab==="panel")setTab("advisories");notify("Signed out.",V.textD);}}>Sign out</Btn>
         </div>:<Btn small variant="gold" onClick={()=>setAuthOpen(true)}>Sign In</Btn>}
       </div>
       <div style={{maxWidth:1080,margin:"0 auto",padding:"0 1.2rem",display:"flex",overflowX:"auto"}}>

@@ -125,10 +125,24 @@ function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
 // ── MongoDB backend (Render API) ───────────────────────────────────────────────
 const API="https://lech-backend.onrender.com";
 let AUTH_TOKEN=null;
+// ── Shared sign-in across the Imperial Network ─────────────────────────────────
+// One session token, kept in localStorage under a single key, so signing in on
+// any page keeps you signed in on the others (same origin). It is re-validated
+// against the server on every page load and dropped at once if the server
+// rejects it; signing out clears it everywhere.
+const SESSION_KEY="lech_session";
+function saveSession(t){try{if(t)localStorage.setItem(SESSION_KEY,t);}catch(e){}}
+function forgetSession(){try{localStorage.removeItem(SESSION_KEY);}catch(e){}try{if(AUTH_TOKEN)fetch(API+"/api/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN})});}catch(e){}AUTH_TOKEN=null;}
+async function srestore(){
+  let t=null;try{t=localStorage.getItem(SESSION_KEY);}catch(e){}
+  if(!t)return null;AUTH_TOKEN=t;
+  try{const r=await fetch(API+"/api/me",{headers:{Authorization:"Bearer "+t}});const d=await r.json();if(d&&d.ok&&d.account)return d.account;}catch(e){}
+  forgetSession();return null;
+}
 async function sgetAll(){try{const r=await fetch(API+"/api/data"+(AUTH_TOKEN?"?token="+encodeURIComponent(AUTH_TOKEN):""));const d=await r.json();return (d&&d.ok)?(d.data||{}):{};}catch{return{};}}
 async function sset(k,v){try{const r=await fetch(API+"/api/set",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,key:k,value:v})});const d=await r.json();return !!(d&&d.ok);}catch{return false;}}
 async function sdel(k){try{await fetch(API+"/api/unset",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,key:k})});}catch{}}
-async function slogin(username,password){try{const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password})});const d=await r.json();if(d&&d.ok){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};}catch(e){return {ok:false,error:"Connection error"};}}
+async function slogin(username,password){try{const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password})});const d=await r.json();if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token);return {ok:true,account:d.account};}return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};}catch(e){return {ok:false,error:"Connection error"};}}
 function fmtCur(n){if(n===null||n===undefined||n==="")return "\u2014";const abs=Math.abs(Number(n));const s=abs>=1000000?(abs/1000000).toFixed(2)+"M":abs>=1000?(abs/1000).toFixed(1)+"K":Number(abs).toLocaleString();return "$"+(Number(n)<0?"-":"")+s;}
 function fmtDate(ts){return new Date(ts).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"});}
 function fmtDateShort(ts){return new Date(ts).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});}
@@ -1712,6 +1726,10 @@ function App(){
     // One backend now — /api/data already carries the Bundeskongress data too.
     sgetAll().then(sharedRaw=>{setRaw(sharedRaw);setLoaded(true);});
   },[]);
+  // Restore a session signed in on another page. This panel is for the Treasury,
+  // so only a finance-authorised account is admitted here; others simply stay
+  // signed out on this page. Validated server-side before it is trusted.
+  useEffect(()=>{srestore().then(acc=>{if(acc&&(acc.role==="emperor"||acc.mofAccess||acc.mofRole)){setPanelUser(acc);sgetAll().then(r=>setRaw(prev=>({...prev,...r})));}});},[]);
 
   const activeBudget=useMemo(()=>raw["bk_active_budget"]||null,[raw]);
   const budgetCooldown=useMemo(()=>raw["bk_budget_cooldown"]||null,[raw]);
@@ -1826,7 +1844,7 @@ function App(){
       {loaded&&!panelAuth&&tab==="expenditure"&&<ExpenditureTracker expenditures={expenditures} activeBudget={activeBudget}
         officials={officials} user={panelUser} onAction={onAction} notify={notify} setProcessing={setProcessing}
         onRequireSignIn={()=>setPanelAuth({requireMof:false,then:"expenditure"})}
-        onSignOut={()=>{setPanelUser(null);notify("Signed out.",C.textD);}}/>}
+        onSignOut={()=>{forgetSession();setPanelUser(null);notify("Signed out.",C.textD);}}/>}
       {loaded&&!panelAuth&&tab==="panel"&&mofAccess&&<FinancePanel user={panelUser} businesses={businesses} payroll={payroll} debts={debts} countries={countries} accounts={accounts} officials={officials} announcement={announcement} shutdown={shutdown} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
       {loaded&&!panelAuth&&tab==="panel"&&!mofAccess&&<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>Authentication required. Click Panel to log in.</div>}
     </div>

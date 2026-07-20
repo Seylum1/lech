@@ -1016,7 +1016,22 @@ function loadForeignPolicy(){
 
   var API="https://lech-backend.onrender.com";
   var AUTH_TOKEN=null;   // held after sign-in/registration for account actions
+  // ── Shared sign-in across the Imperial Network ───────────────────────────────
+  // One session token, kept in localStorage under a single key, so signing in on
+  // any page keeps you signed in on the others (same origin). Validated on load,
+  // dropped the moment the server rejects it; signing out clears it everywhere.
+  var SESSION_KEY="lech_session";
+  function saveSession(t){try{if(t)localStorage.setItem(SESSION_KEY,t);}catch(e){}}
+  function forgetSession(){try{localStorage.removeItem(SESSION_KEY);}catch(e){}try{if(AUTH_TOKEN)fetch(API+"/api/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN})});}catch(e){}AUTH_TOKEN=null;}
+  function srestore(){
+    var t=null;try{t=localStorage.getItem(SESSION_KEY);}catch(e){}
+    if(!t)return Promise.resolve(null);AUTH_TOKEN=t;
+    return fetch(API+"/api/me",{headers:{Authorization:"Bearer "+t}}).then(function(r){return r.json();}).then(function(d){
+      if(d&&d.ok&&d.account)return d.account; forgetSession(); return null;
+    }).catch(function(){forgetSession();return null;});
+  }
   var CUR_ACC=null;      // the account currently shown in the hub, for refresh
+  var RESTORED_RAW=null; // data snapshot loaded when a saved session is restored
   var WELCOME=false;     // show the first-time welcome banner after registration
   function val(id){var e=document.getElementById(id);return e?e.value:"";}
   function mcFace(name){return "https://mc-heads.net/avatar/"+encodeURIComponent(name||"")+"/128";}
@@ -1034,9 +1049,14 @@ function loadForeignPolicy(){
   function chErr(m){var e=document.getElementById("ch-err");e.textContent=m;e.style.display="block";}
   function chBusy(b){var g=document.getElementById("ch-go");g.textContent=b?"Signing in…":"Sign In";g.disabled=b;}
 
-  window.cpOpen=function(){document.getElementById("cp-login").classList.add("open");setTimeout(function(){var u=document.getElementById("ch-user");if(u)u.focus();},50);};
+  window.cpOpen=function(){
+    // Already signed in (this visit or restored from another page)? Go straight
+    // to the hub instead of asking for credentials again.
+    if(CUR_ACC&&RESTORED_RAW){ renderHub(CUR_ACC,RESTORED_RAW,RESTORED_RAW); return; }
+    document.getElementById("cp-login").classList.add("open");setTimeout(function(){var u=document.getElementById("ch-user");if(u)u.focus();},50);
+  };
   window.cpClose=function(){document.getElementById("cp-login").classList.remove("open");};
-  window.chLogout=function(){AUTH_TOKEN=null;CUR_ACC=null;var h=document.getElementById("cp-hub");h.classList.remove("open");h.innerHTML="";};
+  window.chLogout=function(){forgetSession();CUR_ACC=null;RESTORED_RAW=null;var h=document.getElementById("cp-hub");h.classList.remove("open");h.innerHTML="";var fab=document.querySelector(".cp-fab");if(fab)fab.textContent="⬡ Citizen Portal · Sign in / Register";};
   window.cpTab=function(which){
     var isIn=which==="in";
     document.getElementById("cp-tab-in").classList.toggle("active",isIn);
@@ -1059,7 +1079,7 @@ function loadForeignPolicy(){
       return fetch(API+"/api/register",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u,passwordHash:hash,citizen:cit})});
     }).then(function(r){return r.json();}).then(function(d){
       if(d&&d.ok){
-        AUTH_TOKEN=d.token;
+        AUTH_TOKEN=d.token;saveSession(d.token);
         fetchAll().then(function(raw){
           rgBusy(false);
           document.getElementById("rg-pass").value="";document.getElementById("rg-pass2").value="";
@@ -1137,7 +1157,7 @@ function loadForeignPolicy(){
     fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u,password:p})})
       .then(function(r){return r.json();})
       .then(function(d){
-        if(d&&d.ok){AUTH_TOKEN=d.token;proceed(d.account);return;}
+        if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token);proceed(d.account);return;}
         chBusy(false);chErr((d&&d.error)||"Incorrect password.");
       }).catch(function(){chBusy(false);chErr("Connection error — try again.");});
   };
@@ -1519,6 +1539,17 @@ function loadForeignPolicy(){
     hub.classList.add("open");
     hub.scrollTop=0;
   }
+
+  // On load, quietly restore a session signed in on another page so the portal
+  // opens straight to the hub. Purely additive — the public page is unaffected.
+  srestore().then(function(acc){
+    if(!acc)return;
+    fetchAll().then(function(raw){
+      CUR_ACC=acc; RESTORED_RAW=raw;
+      var fab=document.querySelector(".cp-fab");
+      if(fab) fab.textContent="⬡ Citizen Portal · "+(acc.displayName||acc.username);
+    }).catch(function(){});
+  });
 })();
 </script>
 

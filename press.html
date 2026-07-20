@@ -98,6 +98,21 @@ function compressImage(file){
 // ── MongoDB backend (Render API) ───────────────────────────────────────────────
 var API="https://lech-backend.onrender.com";
 var AUTH_TOKEN=null;
+// ── Shared sign-in across the Imperial Network ─────────────────────────────────
+// One session token, kept in localStorage under a single key, so signing in on
+// any page keeps you signed in on the others (same origin). It is re-validated
+// against the server on every page load and dropped at once if the server
+// rejects it; signing out clears it everywhere.
+var SESSION_KEY="lech_session";
+function saveSession(t){try{if(t)localStorage.setItem(SESSION_KEY,t);}catch(e){}}
+function forgetSession(){try{localStorage.removeItem(SESSION_KEY);}catch(e){}try{if(AUTH_TOKEN)fetch(API+"/api/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN})});}catch(e){}AUTH_TOKEN=null;}
+function srestore(){
+  var t=null;try{t=localStorage.getItem(SESSION_KEY);}catch(e){}
+  if(!t)return Promise.resolve(null);AUTH_TOKEN=t;
+  return fetch(API+"/api/me",{headers:{Authorization:"Bearer "+t}}).then(function(r){return r.json();}).then(function(d){
+    if(d&&d.ok&&d.account)return d.account; forgetSession(); return null;
+  }).catch(function(){forgetSession();return null;});
+}
 function sgetAll(){
   return fetch(API+"/api/data"+(AUTH_TOKEN?"?token="+encodeURIComponent(AUTH_TOKEN):"")).then(function(r){return r.json();}).then(function(d){
     if(!d||!d.ok)return{};
@@ -131,7 +146,7 @@ async function slogin(username,password){
   try{
     var r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password:password})});
     var d=await r.json();
-    if(d&&d.ok){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}
+    if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token);return {ok:true,account:d.account};}
     return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};
   }catch(e){return {ok:false,error:"Connection error"};}
 }
@@ -1026,6 +1041,12 @@ function App(){
     }).catch(function(){});
   },[]);
 
+  // Restore a session signed in on another page. The newsroom admits only
+  // accounts with Press credentials; others simply stay signed out here.
+  useEffect(function(){srestore().then(function(acc){
+    if(acc&&(acc.role==="emperor"||acc.pressRole||acc.pressAccess)) setPressUser(acc);
+  });},[]);
+
   var articles=useMemo(function(){return raw["press_articles"]||{};},[raw]);
   var breaking=useMemo(function(){return raw["press_breaking"]||null;},[raw]);
   var banner=useMemo(function(){return raw["press_banner"]||null;},[raw]);
@@ -1100,7 +1121,7 @@ function App(){
     <Masthead
       onPressPanel={function(){pressUser?setShowPanel(true):setShowAuth(true);}}
       pressUser={pressUser}
-      onLogout={function(){setPressUser(null);setShowPanel(false);notify("Signed out.");}}
+      onLogout={function(){forgetSession();setPressUser(null);setShowPanel(false);notify("Signed out.");}}
       activeSection={activeSection}
       setSection={function(v){setActiveSection(v);setReadingArticle(null);}}
     />

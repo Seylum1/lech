@@ -900,6 +900,20 @@ async function sget(k) {
 // ── MongoDB backend (Render API) ───────────────────────────────────────────────
 const API="https://lech-backend.onrender.com";
 let AUTH_TOKEN=null;
+// ── Shared sign-in across the Imperial Network ─────────────────────────────────
+// One session token, kept in localStorage under a single key, so signing in on
+// any page keeps you signed in on the others (same origin). It is re-validated
+// against the server on every page load and dropped at once if the server
+// rejects it; signing out clears it everywhere.
+const SESSION_KEY="lech_session";
+function saveSession(t){try{if(t)localStorage.setItem(SESSION_KEY,t);}catch(e){}}
+function forgetSession(){try{localStorage.removeItem(SESSION_KEY);}catch(e){}try{if(AUTH_TOKEN)fetch(API+"/api/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN})});}catch(e){}AUTH_TOKEN=null;}
+async function srestore(){
+  let t=null;try{t=localStorage.getItem(SESSION_KEY);}catch(e){}
+  if(!t)return null;AUTH_TOKEN=t;
+  try{const r=await fetch(API+"/api/me",{headers:{Authorization:"Bearer "+t}});const d=await r.json();if(d&&d.ok&&d.account)return d.account;}catch(e){}
+  forgetSession();return null;
+}
 async function sgetAll(prefix) {
   try {
     const r = await fetch(API+"/api/data"+(AUTH_TOKEN?"?token="+encodeURIComponent(AUTH_TOKEN):""));
@@ -948,7 +962,7 @@ async function slogin(username,password){
   try{
     const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password})});
     const d=await r.json();
-    if(d&&d.ok){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}
+    if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token);return {ok:true,account:d.account};}
     return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};
   }catch(e){return {ok:false,error:"Connection error"};}
 }
@@ -7311,6 +7325,10 @@ function App() {
     setTimeout(()=>setToast(t=>t.msg===msg?{msg:"",color}:t),4000);
   },[]);
 
+  // Restore a session signed in on another page (validated server-side). Standing
+  // and panel access follow the account, so no extra gate is needed here.
+  useEffect(()=>{srestore().then(acc=>{if(acc)setUser(acc);});},[]);
+
   useEffect(()=>{
     (async()=>{
       // Single fetch — pull everything at once instead of 11 round-trips
@@ -8112,7 +8130,7 @@ function App() {
                   {access?access.icon+" "+access.label+(access.role==="member"&&mySeat?" · "+(mySeat.seats||0)+" seats":""):"No seat"}
                 </div>
               </div>
-              <Btn small variant="ghost" onClick={()=>{setUser(null);setTab("home");notify("Signed out.",C.textD);}}>Sign Out</Btn>
+              <Btn small variant="ghost" onClick={()=>{forgetSession();setUser(null);setTab("home");notify("Signed out.",C.textD);}}>Sign Out</Btn>
             </div>
           ):(
             <Btn small variant="ghost" onClick={()=>setShowLogin(true)}>⚜ Sign In</Btn>

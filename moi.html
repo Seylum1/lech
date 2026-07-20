@@ -299,6 +299,20 @@ function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
 // authorised server-side.
 const API="https://lech-backend.onrender.com";
 let AUTH_TOKEN=null;
+// ── Shared sign-in across the Imperial Network ─────────────────────────────────
+// One session token, kept in localStorage under a single key, so signing in on
+// any page keeps you signed in on the others (same origin). It is re-validated
+// against the server on every page load and dropped at once if the server
+// rejects it; signing out clears it everywhere.
+const SESSION_KEY="lech_session";
+function saveSession(t){try{if(t)localStorage.setItem(SESSION_KEY,t);}catch(e){}}
+function forgetSession(){try{localStorage.removeItem(SESSION_KEY);}catch(e){}try{if(AUTH_TOKEN)fetch(API+"/api/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN})});}catch(e){}AUTH_TOKEN=null;}
+async function srestore(){
+  let t=null;try{t=localStorage.getItem(SESSION_KEY);}catch(e){}
+  if(!t)return null;AUTH_TOKEN=t;
+  try{const r=await fetch(API+"/api/me",{headers:{Authorization:"Bearer "+t}});const d=await r.json();if(d&&d.ok&&d.account)return d.account;}catch(e){}
+  forgetSession();return null;
+}
 async function sgetAll(){
   try{
     const r=await fetch(API+"/api/data"+(AUTH_TOKEN?"?token="+encodeURIComponent(AUTH_TOKEN):""));
@@ -320,7 +334,7 @@ async function slogin(username,password){
     const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({username:String(username||"").trim(),password})});
     const d=await r.json();
-    if(d&&d.ok){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}
+    if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token);return {ok:true,account:d.account};}
     return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};
   }catch(e){return {ok:false,error:"Connection error"};}
 }
@@ -2444,6 +2458,21 @@ function App(){
   const [toast,setToast]=useState({msg:"",color:C.accent});
   const [processing,setProcessing]=useState(null);
   const [loading,setLoading]=useState(false);
+  const [restoring,setRestoring]=useState(true);   // resolving a saved session on load
+
+  // Restore a session saved on another page, so signing in anywhere signs you in
+  // here too. Verified against the server before it is trusted.
+  useEffect(()=>{(async()=>{
+    const acc=await srestore();
+    if(acc){
+      const rawData=await sgetAll();
+      const accs={};
+      Object.entries(rawData).forEach(([k,v])=>{ if(k.startsWith("mi_acc_")&&v) accs[v.username]=v; });
+      Object.entries(rawData["mi_accounts"]||{}).forEach(([k,v])=>{ if(!accs[k]) accs[k]=v; });
+      setUser(acc); setRaw({...rawData,"mi_accounts":accs}); setSection(null);
+    }
+    setRestoring(false);
+  })();},[]);
 
   const notify=useCallback((msg,color=C.accent)=>{
     setToast({msg,color});
@@ -2576,6 +2605,7 @@ function App(){
     }
   },[raw]);
 
+  if(restoring) return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:C.bg,color:C.textDD}}><div className="mono" style={{fontSize:11,letterSpacing:"0.3em"}}>RESTORING SESSION…</div></div>;
   if(!user) return<LoginScreen onLogin={handleLogin}/>;
 
   const isLSS=canSeeLSS(user);
@@ -2650,7 +2680,7 @@ function App(){
                 </span>
               </div>
             )}
-            <Btn small variant="ghost" onClick={()=>setUser(null)}>LOGOUT</Btn>
+            <Btn small variant="ghost" onClick={()=>{forgetSession();setUser(null);}}>LOGOUT</Btn>
           </div>
         </div>
       </div>
