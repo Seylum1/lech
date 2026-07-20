@@ -702,7 +702,8 @@ function loadForeignPolicy(){
     rome:      {name:"Rome",       code:"RM", c1:"#1f4a2a", c2:"#0f2817", foil:"#e0c060", ink:"#eef4ea"},
     kingsland: {name:"Kingsland",  code:"KL", c1:"#26323f", c2:"#141c24", foil:"#c9a84c", ink:"#eaeef2"},
     aquitaine: {name:"Aquitaine",  code:"AQ", c1:"#1f2c66", c2:"#0f1636", foil:"#d8b24c", ink:"#e8ecf8"},
-    monegasque:{name:"Monégasque", code:"MC", c1:"#8a0f28", c2:"#4a0716", foil:"#e8d288", ink:"#f8ecec"}
+    monegasque:{name:"Monégasque", code:"MC", c1:"#8a0f28", c2:"#4a0716", foil:"#e8d288", ink:"#f8ecec"},
+    weststadt: {name:"Weststadt",  code:"WS", c1:"#39441f", c2:"#1e2610", foil:"#b8cc78", ink:"#f2f6e6"}
   };
   var PROVINCE_ART={
     newport:   '<circle cx="336" cy="30" r="14"/><path d="M58 60 L58 32 L84 60 Z"/><path d="M42 60 H92 L83 70 H51 Z"/><path d="M0 74 q25 -9 50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 V100 H0 Z"/>',
@@ -710,7 +711,8 @@ function loadForeignPolicy(){
     rome:      '<path d="M150 40 L250 40 L200 20 Z"/><rect x="148" y="40" width="104" height="8"/><rect x="158" y="48" width="9" height="40"/><rect x="176" y="48" width="9" height="40"/><rect x="194" y="48" width="9" height="40"/><rect x="212" y="48" width="9" height="40"/><rect x="230" y="48" width="9" height="40"/><rect x="148" y="88" width="104" height="7"/><path d="M0 93 H400 V100 H0 Z"/>',
     kingsland: '<rect x="20" y="52" width="26" height="40"/><rect x="54" y="40" width="22" height="52"/><rect x="84" y="60" width="20" height="32"/><rect x="300" y="46" width="24" height="46"/><rect x="330" y="58" width="18" height="34"/><rect x="354" y="50" width="22" height="42"/><rect x="170" y="60" width="70" height="32"/><path d="M182 60 a23 23 0 0 0 46 0 Z"/><rect x="203" y="24" width="3" height="14"/><path d="M0 92 H400 V100 H0 Z"/>',
     aquitaine: '<rect x="150" y="50" width="100" height="42"/><rect x="140" y="42" width="20" height="50"/><path d="M140 42 L150 20 L160 42 Z"/><rect x="240" y="42" width="20" height="50"/><path d="M240 42 L250 20 L260 42 Z"/><rect x="170" y="46" width="8" height="6"/><rect x="188" y="46" width="8" height="6"/><rect x="206" y="46" width="8" height="6"/><rect x="222" y="46" width="8" height="6"/><rect x="149" y="12" width="2" height="8"/><rect x="249" y="12" width="2" height="8"/><path d="M0 92 H400 V100 H0 Z"/>',
-    monegasque:'<rect x="150" y="54" width="100" height="38"/><path d="M160 54 a16 16 0 0 0 32 0 Z"/><path d="M208 54 a16 16 0 0 0 32 0 Z"/><rect x="175" y="30" width="2" height="10"/><rect x="223" y="30" width="2" height="10"/><path d="M300 84 h74 l-12 10 h-50 Z"/><rect x="322" y="72" width="30" height="12"/><path d="M0 90 q25 -6 50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 V100 H0 Z"/>'
+    monegasque:'<rect x="150" y="54" width="100" height="38"/><path d="M160 54 a16 16 0 0 0 32 0 Z"/><path d="M208 54 a16 16 0 0 0 32 0 Z"/><rect x="175" y="30" width="2" height="10"/><rect x="223" y="30" width="2" height="10"/><path d="M300 84 h74 l-12 10 h-50 Z"/><rect x="322" y="72" width="30" height="12"/><path d="M0 90 q25 -6 50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 V100 H0 Z"/>',
+    weststadt: '<ellipse cx="54" cy="34" rx="27" ry="10"/><ellipse cx="54" cy="24" rx="17" ry="7"/><path d="M46 82 L50 38 L58 38 L62 82 Z"/><path d="M31 37 q4 12 2 19 q-6 -8 -4 -19 Z"/><path d="M77 35 q-4 13 -2 20 q6 -9 4 -20 Z"/><ellipse cx="332" cy="42" rx="21" ry="8"/><ellipse cx="332" cy="33" rx="13" ry="6"/><path d="M326 82 L329 45 L335 45 L338 82 Z"/><path d="M313 45 q3 10 1 16 q-5 -7 -3 -16 Z"/><ellipse cx="370" cy="48" rx="17" ry="7"/><path d="M365 82 L368 51 L373 51 L376 82 Z"/><rect x="176" y="52" width="60" height="24"/><path d="M168 52 L206 34 L244 52 Z"/><rect x="198" y="62" width="12" height="14"/><rect x="182" y="76" width="4" height="12"/><rect x="204" y="76" width="4" height="12"/><rect x="226" y="76" width="4" height="12"/><rect x="244" y="74" width="42" height="3"/><rect x="256" y="77" width="3" height="10"/><rect x="278" y="77" width="3" height="10"/><path d="M104 79 q16 7 34 0 q-17 3 -34 0 Z"/><path d="M0 82 q25 -6 50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 V100 H0 Z"/>'
   };
   function idHash(s){s=(s||"").toLowerCase();var h=2166136261;for(var i=0;i<s.length;i++){h^=s.charCodeAt(i);h=(h*16777619)>>>0;}return h>>>0;}
   function genIdNumber(username,code){var six=(idHash("id:"+username)%900000)+100000;return "LEC-"+code+"-"+six;}
@@ -858,8 +860,8 @@ function loadForeignPolicy(){
 
     // Peerage — held for life.
     var bhRec=myBHSeat||myFormerSeats.filter(function(f){return f.rank;})[0];
-    if(bhRec&&bhRec.rank&&PEERAGE_STYLES[bhRec.rank])
-      push(PEERAGE_STYLES[bhRec.rank],pretty(bhRec.rank)+" — a peerage, held for life");
+    var pr=bhRec&&bhRec.rank?PEERAGE_RANKS[bhRec.rank]:null;
+    if(pr&&pr.style) push(pr.style,pr.l+" — a peerage, held for life");
     if(acc.role==="emperor") push("His Imperial Majesty","Emperor");
 
     // Offices held now. The style is kept for life; MB is not.
@@ -882,15 +884,31 @@ function loadForeignPolicy(){
       else if(a.role==="cc_justice"||a.role==="rc_justice") push("The Honourable","Justice");
     });
 
-    // Decorations — permanent.
-    var seen={};
+    // Decorations — permanent, and drawn from both registries.
+    var seen={}, decor=[];
+    function addDecor(code,awarded){
+      var d=null; DECORATIONS.forEach(function(x){ if(x.v===code) d=x; });
+      if(!d||seen[d.v]) return; seen[d.v]=1;
+      decor.push({code:d.v,order:DECORATIONS.indexOf(d),
+        why:d.l+" — "+d.why+(awarded?", awarded "+awarded:"")});
+    }
+    // Conferred by the Imperial Household.
     Object.keys(raw.ih_honours||{}).forEach(function(k){
       var h=raw.ih_honours[k]; if(!h) return;
       if(!eqUser(h.recipientUsername)&&!eqMe(h.recipient)) return;
-      var d=null; DECORATIONS.forEach(function(x){ if(x.v===h.medal) d=x; });
-      if(!d||seen[d.v]) return; seen[d.v]=1;
-      suffixes.unshift({code:d.v,why:d.l+" — "+d.why+(h.awarded?", awarded "+h.awarded:"")});
+      addDecor(h.medal,h.awarded);
     });
+    // Awarded by the War Office before honours moved to the Household, and still
+    // held on the service record. A medal is not lost because the registry that
+    // issued it changed.
+    Object.keys(raw.mow_personnel||{}).forEach(function(k){
+      var p=raw.mow_personnel[k]; if(!p) return;
+      if(!eqUser(p.username)&&!eqMe(p.name)) return;
+      (p.medals||[]).forEach(function(m){ addDecor(m.type,m.awarded); });
+    });
+    // Decorations lead the post-nominals, ordered by prestige.
+    decor.sort(function(a,b){return a.order-b.order;});
+    suffixes=decor.concat(suffixes);
 
     styles.sort(function(a,b){return (STYLE_RANK[b.style]||0)-(STYLE_RANK[a.style]||0);});
     return {prefix:styles[0]||null,styles:styles,suffixes:suffixes};
@@ -906,13 +924,24 @@ function loadForeignPolicy(){
   // A style of address is kept for life once merited; a post-nominal of office
   // (MB, IPS) is held only while actually in that office. Decorations are awards
   // and so are permanent.
-  var STYLE_RANK={"His Imperial Majesty":100,"His/Her Imperial Highness":90,
-    "His/Her Serene Highness":80,"His/Her Grace":70,"The Most Honourable":60,
-    "The Right Honourable":50,"The Honourable":40};
-  var PEERAGE_STYLES={crown_prince:"His/Her Imperial Highness",prince:"His/Her Imperial Highness",
-    princess:"His/Her Imperial Highness",duke:"His/Her Grace",marquess:"The Most Honourable",
-    count:"The Right Honourable",viscount:"The Right Honourable",baron:"The Honourable",
-    baronet:"The Honourable"};
+  var STYLE_RANK={"His Imperial Majesty":100,"Her Imperial Majesty":100,
+    "His Imperial Highness":90,"Her Imperial Highness":90,
+    "His Serene Highness":80,"Her Serene Highness":80,
+    "His Grace":70,"Her Grace":70,"The Most Honourable":60,
+    "The Right Honourable":50,"The Honourable":40,"Sir / Dame":30};
+  // The rank carries the gender — a Prince is His Imperial Highness, a Princess
+  // Her. Mirrors the Imperial Household's table, the authority on peerages.
+  var PEERAGE_RANKS={
+    crown_prince:{l:"Crown Prince of Lech",style:"His Imperial Highness"},
+    prince:{l:"Prince",style:"His Imperial Highness"},
+    princess:{l:"Princess",style:"Her Imperial Highness"},
+    duke:{l:"Duke",style:"His Grace"},
+    marquess:{l:"Marquess",style:"The Most Honourable"},
+    count:{l:"Count",style:"The Right Honourable"},
+    viscount:{l:"Viscount",style:"The Right Honourable"},
+    baron:{l:"Baron",style:"The Honourable"},
+    baronet:{l:"Baronet",style:"Sir / Dame"}
+  };
   var DECORATIONS=[
     {v:"IIC",l:"Imperial Iron Cross",why:"Highest military valor honor"},
     {v:"OBE",l:"Order of the Black Eagle",why:"Exceptional command and leadership"},
@@ -961,17 +990,34 @@ function loadForeignPolicy(){
     document.getElementById("ch-err").style.display="none";
     if(!u||!p){chErr("Enter your credentials.");return;}
     chBusy(true);
-    fetchAll(MOI_URL).then(function(raw){
-      var accounts={};
-      Object.keys(raw).forEach(function(k){if(k.indexOf("mi_acc_")===0&&raw[k])accounts[raw[k].username]=raw[k];});
-      var ma=raw["mi_accounts"]||{};Object.keys(ma).forEach(function(k){if(!accounts[k])accounts[k]=ma[k];});
-      var acc=null;Object.keys(accounts).forEach(function(k){var a=accounts[k];if(a&&a.username&&a.username.toLowerCase()===u.toLowerCase())acc=a;});
-      if(!acc){chBusy(false);chErr("No such account.");return;}
-      sha256(p).then(function(h){
-        if(h!==acc.passwordHash){chBusy(false);chErr("Incorrect password.");return;}
+    // Hub data still loads for the signed-in account after either auth path.
+    function proceed(acc){
+      fetchAll(MOI_URL).then(function(raw){
         fetchAll(BK_URL).then(function(bk){finish(acc,raw,bk);}).catch(function(){finish(acc,raw,{});});
-      });
-    }).catch(function(){chBusy(false);chErr("Connection error — try again.");});
+      }).catch(function(){chBusy(false);chErr("Connection error — try again.");});
+    }
+    // Legacy fallback: old backend still hands out the hash to compare here.
+    function legacy(){
+      fetchAll(MOI_URL).then(function(raw){
+        var accounts={};
+        Object.keys(raw).forEach(function(k){if(k.indexOf("mi_acc_")===0&&raw[k])accounts[raw[k].username]=raw[k];});
+        var ma=raw["mi_accounts"]||{};Object.keys(ma).forEach(function(k){if(!accounts[k])accounts[k]=ma[k];});
+        var acc=null;Object.keys(accounts).forEach(function(k){var a=accounts[k];if(a&&a.username&&a.username.toLowerCase()===u.toLowerCase())acc=a;});
+        if(!acc){chBusy(false);chErr("No such account.");return;}
+        sha256(p).then(function(h){
+          if(h!==acc.passwordHash){chBusy(false);chErr("Incorrect password.");return;}
+          fetchAll(BK_URL).then(function(bk){finish(acc,raw,bk);}).catch(function(){finish(acc,raw,{});});
+        });
+      }).catch(function(){chBusy(false);chErr("Connection error — try again.");});
+    }
+    // Hardened `login` endpoint first; fall back to legacy if it's the old backend.
+    fetch(MOI_URL,{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"login",username:u,password:p})})
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(d&&d.success){proceed(d.account);return;}
+        if(d&&d.error&&d.error!=="Unknown action"){chBusy(false);chErr("Incorrect password.");return;}
+        legacy();
+      }).catch(function(){legacy();});
   };
 
   function finish(acc,raw,bk){

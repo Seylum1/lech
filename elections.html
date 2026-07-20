@@ -117,8 +117,28 @@ async function sgetAll(){
     const out={};Object.entries(d.data||{}).forEach(([k,v])=>{if(v){try{out[k]=JSON.parse(v);}catch{out[k]=v;}}});return out;
   }catch(e){return{};}
 }
-async function sset(k,v){try{await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v)})});return true;}catch(e){return false;}}
-async function sdel(k){try{await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"del",key:k})});}catch{}}
+let AUTH_TOKEN=null;
+async function sset(k,v){try{await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v),token:AUTH_TOKEN})});return true;}catch(e){return false;}}
+async function sdel(k){try{await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"del",key:k,token:AUTH_TOKEN})});}catch{}}
+// Dual-mode sign-in: hardened `login` endpoint first, legacy hash check as
+// fallback so the page works across the rollout. Returns the account.
+async function slogin(username,password){
+  const u=String(username||"").trim();
+  try{
+    const r=await fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"login",username:u,password:password})});
+    const d=await r.json();
+    if(d&&d.success){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}
+    if(d&&d.error&&d.error!=="Unknown action")return {ok:false,error:d.error};
+  }catch(e){/* old backend or CORS — fall through */}
+  const raw=await sgetAll();const accounts={};
+  Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v)accounts[v.username]=v;});
+  Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(!accounts[k])accounts[k]=v;});
+  const user=Object.values(accounts).find(a=>String(a.username||"").toLowerCase()===u.toLowerCase());
+  if(!user)return {ok:false,error:"ACCESS DENIED"};
+  const hash=await sha256(password);
+  if(hash!==user.passwordHash)return {ok:false,error:"ACCESS DENIED"};
+  return {ok:true,account:user};
+}
 
 /* ── PR allocation — largest remainder, always sums to seatsTotal ─────────── */
 function allocateSeats(voteMap,seatsTotal){
@@ -753,12 +773,11 @@ function VoteFlow({el,citizens,accounts,ballots,onCast,onBack,note}){
     if(!u||!password){setError({code:"REG-100",msg:"Enter both your Interior username and your password."});return;}
     setBusy(true);
     try{
-      const acc=accounts[u];
-      if(!acc){setError({code:"REG-101 · NO INTERIOR ACCOUNT",
+      if(!accounts[u]){setError({code:"REG-101 · NO INTERIOR ACCOUNT",
         msg:"No Ministry of the Interior account exists under that username.",
         hint:"Voting is verified through MOI accounts. If you are a citizen without an account, contact the Ministry of the Interior to be issued one."});return;}
-      const h=await sha256(password);
-      if(h!==acc.passwordHash){setError({code:"REG-102 · CREDENTIALS REJECTED",
+      const res=await slogin(username,password);
+      if(!res.ok){setError({code:"REG-102 · CREDENTIALS REJECTED",
         msg:"That password does not match the Interior account on file."});return;}
       const match=citizens.find(c=>(c.username||"").trim().toLowerCase()===u);
       if(!match){setError({code:"REG-201 · NO CITIZEN RECORD LINKED",
@@ -935,10 +954,9 @@ function AuthModal({accounts,onClose,onAuth}){
   const go=async()=>{
     if(!u.trim()||!p){setErr("Enter your Interior credentials.");return;}
     setBusy(true);setErr("");
-    const acc=accounts[u.trim().toLowerCase()];
-    if(!acc){setErr("ACCESS DENIED — no such Interior account.");setBusy(false);return;}
-    const h=await sha256(p);
-    if(h!==acc.passwordHash){setErr("ACCESS DENIED — credentials rejected.");setBusy(false);return;}
+    const res=await slogin(u,p);
+    if(!res.ok){setErr("ACCESS DENIED — credentials rejected.");setBusy(false);return;}
+    const acc=res.account;
     if((acc.clearance||0)<ADMIN_MIN_CLEARANCE){setErr(`Clearance too low to administer elections (need level ${ADMIN_MIN_CLEARANCE}+).`);setBusy(false);return;}
     onAuth(acc);
   };

@@ -112,6 +112,7 @@ function findSeat(roster, username, displayName){
 const BK_PROVINCES={
   newport:"Newport", cracov:"Cracov", rome:"Rome",
   kingsland:"Kingsland", aquitaine:"Aquitaine", monegasque:"Monégasque",
+  weststadt:"Weststadt",
 };
 
 // ── MEMBER DOSSIER ───────────────────────────────────────────────────────────
@@ -228,10 +229,8 @@ function honorifics(person, ctx){
   // ── Peerage — held for life ──
   const bhRec=Object.values(ctx?.bundesherren||{}).find(b=>isThem(b.username)||isThem(b.name))
     ||Object.values(ctx?.formerMembers||{}).find(b=>b.rank&&(isThem(b.username)||isThem(b.name)));
-  if(bhRec?.rank&&PEERAGE_STYLES[bhRec.rank]){
-    const pr=PEERAGE_RANKS.find(r=>r.v===bhRec.rank);
-    styles.push({style:PEERAGE_STYLES[bhRec.rank],why:(pr?.l||bhRec.rank)+" — a peerage, held for life"});
-  }
+  const pr=bhRec?.rank?PEERAGE_RANKS.find(r=>r.v===bhRec.rank):null;
+  if(pr?.style) styles.push({style:pr.style,why:pr.l+" — a peerage, held for life"});
 
   // ── Emperor ──
   if(ctx?.account?.role==="emperor"){
@@ -250,11 +249,13 @@ function honorifics(person, ctx){
     if(hit) cur.push({...OFFICE("minister"),label:p});
   });
   if(seated) cur.push(OFFICE("member"));
-  // Judicial offices come from the Judiciary's own appointments register.
+  // Judicial offices come from the Judiciary's own appointments register, and
+  // carry whatever style that register gives them — which for the Prosecution
+  // Service is none, so a prosecutor picks up no style here.
   Object.values(ctx?.ijAppointments||{}).forEach(a=>{
     if(!isThem(a.username)&&!isThem(a.name)) return;
-    if(a.role==="president") cur.push(OFFICE("court_pres"));
-    else if(a.role==="cc_justice"||a.role==="rc_justice") cur.push(OFFICE("justice"));
+    const r=IJ_ROLE(a.role);
+    if(r?.style) styles.push({style:r.style,why:r.l});
   });
 
   cur.forEach(o=>{
@@ -277,12 +278,24 @@ function honorifics(person, ctx){
 
   // ── Decorations — awards, so permanent ──
   const seen=new Set();
+  const addDecor=(code,awarded)=>{
+    const d=DECOR(code); if(!d||seen.has(d.v)) return;
+    seen.add(d.v);
+    suffixes.push({code:d.v,label:d.l,why:d.l+" — "+d.why+(awarded?", awarded "+awarded:""),
+      current:true,decoration:true,order:DECORATIONS.findIndex(x=>x.v===d.v)});
+  };
+  // Conferred by the Imperial Household.
   Object.values(ctx?.ihHonours||{}).forEach(h=>{
     if(!isThem(h.recipientUsername)&&!isThem(h.recipient)) return;
-    const d=DECOR(h.medal); if(!d||seen.has(d.v)) return;
-    seen.add(d.v);
-    suffixes.push({code:d.v,label:d.l,why:d.l+" — "+d.why+(h.awarded?", awarded "+h.awarded:""),
-      current:true,decoration:true,order:DECORATIONS.findIndex(x=>x.v===d.v)});
+    addDecor(h.medal,h.awarded);
+  });
+  // Awards made by the War Office before honours moved to the Household are
+  // still held on the service record itself. They are decorations like any
+  // other, so they count here too — a medal is not lost because the registry
+  // that issued it changed. Deduped against the Household register above.
+  Object.values(ctx?.mowPersonnel||{}).forEach(p=>{
+    if(!isThem(p.username)&&!isThem(p.name)) return;
+    (p.medals||[]).forEach(m=>addDecor(m.type,m.awarded));
   });
 
   // Decorations first (by prestige), then offices — the usual order.
@@ -294,6 +307,38 @@ function honorifics(person, ctx){
 
   styles.sort((a,b)=>(STYLE_RANK[b.style]||0)-(STYLE_RANK[a.style]||0));
   return {prefix:styles[0]||null,styles,suffixes};
+}
+
+// A person's record on the bench. Appointments are matched by username, not by
+// appointment id, because an id is minted fresh on every appointment — matching
+// on it would erase a justice's whole history the moment they were reappointed
+// to another court, exactly as a by-election used to erase a member's votes.
+// Cases record their presiding justices as appointment ids, so the person's
+// appointments are resolved first and their cases found through those.
+function judicialRecord(person, ctx){
+  const u=String(person?.username||"").toLowerCase();
+  const n=String(person?.name||"").toLowerCase();
+  const uk=idKey(u);
+  const isThem=(v)=>{
+    const s=String(v||"").toLowerCase();
+    if(!s) return false;
+    return s===u||s===n||(!!uk&&idKey(s)===uk);
+  };
+  const appts=Object.values(ctx?.ijAppointments||{})
+    .filter(a=>isThem(a.username)||isThem(a.name));
+  if(appts.length===0) return null;
+
+  const apptIds=new Set(appts.map(a=>a.id));
+  const presided=Object.values(ctx?.ijCases||{})
+    .filter(c=>(c.presiding||[]).some(pid=>apptIds.has(pid)))
+    .sort((a,b)=>(b.filed||0)-(a.filed||0));
+  const caseIds=new Set(presided.map(c=>c.id));
+  const rulings=Object.values(ctx?.ijJudgments||{})
+    .filter(j=>caseIds.has(j.caseId))
+    .sort((a,b)=>(b.date||0)-(a.date||0));
+
+  const onBench=appts.some(a=>IJ_BENCH_ROLES.includes(a.role));
+  return {appts,presided,rulings,onBench};
 }
 
 // Of the bills this member took part in, how many were their own work — put
@@ -549,16 +594,19 @@ const GF_LINKS={
   "Substantive Titles Act 2022":"https://docs.google.com/document/d/1hSYP1q-NxH2DnE-W8m-NiSVew-rEIvNCjz63LzwjXPs/",
 };
 
+// The style is a property of the rank, which is what carries the gender — a
+// Prince is addressed as His Imperial Highness, a Princess as Her. Mirrors the
+// Imperial Household's table, which is the authority on peerages.
 const PEERAGE_RANKS=[
-  {v:"crown_prince", l:"Crown Prince of Lech", color:"#cc2222", boxColor:"#3a0a0a", borderColor:"#8b1a1a", fleur:true, royal:true},
-  {v:"prince",       l:"Prince",               color:"#9a44cc", boxColor:"#2a0a3a", borderColor:"#6a1a8a", fleur:true, royal:true},
-  {v:"princess",     l:"Princess",             color:"#9a44cc", boxColor:"#2a0a3a", borderColor:"#6a1a8a", fleur:true, royal:true},
-  {v:"duke",         l:"Duke",                 color:"#C9A84C", boxColor:null,       borderColor:null,      fleur:false,royal:false},
-  {v:"marquess",     l:"Marquess",             color:"#8899bb", boxColor:null,       borderColor:null,      fleur:false,royal:false},
-  {v:"count",        l:"Count",                color:"#7aaa88", boxColor:null,       borderColor:null,      fleur:false,royal:false},
-  {v:"viscount",     l:"Viscount",             color:"#aa8866", boxColor:null,       borderColor:null,      fleur:false,royal:false},
-  {v:"baron",        l:"Baron",                color:"#8899aa", boxColor:null,       borderColor:null,      fleur:false,royal:false},
-  {v:"baronet",      l:"Baronet",              color:"#9a9a9a", boxColor:null,       borderColor:null,      fleur:false,royal:false},
+  {v:"crown_prince", l:"Crown Prince of Lech", style:"His Imperial Highness", color:"#cc2222", boxColor:"#3a0a0a", borderColor:"#8b1a1a", fleur:true, royal:true},
+  {v:"prince",       l:"Prince",               style:"His Imperial Highness", color:"#9a44cc", boxColor:"#2a0a3a", borderColor:"#6a1a8a", fleur:true, royal:true},
+  {v:"princess",     l:"Princess",             style:"Her Imperial Highness", color:"#9a44cc", boxColor:"#2a0a3a", borderColor:"#6a1a8a", fleur:true, royal:true},
+  {v:"duke",         l:"Duke",                 style:"His Grace",             color:"#C9A84C", boxColor:null,       borderColor:null,      fleur:false,royal:false},
+  {v:"marquess",     l:"Marquess",             style:"The Most Honourable",   color:"#8899bb", boxColor:null,       borderColor:null,      fleur:false,royal:false},
+  {v:"count",        l:"Count",                style:"The Right Honourable",  color:"#7aaa88", boxColor:null,       borderColor:null,      fleur:false,royal:false},
+  {v:"viscount",     l:"Viscount",             style:"The Right Honourable",  color:"#aa8866", boxColor:null,       borderColor:null,      fleur:false,royal:false},
+  {v:"baron",        l:"Baron",                style:"The Honourable",        color:"#8899aa", boxColor:null,       borderColor:null,      fleur:false,royal:false},
+  {v:"baronet",      l:"Baronet",              style:"Sir / Dame",            color:"#9a9a9a", boxColor:null,       borderColor:null,      fleur:false,royal:false},
 ];
 
 // ── STYLES & POST-NOMINALS ───────────────────────────────────────────────────
@@ -572,21 +620,29 @@ const PEERAGE_RANKS=[
 // Decorations are a third case: their post-nominals are awards, so they are
 // permanent and are never dropped.
 const STYLE_RANK={ // higher wins where several apply
-  "His Imperial Majesty":100,
-  "His/Her Imperial Highness":90,
-  "His/Her Serene Highness":80,
-  "His/Her Grace":70,
+  "His Imperial Majesty":100, "Her Imperial Majesty":100,
+  "His Imperial Highness":90, "Her Imperial Highness":90,
+  "His Serene Highness":80,   "Her Serene Highness":80,
+  "His Grace":70,             "Her Grace":70,
   "The Most Honourable":60,
   "The Right Honourable":50,
   "The Honourable":40,
+  "Sir / Dame":30,
 };
-// Peerage rank → style. Peerages are held for life.
-const PEERAGE_STYLES={
-  crown_prince:"His/Her Imperial Highness", prince:"His/Her Imperial Highness",
-  princess:"His/Her Imperial Highness", duke:"His/Her Grace",
-  marquess:"The Most Honourable", count:"The Right Honourable",
-  viscount:"The Right Honourable", baron:"The Honourable", baronet:"The Honourable",
-};
+// Offices of the Judiciary, mirroring ij.html. A style is carried by the Bench
+// only — the register grants none to the Prosecution Service, which is counsel
+// to the Crown rather than an office of the court.
+const IJ_ROLES=[
+  {v:"president",  l:"President of the Courts",             style:"The Right Honourable", cat:"bench"},
+  {v:"cc_justice", l:"Justice of the Constitutional Court", style:"The Honourable",       cat:"bench"},
+  {v:"rc_justice", l:"Justice of the Regional Court",       style:"The Honourable",       cat:"bench"},
+  {v:"pg",  l:"Public Prosecutor General of the Empire",    style:"", cat:"prosecution"},
+  {v:"dpg", l:"Deputy Prosecutor General",                  style:"", cat:"prosecution"},
+  {v:"apg", l:"Assistant Prosecutor General",               style:"", cat:"prosecution"},
+];
+const IJ_ROLE=(v)=>IJ_ROLES.find(r=>r.v===v)||null;
+const IJ_BENCH_ROLES=IJ_ROLES.filter(r=>r.cat==="bench").map(r=>r.v);
+
 // Offices of state. `suffix` is surrendered on leaving; `style` is not.
 const OFFICE_HONOURS=[
   {key:"emperor",     label:"Emperor",                              style:"His Imperial Majesty", suffix:""},
@@ -594,8 +650,7 @@ const OFFICE_HONOURS=[
   {key:"minister",    label:"Council of Ministers",                 style:"The Honourable",       suffix:"MB"},
   {key:"bt_president",label:"President of the Bundestag",           style:"The Right Honourable", suffix:"MB"},
   {key:"member",      label:"Member of the Bundestag",              style:"",                     suffix:"MB"},
-  {key:"court_pres",  label:"President of the Constitutional Court",style:"The Right Honourable", suffix:""},
-  {key:"justice",     label:"Justice",                              style:"The Honourable",       suffix:""},
+  // Judicial offices live in IJ_ROLES above — the Judiciary's register owns them.
   {key:"ips",         label:"Imperial Private Secretary",           style:"The Right Honourable", suffix:"IPS"},
 ];
 const OFFICE=(k)=>OFFICE_HONOURS.find(o=>o.key===k);
@@ -724,12 +779,15 @@ async function sset(k,v) {
 // Writes to the shared ministry store rather than the chamber's own. Needed
 // only where a Bundeskongress decision takes effect in another ministry — a
 // ratified Prosecutor General appointment landing in the Judiciary.
+// Token for the hardened ministry store. Only writes to MAIN_SCRIPT_URL carry
+// it; the chamber's own store (SCRIPT_URL) is a separate backend.
+let AUTH_TOKEN=null;
 async function ssetMain(k,v) {
   try {
     await fetch(MAIN_SCRIPT_URL,{
       method:"POST",mode:"no-cors",
       headers:{"Content-Type":"text/plain"},
-      body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v)}),
+      body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v),token:AUTH_TOKEN}),
     });
     return true;
   } catch(e){ return false; }
@@ -741,6 +799,29 @@ async function sgetMain(k) {
     if(!d.success) return null;
     return d.data[k]?JSON.parse(d.data[k]):null;
   } catch(e){ return null; }
+}
+// Dual-mode sign-in against the ministry store (MAIN_SCRIPT_URL): hardened
+// `login` first, legacy hash check as fallback so it works across the rollout.
+async function slogin(username,password){
+  const u=String(username||"").trim();
+  try{
+    const r=await fetch(MAIN_SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"login",username:u,password:password})});
+    const d=await r.json();
+    if(d&&d.success){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}
+    if(d&&d.error&&d.error!=="Unknown action")return {ok:false,error:d.error};
+  }catch(e){/* old backend or CORS — fall through */}
+  try{
+    const r=await fetch(MAIN_SCRIPT_URL+"?action=getall");const d=await r.json();
+    const data=(d&&d.success)?(d.data||{}):{};const accounts={};
+    Object.entries(data).forEach(([k,v])=>{if(!v)return;let a;try{a=JSON.parse(v);}catch{return;}if(k.startsWith("mi_acc_")&&a)accounts[a.username]=a;});
+    let blob={};try{blob=data["mi_accounts"]?JSON.parse(data["mi_accounts"]):{};}catch{}
+    Object.entries(blob).forEach(([k,v])=>{if(!accounts[k])accounts[k]=v;});
+    const user=Object.values(accounts).find(a=>String(a.username||"").toLowerCase()===u.toLowerCase());
+    if(!user)return {ok:false,error:"ACCESS DENIED"};
+    const hash=await sha256(password);
+    if(hash!==user.passwordHash)return {ok:false,error:"ACCESS DENIED"};
+    return {ok:true,account:user};
+  }catch(e){return {ok:false,error:"Connection error"};}
 }
 
 async function sdel(k) {
@@ -3353,17 +3434,25 @@ function honorificsFor(person,ctx){
 
 // Post-nominals after a name in a list. Deliberately quiet: small, dim, and
 // hoverable for the reason — the register is detail, not decoration.
+const SHORT_POST_NOMINAL_LIMIT=4;
 function PostNominals({person,style:ex={}}){
   const ctx=useHonours();
   if(!ctx||!person) return null;
   const {suffixes}=honorificsFor(person,ctx);
   if(suffixes.length===0) return null;
-  const tip=suffixes.map(s=>s.code+" — "+s.why).join("\n");
+  // Already ordered by seniority — decorations by prestige, then offices — so
+  // the most senior few are simply the front of the list. A full list belongs on
+  // the factsheet; a name in a list should stay readable.
+  const shown=suffixes.slice(0,SHORT_POST_NOMINAL_LIMIT);
+  const rest=suffixes.slice(SHORT_POST_NOMINAL_LIMIT);
+  const tip=shown.map(s=>s.code+" — "+s.why).join("\n")
+    +(rest.length?"\n\nAlso holds "+rest.map(s=>s.code).join(", ")
+      +" — see their factsheet for the full list.":"");
   return(
     <span className="mono" title={tip}
       style={{fontSize:8,letterSpacing:"0.08em",color:C.gold,opacity:0.75,
         cursor:"help",marginLeft:5,...ex}}>
-      {suffixes.map(s=>s.code).join(" ")}
+      {shown.map(s=>s.code).join(" ")}
     </span>
   );
 }
@@ -3401,6 +3490,87 @@ function FactRow({label,children}){
   );
 }
 
+// A person's service on the bench or in the Prosecution Service: the offices
+// they hold, the rulings handed down in cases they presided over, and the cases
+// themselves. Prosecutors hold no rulings — they bring cases, they do not decide
+// them — so they see their offices and nothing more.
+function JudicialRecordPanel({judicial}){
+  if(!judicial) return <div style={{fontSize:13,color:C.textDD,fontStyle:"italic"}}>No judicial service.</div>;
+  const {appts,presided,rulings,onBench}=judicial;
+  const OUTCOME_COLOR={upheld:"#7ad47a",overturned:C.redL,dismissed:C.textD,granted:"#7ad47a",denied:C.redL};
+  return(
+    <div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:"0.85rem"}}>
+        {appts.map((a,i)=>{
+          const r=IJ_ROLE(a.role);
+          const bench=r?.cat==="bench";
+          return(
+            <span key={i} title={r?.style?r.style+" — "+r.l:(r?.l||a.role)+" — this office carries no style"}
+              style={{fontSize:11,cursor:"help",borderRadius:2,padding:"2px 7px",
+                color:bench?"#a8b8cc":"#c05050",
+                border:`1px solid ${bench?"#a8b8cc44":"#c0505044"}`,
+                background:bench?"#0e1520":"#1a0c0c"}}>
+              ⚖ {r?.l||a.role}{a.since?" · "+a.since:""}
+            </span>
+          );
+        })}
+      </div>
+
+      {!onBench
+        ?<div style={{fontSize:13,color:C.textDD,fontStyle:"italic"}}>
+          The Prosecution Service brings cases before the courts; it does not decide them,
+          so no rulings are recorded against this office.
+        </div>
+        :<div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.18em",
+            color:C.textDD,marginBottom:6,textTransform:"uppercase"}}>
+            Rulings {rulings.length>0?"— "+rulings.length:""}
+          </div>
+          {rulings.length===0
+            ?<div style={{fontSize:13,color:C.textDD,fontStyle:"italic",marginBottom:"1rem"}}>No rulings handed down.</div>
+            :<div style={{maxHeight:200,overflowY:"auto",display:"flex",flexDirection:"column",gap:2,marginBottom:"1rem"}}>
+              {rulings.map((j,i)=>{
+                const oc=OUTCOME_COLOR[j.outcome]||C.textD;
+                return(
+                  <div key={i} style={{background:C.s2,border:`1px solid ${C.border}`,
+                    borderLeft:`2px solid ${oc}`,borderRadius:"0 2px 2px 0",padding:"5px 9px",
+                    display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                    <span style={{fontSize:12,color:C.text,flex:1,minWidth:120}}>{j.title}</span>
+                    {j.outcome&&<span style={{fontFamily:"'Cinzel',serif",fontSize:8,color:oc,
+                      border:`1px solid ${oc}44`,borderRadius:2,padding:"1px 6px",whiteSpace:"nowrap"}}>
+                      {String(j.outcome).replace(/_/g," ").toUpperCase()}
+                    </span>}
+                    <span className="mono" style={{fontSize:9,color:C.textDD}}>{j.date?fmtDate(j.date):""}</span>
+                  </div>
+                );
+              })}
+            </div>
+          }
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.18em",
+            color:C.textDD,marginBottom:6,textTransform:"uppercase"}}>
+            Cases Presided {presided.length>0?"— "+presided.length:""}
+          </div>
+          {presided.length===0
+            ?<div style={{fontSize:13,color:C.textDD,fontStyle:"italic"}}>No cases assigned.</div>
+            :<div style={{maxHeight:180,overflowY:"auto",display:"flex",flexDirection:"column",gap:2}}>
+              {presided.map((c,i)=>(
+                <div key={i} style={{background:C.s2,border:`1px solid ${C.border}`,
+                  borderRadius:2,padding:"5px 9px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                  <span style={{fontSize:12,color:C.text,flex:1,minWidth:120}}>{c.title||"Case"}</span>
+                  {c.number&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{c.number}</span>}
+                  <span className="mono" style={{fontSize:8,color:C.textDD,letterSpacing:".08em"}}>
+                    {String(c.status||"").replace(/_/g," ").toUpperCase()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          }
+        </div>
+      }
+    </div>
+  );
+}
+
 function MemberFactsheet({person,members,bundesherren,formerMembers,officials,bills,accounts,governments,absences,onClose}){
   const [voteTab,setVoteTab]=useState("bt");
   const [openBill,setOpenBill]=useState(null);
@@ -3412,10 +3582,17 @@ function MemberFactsheet({person,members,bundesherren,formerMembers,officials,bi
   const votes=votingRecord(ids,bills);
   const submissions=submissionRecord(person,ids,bills);
   const service=serviceRecord(person,governments);
-  const party=PARTIES.find(p=>p.id===person.party);
-  const seated=Object.values(members||{}).some(m=>ids.has(m.id));
-  const bhSeated=Object.values(bundesherren||{}).some(b=>ids.has(b.id));
+  // The card can be opened from a stub — a judicial appointment, an official's
+  // name in a banner — which carries no seat or party of its own. Resolve to the
+  // roster record that actually holds them so the card reads the same wherever
+  // it was opened from.
+  const btRec=Object.values(members||{}).find(m=>ids.has(m.id))||null;
+  const bhRec=Object.values(bundesherren||{}).find(b=>ids.has(b.id))||null;
+  const seated=!!btRec;
+  const bhSeated=!!bhRec;
   const former=Object.values(formerMembers||{}).filter(f=>ids.has(f.id));
+  const rec=btRec||bhRec||former[0]||person;
+  const party=getParty(person.party||rec.party);
   const region=acc?.stateOfResidency?BK_PROVINCES[acc.stateOfResidency]||acc.stateOfResidency:null;
   // The name they go by, shown only when it adds something over the username.
   const rpName=[acc?.displayName,person.name].find(n=>
@@ -3455,12 +3632,20 @@ function MemberFactsheet({person,members,bundesherren,formerMembers,officials,bi
 
   const absCount=Object.values(absences||{}).filter(a=>ids.has(a.memberId)&&!a.excused).length;
 
-  // A person may sit in both chambers, where they hold two distinct records.
+  // A person may serve in more than one body at once, and each is a separate
+  // record — a seat in both chambers, or a seat and a place on the bench. A tab
+  // appears only for a body they actually belong to.
   const btVotes=votes.filter(v=>v.chamber==="bt");
   const bhVotes=votes.filter(v=>v.chamber==="bh");
-  const inBoth=(seated||btVotes.length>0)&&(bhSeated||bhVotes.length>0);
-  const shownVotes=inBoth?(voteTab==="bh"?bhVotes:btVotes):votes;
-  // Judged on the record being shown, so a dual seat-holder is measured per chamber.
+  const judicial=judicialRecord(person,honCtx);
+  const RECORDS=[
+    ...((seated||btVotes.length>0)?[{v:"bt",l:"Bundestag History",icon:"🏛",n:btVotes.length}]:[]),
+    ...((bhSeated||bhVotes.length>0)?[{v:"bh",l:"Bundesherren History",icon:"🏰",n:bhVotes.length}]:[]),
+    ...(judicial?[{v:"ij",l:"Judicial Record",icon:"⚖",n:judicial.rulings.length}]:[]),
+  ];
+  const activeTab=RECORDS.some(r=>r.v===voteTab)?voteTab:(RECORDS[0]?.v||"bt");
+  const shownVotes=activeTab==="bh"?bhVotes:activeTab==="bt"?btVotes:[];
+  // Judged on the record being shown, so someone in two bodies is measured per body.
   const activity=activityIndex(shownVotes);
   const drafting=draftingRatio(shownVotes,submissions);
 
@@ -3529,8 +3714,9 @@ function MemberFactsheet({person,members,bundesherren,formerMembers,officials,bi
             </span>}
           </FactRow>
           <FactRow label="Seats">
-            {seated&&person.seats?person.seats.toLocaleString()+" of "+BT_SEATS_TOTAL.toLocaleString():
-              bhSeated?"One vote in the Bundesherren":
+            {/* Every Bundesherr has one vote, so saying so tells the reader nothing. */}
+            {seated&&btRec.seats?btRec.seats.toLocaleString()+" of "+BT_SEATS_TOTAL.toLocaleString():
+              bhSeated?"Sits in the Bundesherren":
               <span style={{color:C.textDD,fontStyle:"italic"}}>No seat</span>}
           </FactRow>
           <FactRow label="Offices">
@@ -3562,12 +3748,20 @@ function MemberFactsheet({person,members,bundesherren,formerMembers,officials,bi
                     {s.code}
                   </span>
                 ))}
-                {hon.styles.map((s,i)=>(
-                  <span key={"s"+i} title={s.why} style={{fontSize:11,color:C.textD,cursor:"help",
-                    border:`1px solid ${C.border}`,borderRadius:2,padding:"2px 7px"}}>
-                    {s.style}
+                {/* Only the senior style is displayed — that is the one they are
+                    addressed by. The rest are entitlements, listed on hover. */}
+                {hon.prefix&&(
+                  <span title={hon.styles.length>1
+                      ?"Addressed as "+hon.prefix.style+" — "+hon.prefix.why
+                        +"\n\nAlso entitled to:\n"
+                        +hon.styles.slice(1).map(s=>"· "+s.style+" — "+s.why).join("\n")
+                      :hon.prefix.style+" — "+hon.prefix.why}
+                    style={{fontSize:11,color:C.textD,cursor:"help",
+                      border:`1px solid ${C.border}`,borderRadius:2,padding:"2px 7px"}}>
+                    {hon.prefix.style}
+                    {hon.styles.length>1&&<span style={{color:C.textDD,marginLeft:5}}>+{hon.styles.length-1}</span>}
                   </span>
-                ))}
+                )}
               </div>
             </FactRow>
           )}
@@ -3652,25 +3846,27 @@ function MemberFactsheet({person,members,bundesherren,formerMembers,officials,bi
           {/* Voting history. Someone sitting in both chambers keeps a separate
               record in each, so the two are never conflated. */}
           <div style={{marginTop:"1.25rem"}}>
-            {inBoth
-              ?<div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:8}}>
-                {[["bt","Bundestag History",btVotes.length],["bh","Bundesherren History",bhVotes.length]].map(([v,l,n])=>(
-                  <button key={v} onClick={()=>setVoteTab(v)}
+            {RECORDS.length>1
+              ?<div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:8,flexWrap:"wrap"}}>
+                {RECORDS.map(r=>(
+                  <button key={r.v} onClick={()=>setVoteTab(r.v)}
                     style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.12em",
                       textTransform:"uppercase",padding:"5px 12px",background:"transparent",
                       border:"none",cursor:"pointer",
-                      borderBottom:`2px solid ${voteTab===v?C.gold:"transparent"}`,
-                      color:voteTab===v?C.gold:C.textD}}>
-                    {v==="bt"?"🏛 ":"🏰 "}{l}{n>0?" ("+n+")":""}
+                      borderBottom:`2px solid ${activeTab===r.v?C.gold:"transparent"}`,
+                      color:activeTab===r.v?C.gold:C.textD}}>
+                    {r.icon} {r.l}{r.n>0?" ("+r.n+")":""}
                   </button>
                 ))}
               </div>
               :<div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.18em",
                 color:C.textDD,marginBottom:6,textTransform:"uppercase"}}>
-                Voting History {shownVotes.length>0?"— "+shownVotes.length+" recorded":""}
+                {activeTab==="ij"?"Judicial Record":"Voting History "+(shownVotes.length>0?"— "+shownVotes.length+" recorded":"")}
               </div>
             }
-            {shownVotes.length===0
+            {activeTab==="ij"
+              ?<JudicialRecordPanel judicial={judicial}/>
+              :shownVotes.length===0
               ?<div style={{fontSize:13,color:C.textDD,fontStyle:"italic"}}>No votes recorded.</div>
               :<div style={{maxHeight:260,overflowY:"auto",display:"flex",flexDirection:"column",gap:2}}>
                 {shownVotes.map(({bill,chamber,vote,when},i)=>{
@@ -3779,11 +3975,10 @@ function LoginModal({accounts,members,bundesherren,officials,onLogin,onClose,not
     if(!username.trim()||!password.trim()){setErr("Credentials required.");return;}
     setLoading(true); setErr("");
     try{
-      const acc=Object.values(accounts||{}).find(a=>
-        String(a.username||"").toLowerCase()===username.trim().toLowerCase());
-      const hash=await sha256(password);
+      const res=await slogin(username,password);
       // Same message either way — never reveal whether a username exists.
-      if(!acc||hash!==acc.passwordHash){ setErr("Access denied — invalid credentials."); setLoading(false); return; }
+      if(!res.ok){ setErr("Access denied — invalid credentials."); setLoading(false); return; }
+      const acc=res.account;
       const access=bkAccess(acc,members,bundesherren,officials);
       if(!access){
         setErr("This account holds no seat or office in the Bundeskongress.");
@@ -6876,6 +7071,8 @@ function App() {
   const [governments,setGovernments]=useState({});
   const [ihHonours,setIhHonours]=useState({});
   const [ijAppointments,setIjAppointments]=useState({});
+  const [ijJudgments,setIjJudgments]=useState({});
+  const [mowPersonnel,setMowPersonnel]=useState({});
   const [factsheet,setFactsheet]=useState(null);
   const [user,setUser]=useState(null);
   const [bills,setBills]=useState({});
@@ -6966,10 +7163,13 @@ function App() {
           const parse=(k)=>{try{return ijRaw.data[k]?JSON.parse(ijRaw.data[k]):{};}catch{return{};}};
           setIjStatutes(parse("ij_statutes"));
           setIjCases(parse("ij_cases"));
+          setIjJudgments(parse("ij_judgments"));
           // Decorations are conferred by the Imperial Household and judicial
           // office by the Judiciary; both are read here only to display styles.
           setIhHonours(parse("ih_honours"));
           setIjAppointments(parse("ij_appointments"));
+          // Holds decorations awarded before honours moved to the Household.
+          setMowPersonnel(parse("mow_personnel"));
           const accs={};
           Object.entries(ijRaw.data||{}).forEach(([k,v])=>{
             if(!k.startsWith("mi_acc_")||!v) return;
@@ -7618,8 +7818,8 @@ function App() {
   // Registries the register's styles and post-nominals are derived from. The
   // account and past offices are per-person, so callers add those.
   const honoursCtx=useMemo(()=>({members,bundesherren,formerMembers,officials,
-    ihHonours,ijAppointments,accounts,governments}),
-    [members,bundesherren,formerMembers,officials,ihHonours,ijAppointments,accounts,governments]);
+    ihHonours,ijAppointments,ijCases,ijJudgments,mowPersonnel,accounts,governments}),
+    [members,bundesherren,formerMembers,officials,ihHonours,ijAppointments,ijCases,ijJudgments,mowPersonnel,accounts,governments]);
 
   // Authority is derived from the seating chart and the officials list.
   const access       = useMemo(()=>bkAccess(user,members,bundesherren,officials),

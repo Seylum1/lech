@@ -24,6 +24,17 @@ a{color:#4a9acc;text-decoration:none;}
 @keyframes shimmer{0%,100%{opacity:.7;}50%{opacity:1;}}
 .fadeIn{animation:fadeIn .3s ease both;}
 .mono{font-family:'Share Tech Mono',monospace;}
+/* Sealed MDT record */
+@keyframes sealSweep{0%{transform:translateY(-120%);}100%{transform:translateY(520%);}}
+@keyframes sealFlicker{0%,100%{opacity:.85;}47%{opacity:.85;}48%{opacity:.35;}52%{opacity:.9;}53%{opacity:.6;}}
+@keyframes sealStamp{0%{transform:rotate(-8deg) scale(2.4);opacity:0;}
+  60%{transform:rotate(-8deg) scale(.94);opacity:1;}
+  100%{transform:rotate(-8deg) scale(1);opacity:1;}}
+.sealTape{background-image:repeating-linear-gradient(45deg,#cc2222 0 12px,#180808 12px 24px);}
+.sealScan{position:absolute;left:0;right:0;height:56px;pointer-events:none;
+  background:linear-gradient(180deg,transparent,rgba(204,34,34,.10),transparent);
+  animation:sealSweep 3.6s linear infinite;}
+@keyframes treadIn{0%{transform:scale(.82) rotate(-2deg);opacity:0;}100%{transform:scale(1) rotate(0);opacity:1;}}
 </style>
 </head>
 <body>
@@ -90,21 +101,60 @@ const CLEARANCE=[
 const CL=(level)=>CLEARANCE[Math.max(0,Math.min(5,level||0))];
 
 // ── ROLES ─────────────────────────────────────────────────────────────────────
+// ── SYSTEM ROLE ───────────────────────────────────────────────────────────────
+// An account's standing in the Ministry itself, and nothing else. Standing in an
+// agency is a separate thing — see the agency roles below.
+//
+// The agency roles used to live on this same ladder, which was wrong twice over.
+// It made rank meaningless across parallel agencies (an LSS Director and an LFP
+// Director both sat at rank 2, so each satisfied a check for the other and
+// picked up the other's powers), and it duplicated the "Assigned" checkboxes,
+// which granted the same access by a second route.
 const ROLES=[
   {v:"citizen",      l:"Civilian",                   rank:0},
-  {v:"lss_agent",    l:"LSS Agent",                  rank:1},
-  {v:"lfp_officer",  l:"LFP Officer",                rank:1},
-  {v:"lss_director", l:"LSS Director",               rank:2},
-  {v:"lfp_director", l:"LFP Director",               rank:2},
   {v:"minister",     l:"Minister of the Interior",   rank:3},
   {v:"emperor",      l:"Emperor",                    rank:4},
 ];
-const roleLabel=(v)=>ROLES.find(r=>r.v===v)?.l||v;
+// Roles retired from the ladder. Kept so existing accounts still resolve to a
+// label and are read correctly, but they carry no Ministry authority of their
+// own — their agency standing is derived by lssRole()/lfpRole() below.
+const LEGACY_ROLES={
+  lss_agent:"LSS Agent (legacy)", lss_director:"LSS Director (legacy)",
+  lfp_officer:"LFP Officer (legacy)", lfp_director:"LFP Director (legacy)",
+};
+const roleLabel=(v)=>ROLES.find(r=>r.v===v)?.l||LEGACY_ROLES[v]||v;
 const roleRank=(v)=>ROLES.find(r=>r.v===v)?.rank||0;
 const hasRole=(user,role)=>roleRank(user?.role)>=roleRank(role);
-const canSeeLSS=(u)=>u&&(u.role==="lss_agent"||u.role==="lss_director"||u.role==="minister"||u.role==="emperor"||u.agentAssigned);
-const canSeeLFP=(u)=>u&&(u.role==="lfp_officer"||u.role==="lfp_director"||u.role==="minister"||u.role==="emperor"||u.officerAssigned);
-const canSeeIMC=(u)=>u&&(!!u.imcRole||u.role==="minister"||u.role==="emperor");
+const isMinisterOrAbove=(u)=>hasRole(u,"minister");
+
+// ── AGENCY ROLE ───────────────────────────────────────────────────────────────
+// Standing within one agency, held independently of the system role — the same
+// shape every other ministry already uses (mowRole, ijAccess, mofRole…).
+// Resolved through the legacy fields so nothing has to be migrated by hand: an
+// account keeps working until someone next saves it, which writes the new field.
+const LSS_ROLES=[{v:"",l:"No Access"},{v:"agent",l:"LSS Agent"},{v:"director",l:"LSS Director"}];
+const LFP_ROLES=[{v:"",l:"No Access"},{v:"officer",l:"LFP Officer"},{v:"director",l:"LFP Director"}];
+function lssRole(u){
+  if(!u) return "";
+  if(u.lssRole) return u.lssRole;
+  if(u.role==="lss_director") return "director";
+  if(u.role==="lss_agent"||u.agentAssigned) return "agent";
+  return "";
+}
+function lfpRole(u){
+  if(!u) return "";
+  if(u.lfpRole) return u.lfpRole;
+  if(u.role==="lfp_director") return "director";
+  if(u.role==="lfp_officer"||u.officerAssigned) return "officer";
+  return "";
+}
+// The Minister and the Emperor oversee both agencies, so they always read as
+// directors — but only within an agency, never across the system ladder.
+const lssLevel=(u)=>isMinisterOrAbove(u)?"director":lssRole(u);
+const lfpLevel=(u)=>isMinisterOrAbove(u)?"director":lfpRole(u);
+const canSeeLSS=(u)=>!!u&&!!lssLevel(u);
+const canSeeLFP=(u)=>!!u&&!!lfpLevel(u);
+const canSeeIMC=(u)=>!!u&&(!!u.imcRole||isMinisterOrAbove(u));
 
 const MINISTRIES=["Chancellery","Colonies","Interior","Finance","War","Infrastructure","Health","Foreign Affairs","External Contractor","Civilian"];
 
@@ -145,6 +195,7 @@ const PROVINCES={
   kingsland: {name:"Kingsland",  code:"KL", c1:"#28343f", c2:"#12191f", foil:"#d3b45c", ink:"#eef2f6", gp:[16,10], motto:"HAVPTSTADT · DES · REICHES"},
   aquitaine: {name:"Aquitaine",  code:"AQ", c1:"#1f2c66", c2:"#0d1330", foil:"#e2bd5c", ink:"#eef1fb", gp:[12,8],  motto:"HONNEVR · ET · PATRIE"},
   monegasque:{name:"Monégasque", code:"MC", c1:"#8a0f28", c2:"#450612", foil:"#f0d898", ink:"#fbeeee", gp:[20,12], motto:"DEO · JVVANTE"},
+  weststadt: {name:"Weststadt",  code:"WS", c1:"#39441f", c2:"#141a08", foil:"#c3d488", ink:"#f4f8e8", gp:[14,8],  motto:"L'EAV · ET · LA · RACINE"},
 };
 // Engraved province seals — thin line-art charges drawn in a 0..32 box, centred in a ringed medallion.
 const PROVINCE_SEALS={
@@ -154,6 +205,7 @@ const PROVINCE_SEALS={
   kingsland: '<rect x="7" y="18" width="18" height="10"/><path d="M9 18 V28 M13 18 V28 M16 18 V28 M19 18 V28 M23 18 V28"/><path d="M6 18 L16 11 L26 18 Z"/><path d="M13 11 a3.4 4 0 0 1 6 0"/><path d="M16 4 V7.5"/>',
   aquitaine: '<path d="M16 3 C14 8 11 9 11 14 C11 18 14 19 16 23 C18 19 21 18 21 14 C21 9 18 8 16 3 Z"/><path d="M11 14 C6 13 6.5 20 10.5 22 C8.5 22 8.8 17 11.2 17.2"/><path d="M21 14 C26 13 25.5 20 21.5 22 C23.5 22 23.2 17 20.8 17.2"/><path d="M10 23 H22"/><path d="M16 23 V29"/>',
   monegasque:'<path d="M16 14 L24 22 L16 30 L8 22 Z"/><path d="M9 12 L12 6 L16 10 L20 6 L23 12 Z"/><path d="M9 12 H23"/><circle cx="12" cy="5" r="1"/><circle cx="20" cy="5" r="1"/><circle cx="16" cy="9" r="1"/>',
+  weststadt: '<path d="M16 27 V6"/><rect x="14.5" y="4" width="3" height="8" rx="1.5"/><path d="M16 4 V1.5"/><path d="M9.5 27 V11"/><rect x="8.2" y="9" width="2.6" height="7" rx="1.3"/><path d="M9.5 9 V7"/><path d="M22.5 27 V11"/><rect x="21.2" y="9" width="2.6" height="7" rx="1.3"/><path d="M22.5 9 V7"/><path d="M16 26 C12 22 8 19 4.5 14"/><path d="M16 26 C20 22 24 19 27.5 14"/><path d="M2 27 q3.5 -1.5 7 0 t7 0 t7 0 t7 0"/><path d="M3 30 q3.5 -1.5 7 0 t7 0 t7 0"/>',
 };
 const PROVINCE_OPTS=[{v:"",l:"— None (no ID issued) —"}].concat(Object.keys(PROVINCES).map(k=>({v:k,l:PROVINCES[k].name})));
 function idHash(s){s=(s||"").toLowerCase();let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=(h*16777619)>>>0;}return h>>>0;}
@@ -250,16 +302,38 @@ async function sgetAll(){
     return out;
   }catch{return{};}
 }
+// Session token from the hardened backend, attached to every write.
+let AUTH_TOKEN=null;
 async function sset(k,v){
   try{
     await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
-      body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v)})});
+      body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v),token:AUTH_TOKEN})});
     return true;
   }catch{return false;}
 }
 async function sdel(k){
   try{await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
-    body:JSON.stringify({action:"del",key:k})});}catch{}
+    body:JSON.stringify({action:"del",key:k,token:AUTH_TOKEN})});}catch{}
+}
+// Dual-mode sign-in: hardened `login` endpoint first, legacy browser-side hash
+// check as fallback so the page works across the rollout. Returns the account.
+async function slogin(username,password){
+  const u=String(username||"").trim();
+  try{
+    const r=await fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"login",username:u,password:password})});
+    const d=await r.json();
+    if(d&&d.success){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}
+    if(d&&d.error&&d.error!=="Unknown action")return {ok:false,error:d.error};
+  }catch(e){/* old backend or CORS — fall through */}
+  const raw=await sgetAll();
+  const accounts={};
+  Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v)accounts[v.username]=v;});
+  Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(!accounts[k])accounts[k]=v;});
+  const user=Object.values(accounts).find(a=>String(a.username||"").toLowerCase()===u.toLowerCase());
+  if(!user)return {ok:false,error:"ACCESS DENIED"};
+  const hash=await sha256(password);
+  if(hash!==user.passwordHash)return {ok:false,error:"ACCESS DENIED"};
+  return {ok:true,account:user};
 }
 
 // ── COLORS / DESIGN TOKENS ────────────────────────────────────────────────────
@@ -296,8 +370,7 @@ function ClearanceBadge({level,style:extra={}}){
 
 function RoleBadge({role,style:extra={}}){
   const color=role==="emperor"?C.gold:role==="minister"?"#8a6acc":
-    role==="lss_director"||role==="lfp_director"?C.accent:
-    role==="lss_agent"||role==="lfp_officer"?"#5a9a7a":C.textDD;
+    LEGACY_ROLES[role]?"#7a6a4a":C.textDD;
   return(
     <span className="mono" style={{fontSize:9,letterSpacing:"0.1em",padding:"2px 7px",
       background:C.s1,border:`1px solid ${color}44`,color,...extra}}>
@@ -404,20 +477,15 @@ function LoginScreen({onLogin}){
     if(!username.trim()||!password.trim()){setErr("Credentials required.");return;}
     setLoading(true); setErr("");
     try{
-      console.log("Fetching from:", SCRIPT_URL+"?action=getall");
+      const res=await slogin(username,password);
+      if(!res.ok){setErr((res.error||"ACCESS DENIED")+" — Invalid credentials.");setLoading(false);return;}
       const raw=await sgetAll();
-      // Build accounts from per-row keys (mi_acc_<username>)
+      // Build accounts from per-row keys (mi_acc_<username>), then the legacy blob.
       const accounts={};
       Object.entries(raw).forEach(([k,v])=>{ if(k.startsWith("mi_acc_")&&v) accounts[v.username]=v; });
-      // Fallback: also check legacy mi_accounts blob
       Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{ if(!accounts[k]) accounts[k]=v; });
-      const user=Object.values(accounts).find(a=>a.username.toLowerCase()===username.trim().toLowerCase());
-      if(!user){setErr("ACCESS DENIED — Invalid credentials.");setLoading(false);return;}
-      const hash=await sha256(password);
-      if(hash!==user.passwordHash){setErr("ACCESS DENIED — Invalid credentials.");setLoading(false);return;}
       setErr("");
-      // Inject merged accounts into raw for downstream use
-      onLogin(user,{...raw,"mi_accounts":accounts});
+      onLogin(res.account,{...raw,"mi_accounts":accounts});
     }catch(e){
       console.error("Login error:", e);
       setErr("Connection error — check network: "+e.message);
@@ -565,13 +633,13 @@ function ClearanceTracker({accounts,currentUser,onUpdate,notify,setProcessing}){
                         <span style={{fontSize:13,color:C.text}}>{acc.ministry||"—"}</span>
                         {acc.isContractor&&<span className="mono" style={{fontSize:9,color:"#aa6622",marginLeft:8}}>CONTRACTOR</span>}
                       </div>
-                      {acc.agentAssigned&&<div>
+                      {!!lssRole(acc)&&<div>
                         <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>LSS</div>
-                        <span className="mono" style={{fontSize:10,color:"#5a9a7a"}}>AGENT ASSIGNED</span>
+                        <span className="mono" style={{fontSize:10,color:"#5a9a7a"}}>{lssRole(acc).toUpperCase()}</span>
                       </div>}
-                      {acc.officerAssigned&&<div>
+                      {!!lfpRole(acc)&&<div>
                         <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>LFP</div>
-                        <span className="mono" style={{fontSize:10,color:"#5a7a9a"}}>OFFICER ASSIGNED</span>
+                        <span className="mono" style={{fontSize:10,color:"#5a7a9a"}}>{lfpRole(acc).toUpperCase()}</span>
                       </div>}
                     </div>
                     {acc.notes&&(
@@ -627,7 +695,9 @@ function OperationCard({op,accounts,currentUser,onAction,notify,setProcessing,ch
   const [saving,setSaving]=useState(false);
   const st=OP_STATUSES.find(s=>s.v===op.status)||OP_STATUSES[0];
   const cl=CL(op.clearance||0);
-  const canEdit=hasRole(currentUser,(chamber==="lss"?"lss_director":"lfp_director"))||hasRole(currentUser,"minister");
+  // Directing one agency confers nothing in the other — the two are parallel.
+  const myLevel=chamber==="lss"?lssLevel(currentUser):lfpLevel(currentUser);
+  const canEdit=myLevel==="director";
 
   if((op.clearance||0)>(currentUser.clearance||0)) return null;
 
@@ -698,8 +768,8 @@ function OperationCard({op,accounts,currentUser,onAction,notify,setProcessing,ch
           )}
 
           {/* Add note */}
-          {(canEdit||currentUser.agentAssigned||currentUser.officerAssigned||
-            currentUser.role==="lss_agent"||currentUser.role==="lfp_officer")&&(
+          {/* Anyone serving in this agency may add a field note. */}
+          {!!myLevel&&(
             <div style={{display:"flex",gap:8}}>
               <Inp value={addNote} onChange={setAddNote} placeholder="Add field note or update…" style={{flex:1}}/>
               <Btn small disabled={!addNote.trim()||saving} onClick={async()=>{
@@ -910,7 +980,12 @@ function ArrestCard({arrest,currentUser,canEdit,onAction,notify,setProcessing}){
     <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${st.color}`,borderRadius:"0 3px 3px 0",marginBottom:"0.5rem",overflow:"hidden"}}>
       <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"0.75rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
         <span className="mono" style={{fontSize:9,padding:"2px 8px",background:C.s3,border:`1px solid ${st.color}44`,color:st.color}}>{arrest.status?.replace("_"," ").toUpperCase()}</span>
-        <span style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:C.text,flex:1}}>{arrest.suspect}</span>
+        <span style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:C.text}}>{arrest.suspect}</span>
+        {arrest.suspectUsername
+          ?<span className="mono" style={{fontSize:9,color:C.textDD}}>@{arrest.suspectUsername}</span>
+          :<span className="mono" style={{fontSize:8,color:C.textDD,border:`1px solid ${C.border}`,
+            padding:"1px 5px",borderRadius:2}} title="Not bound to an Intranet account">UNLINKED</span>}
+        <div style={{flex:1}}/>
         <span className="mono" style={{fontSize:9,color:C.textDD}}>CASE {arrest.caseNumber}</span>
         <span className="mono" style={{fontSize:9,color:C.textDD}}>{arrest.date}</span>
         <span style={{fontSize:11,color:C.textDD}}>{open?"▲":"▼"}</span>
@@ -983,12 +1058,29 @@ function ArrestStatusInline({arrest,onAction,notify,setProcessing}){
   );
 }
 
-function CreateArrestForm({onAction,notify,setProcessing,onClose,currentUser}){
+function CreateArrestForm({onAction,notify,setProcessing,onClose,currentUser,accounts}){
+  // A suspect is normally an account, so the record is bound to one and follows
+  // them even if they change their display name. Someone with no account can
+  // still be booked by name — the record simply is not bound to anything.
+  const [offRoll,setOffRoll]=useState(false); // suspect is not in the database
+  const [suspectUser,setSuspectUser]=useState("");
   const [suspect,setSuspect]=useState("");
+  const [q,setQ]=useState("");
   const [charges,setCharges]=useState("");
   const [date,setDate]=useState(new Date().toISOString().slice(0,10));
   const [officer,setOfficer]=useState(currentUser?.displayName||currentUser?.username||"");
   const [saving,setSaving]=useState(false);
+
+  const query=q.trim().toLowerCase();
+  const matches=(!offRoll&&!suspectUser&&query.length>=2)
+    ?Object.values(accounts||{}).filter(a=>
+        (a.username||"").toLowerCase().includes(query)
+        ||(a.displayName||"").toLowerCase().includes(query))
+      .sort((a,b)=>(a.username||"").localeCompare(b.username||"")).slice(0,8)
+    :[];
+  const picked=suspectUser?accounts?.[suspectUser]:null;
+  const ready=(offRoll?!!suspect.trim():!!suspectUser)&&!!charges.trim();
+
   return(
     <div style={{background:C.s2,border:`1px solid ${C.accentD}`,borderRadius:3,padding:"1.25rem",marginBottom:"1.25rem"}}>
       <div style={{fontFamily:"'Cinzel',serif",fontSize:11,letterSpacing:"0.25em",color:C.accent,marginBottom:"1rem",display:"flex",justifyContent:"space-between"}}>
@@ -996,17 +1088,57 @@ function CreateArrestForm({onAction,notify,setProcessing,onClose,currentUser}){
         <button onClick={onClose} style={{background:"transparent",border:"none",color:C.textD,cursor:"pointer",fontSize:14}}>✕</button>
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:"0.85rem"}}>
-        <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
-          <div style={{flex:2,minWidth:180}}><FL>SUSPECT NAME *</FL><Inp value={suspect} onChange={setSuspect} placeholder="Full in-game name"/></div>
-          <div style={{flex:1,minWidth:140}}><FL>DATE OF ARREST *</FL><Inp value={date} onChange={setDate} type="date"/></div>
+        <div>
+          <FL>SUSPECT *</FL>
+          {picked
+            ?<div style={{display:"flex",alignItems:"center",gap:10,background:C.s1,
+              border:`1px solid ${C.accentD}66`,borderLeft:`3px solid ${C.accent}`,
+              borderRadius:"0 3px 3px 0",padding:"8px 12px",flexWrap:"wrap"}}>
+              <span className="mono" style={{fontSize:13,color:C.text,fontWeight:600}}>{picked.username}</span>
+              {picked.displayName&&<span style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>{picked.displayName}</span>}
+              <div style={{flex:1}}/>
+              <Btn small variant="ghost" onClick={()=>{setSuspectUser("");setQ("");}}>Change</Btn>
+            </div>
+            :offRoll
+              ?<Inp value={suspect} onChange={setSuspect} placeholder="Name of suspect (not in database)"/>
+              :<div>
+                <Inp value={q} onChange={setQ} placeholder="Search username or name…"/>
+                {query.length>=2&&(
+                  matches.length===0
+                    ?<div style={{fontSize:12,color:C.textDD,fontStyle:"italic",marginTop:6}}>
+                      No account matches. Tick below if they are not in the database.
+                    </div>
+                    :<div style={{marginTop:6,border:`1px solid ${C.border}`,borderRadius:3,overflow:"hidden"}}>
+                      {matches.map(a=>(
+                        <div key={a.username} onClick={()=>{setSuspectUser(a.username);setSuspect(a.displayName||a.username);}}
+                          style={{display:"flex",alignItems:"center",gap:10,padding:"6px 10px",cursor:"pointer",
+                            background:C.s1,borderBottom:`1px solid ${C.border}44`}}>
+                          <span className="mono" style={{fontSize:12,color:C.text,minWidth:110}}>{a.username}</span>
+                          <span style={{fontSize:12,color:C.textD,fontStyle:"italic"}}>{a.displayName||""}</span>
+                        </div>
+                      ))}
+                    </div>
+                )}
+              </div>
+          }
+          <div onClick={()=>{setOffRoll(v=>!v);setSuspectUser("");setSuspect("");setQ("");}}
+            style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",marginTop:8}}>
+            <div style={{width:14,height:14,border:`2px solid ${offRoll?C.accent:C.border}`,borderRadius:2,
+              background:offRoll?C.accentD:"transparent",display:"flex",alignItems:"center",
+              justifyContent:"center",fontSize:9,color:C.accent}}>{offRoll?"✓":""}</div>
+            <span style={{fontSize:12,color:offRoll?C.text:C.textD}}>Player is not in Intranet Database</span>
+          </div>
         </div>
+        <div style={{maxWidth:220}}><FL>DATE OF ARREST *</FL><Inp value={date} onChange={setDate} type="date"/></div>
         <div><FL>CHARGES *</FL><TA value={charges} onChange={setCharges} placeholder="List all charges…" rows={3}/></div>
         <div><FL>ARRESTING OFFICER</FL><Inp value={officer} onChange={setOfficer} placeholder="Officer name"/></div>
         <div style={{display:"flex",gap:8}}>
-          <Btn disabled={!suspect.trim()||!charges.trim()||saving} onClick={async()=>{
+          <Btn disabled={!ready||saving} onClick={async()=>{
             setSaving(true); setProcessing("Filing arrest record…");
             await onAction("createArrest",{arrest:{
-              suspect:suspect.trim(),charges:charges.trim(),date,
+              suspect:(offRoll?suspect.trim():(picked?.displayName||picked?.username||suspect.trim())),
+              suspectUsername:offRoll?"":suspectUser,
+              charges:charges.trim(),date,
               officer:officer.trim(),status:"detained",notes:[],
             }});
             setProcessing(null); setSaving(false);
@@ -1022,9 +1154,10 @@ function CreateArrestForm({onAction,notify,setProcessing,onClose,currentUser}){
 // ── LSS — LECH SECURITY SERVICE ───────────────────────────────────────────────
 
 function LSSSection({currentUser,accounts,lssOps,lssDocs,onAction,notify,setProcessing}){
-  const isAgent=currentUser.role==="lss_agent"||currentUser.agentAssigned;
-  const isDirector=hasRole(currentUser,"lss_director");
-  const isAdmin=hasRole(currentUser,"minister");
+  const level=lssLevel(currentUser);
+  const isAgent=!!level;
+  const isDirector=level==="director";
+  const isAdmin=isMinisterOrAbove(currentUser);
   const [sub,setSub]=useState("ops");
 
   const allOps=Object.values(lssOps||{});
@@ -1144,12 +1277,12 @@ function LSSDocumentsTab({currentUser,lssDocs,onAction,notify,setProcessing,canC
 }
 
 function LSSPersonnelTab({accounts,currentUser,lssOps}){
-  const lssAccounts=Object.values(accounts||{}).filter(a=>
-    a.role==="lss_agent"||a.role==="lss_director"||a.agentAssigned
-  ).sort((a,b)=>{
-    const rank=r=>r==="lss_director"?0:r==="lss_agent"?1:2;
-    return rank(a.role)-rank(b.role)||( a.displayName||a.username).localeCompare(b.displayName||b.username);
-  });
+  // Serving members only — the Minister oversees the agency without serving in it.
+  const lssAccounts=Object.values(accounts||{}).filter(a=>!!lssRole(a))
+    .sort((a,b)=>{
+      const rank=u=>lssRole(u)==="director"?0:1;
+      return rank(a)-rank(b)||(a.displayName||a.username).localeCompare(b.displayName||b.username);
+    });
   if(lssAccounts.length===0) return <div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No LSS-assigned personnel on record.</div>;
   return(
     <div>
@@ -1159,12 +1292,12 @@ function LSSPersonnelTab({accounts,currentUser,lssOps}){
           const cl=CL(acc.clearance||0);
           const assignedOps=Object.values(lssOps||{}).filter(op=>(op.clearance||0)<=(acc.clearance||0)).length;
           return(
-            <div key={acc.username} style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${acc.role==="lss_director"?C.accent:"#3a6a5a"}`,borderRadius:"0 3px 3px 0",padding:"0.65rem 1rem",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <div key={acc.username} style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${lssRole(acc)==="director"?C.accent:"#3a6a5a"}`,borderRadius:"0 3px 3px 0",padding:"0.65rem 1rem",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
               <div style={{flex:1}}>
                 <span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,fontWeight:700}}>{acc.displayName||acc.username}</span>
                 <span className="mono" style={{fontSize:9,color:C.textDD,marginLeft:8}}>{acc.username}</span>
               </div>
-              <span className="mono" style={{fontSize:9,color:acc.role==="lss_director"?C.accent:"#5a9a7a"}}>{acc.role==="lss_director"?"DIRECTOR":acc.agentAssigned&&acc.role!=="lss_agent"?"AGENT (FLAG)":"AGENT"}</span>
+              <span className="mono" style={{fontSize:9,color:lssRole(acc)==="director"?C.accent:"#5a9a7a"}}>{lssRole(acc)==="director"?"DIRECTOR":"AGENT"}</span>
               <ClearanceBadge level={acc.clearance||0}/>
               <span className="mono" style={{fontSize:9,color:C.textDD}}>{assignedOps} op{assignedOps!==1?"s":""} accessible</span>
             </div>
@@ -1178,12 +1311,13 @@ function LSSPersonnelTab({accounts,currentUser,lssOps}){
 // ── LFP — LECH FEDERAL POLICE ─────────────────────────────────────────────────
 
 function LFPSection({currentUser,accounts,lfpOps,arrests,onAction,notify,setProcessing}){
-  const isOfficer=currentUser.role==="lfp_officer"||currentUser.officerAssigned;
-  const isDirector=hasRole(currentUser,"lfp_director");
-  const isAdmin=hasRole(currentUser,"minister");
+  const level=lfpLevel(currentUser);
+  const isOfficer=!!level;
+  const isDirector=level==="director";
+  const isAdmin=isMinisterOrAbove(currentUser);
   const canManage=isDirector||isAdmin;
   const canFile=isOfficer||isDirector||isAdmin;
-  const [sub,setSub]=useState("cases");
+  const [sub,setSub]=useState("mdt");
   const [officerFilter,setOfficerFilter]=useState(null);
 
   const caseList=Object.values(arrests||{});
@@ -1192,10 +1326,10 @@ function LFPSection({currentUser,accounts,lfpOps,arrests,onAction,notify,setProc
   const activeOps=Object.values(lfpOps||{}).filter(op=>op.status==="active"||op.status==="planning").length;
 
   const SUBTABS=[
+    {v:"mdt",l:"MDT"},
     {v:"cases",l:"Case Files"},
     {v:"ops",l:"Operations"},
     ...(canManage?[{v:"personnel",l:"Personnel"}]:[]),
-    {v:"idcards",l:"ID Registry"},
   ];
 
   return(
@@ -1223,60 +1357,329 @@ function LFPSection({currentUser,accounts,lfpOps,arrests,onAction,notify,setProc
         ))}
       </div>
 
-      {sub==="cases"&&<LFPCaseFiles currentUser={currentUser} arrests={arrests} onAction={onAction} notify={notify} setProcessing={setProcessing} canEdit={canFile} canFile={canFile} officerFilter={officerFilter} setOfficerFilter={setOfficerFilter}/>}
+      {sub==="mdt"&&<LFPMdt accounts={accounts} arrests={arrests} currentUser={currentUser}
+        onAction={onAction} notify={notify} setProcessing={setProcessing} canEdit={canFile}/>}
+      {sub==="cases"&&<LFPCaseFiles currentUser={currentUser} accounts={accounts} arrests={arrests} onAction={onAction} notify={notify} setProcessing={setProcessing} canEdit={canFile} canFile={canFile} officerFilter={officerFilter} setOfficerFilter={setOfficerFilter}/>}
       {sub==="ops"&&<LFPOperationsTab currentUser={currentUser} lfpOps={lfpOps} onAction={onAction} notify={notify} setProcessing={setProcessing} canCreate={canManage}/>}
       {sub==="personnel"&&canManage&&<LFPPersonnelTab accounts={accounts} arrests={arrests} onSelectOfficer={name=>{setOfficerFilter(name);setSub("cases");}}/>}
-      {sub==="idcards"&&<LFPIdRegistry accounts={accounts}/>}
     </div>
   );
 }
 
-function LFPIdRegistry({accounts}){
+// ── THE IMPERIAL PERSON ───────────────────────────────────────────────────────
+// The Emperor's own account may only be altered by the Emperor. Before this, the
+// Minister could open the Throne's row and reset its password, cut its clearance
+// or delete it outright — the only guard being "not yourself".
+const treadsOnEmperor=(target,actor)=>
+  target?.role==="emperor"
+  && String(actor?.username||"").toLowerCase()!==String(target?.username||"").toLowerCase();
+
+function DontTreadOnMe({actor,onClose}){
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,zIndex:9000,background:"#000000cc",
+      display:"flex",alignItems:"center",justifyContent:"center",padding:"1.5rem",
+      animation:"fadeIn .18s ease both"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#F4C430",borderRadius:4,
+        maxWidth:520,width:"100%",padding:"2rem 1.75rem",textAlign:"center",
+        border:"3px solid #0a0a0a",boxShadow:"0 0 60px rgba(244,196,48,.35)",
+        animation:"treadIn .32s cubic-bezier(.2,1.5,.4,1) both"}}>
+
+        {/* Coiled rattlesnake, rearing. Built from stacked arcs of decreasing
+            weight so the body tapers from the coil up into the neck. */}
+        <svg viewBox="0 0 200 200" style={{width:196,height:196,display:"block",margin:"0 auto"}}>
+          <g fill="none" stroke="#0a0a0a" strokeLinecap="round" strokeLinejoin="round">
+            {/* rattle, laid out to the left of the coil */}
+            <path d="M18 150 C26 158 34 162 44 163" strokeWidth="5"/>
+            {/* outer coil — heaviest */}
+            <path d="M44 163 C22 168 24 186 60 188 C120 191 178 184 178 166
+                     C178 150 132 143 96 145" strokeWidth="15"/>
+            {/* second coil */}
+            <path d="M96 145 C58 148 44 158 62 168 C92 184 158 178 160 162
+                     C161 150 130 145 108 148" strokeWidth="13"/>
+            {/* inner coil, tucking under the neck */}
+            <path d="M108 148 C82 152 76 162 92 168 C118 177 146 168 142 158
+                     C139 150 124 148 114 152" strokeWidth="11"/>
+            {/* rearing neck — an S from the coil up to the head */}
+            <path d="M114 152 C104 136 74 132 78 108 C81 88 112 88 112 68
+                     C112 54 100 48 104 38" strokeWidth="9"/>
+          </g>
+
+          {/* rattle segments */}
+          <g fill="#0a0a0a">
+            <path d="M20 154 l-9 3 4 -11 z"/>
+            <path d="M13 145 l-10 1 6 -10 z"/>
+            <path d="M8 134 l-8 -1 7 -8 z"/>
+          </g>
+
+          {/* head — a wedge with an open mouth, jaws parted to the right */}
+          <g fill="#0a0a0a">
+            <path d="M104 38 C98 26 108 14 124 14 C140 14 152 22 154 32
+                     L128 40 C118 43 108 44 104 38 z"/>
+            {/* lower jaw */}
+            <path d="M128 40 L156 38 C152 46 140 50 130 47 z"/>
+          </g>
+          {/* eye */}
+          <circle cx="122" cy="26" r="3" fill="#F4C430"/>
+          {/* fang */}
+          <path d="M150 34 l4 7 -6 -3 z" fill="#0a0a0a"/>
+          {/* forked tongue, flicking out past the jaws */}
+          <g stroke="#0a0a0a" strokeWidth="2.6" fill="none" strokeLinecap="round">
+            <path d="M154 34 L172 30"/>
+            <path d="M172 30 L184 24"/>
+            <path d="M172 30 L183 33"/>
+          </g>
+        </svg>
+
+        <div style={{fontFamily:"'Cinzel',serif",fontWeight:900,fontSize:30,letterSpacing:"0.06em",
+          color:"#0a0a0a",lineHeight:1.05,marginTop:"0.25rem"}}>
+          DONT TREAD<br/>ON ME
+        </div>
+
+        <div style={{height:3,background:"#0a0a0a",margin:"1.1rem auto",maxWidth:220,opacity:.85}}/>
+
+        <div style={{fontSize:15,color:"#1a1408",lineHeight:1.65,fontStyle:"italic"}}>
+          You reached for the Throne's own record, {actor?.displayName||actor?.username||"friend"}.
+          The Imperial person is not yours to edit.
+        </div>
+        <div className="mono" style={{fontSize:9,letterSpacing:"0.18em",color:"#4a3c10",marginTop:"1rem"}}>
+          ACCESS DENIED · ONLY THE EMPEROR MAY ALTER THE EMPEROR
+        </div>
+
+        <div style={{marginTop:"1.4rem"}}>
+          <button onClick={onClose} style={{fontFamily:"'Cinzel',serif",fontSize:11,
+            letterSpacing:"0.18em",padding:"8px 26px",borderRadius:2,cursor:"pointer",
+            background:"#0a0a0a",color:"#F4C430",border:"2px solid #0a0a0a"}}>
+            STAND DOWN
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── MDT — MOBILE DISPATCH TERMINAL ────────────────────────────────────────────
+// An officer's lookup tool. Nothing is listed until a search is made: pulling up
+// a person is a deliberate act, not something you do by idly scrolling the
+// population. Matches an arrest record to an account by the username stored on
+// the record, falling back to the name for records filed before that was kept.
+function arrestsFor(acc,arrests){
+  if(!acc) return [];
+  const u=String(acc.username||"").toLowerCase();
+  const n=String(acc.displayName||"").toLowerCase();
+  return Object.values(arrests||{}).filter(a=>{
+    const au=String(a.suspectUsername||"").toLowerCase();
+    if(au) return au===u;
+    const s=String(a.suspect||"").toLowerCase();
+    return !!s&&(s===u||s===n);
+  }).sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
+}
+
+// Shown in place of a sealed record. It confirms the subject exists and that a
+// record is held, and nothing else — deliberately not the clearance required,
+// since that is itself a hint about who they are.
+function SealedRecord({subject,currentUser}){
+  const Redacted=({w})=>(
+    <span style={{display:"inline-block",width:w,height:11,background:"#000",
+      border:"1px solid #2a1010",borderRadius:1,verticalAlign:"middle"}}/>
+  );
+  const Field=({label,w})=>(
+    <div style={{display:"flex",alignItems:"center",gap:10,padding:"5px 0"}}>
+      <span className="mono" style={{fontSize:8,color:"#6a3a3a",letterSpacing:".14em",width:96,flexShrink:0}}>{label}</span>
+      <Redacted w={w}/>
+    </div>
+  );
+  return(
+    <div style={{border:"1px solid #5a1a1a",borderRadius:4,overflow:"hidden",
+      background:"#0e0505",position:"relative",animation:"fadeIn .3s ease both"}}>
+      <div className="sealTape" style={{height:8,opacity:.55}}/>
+      <div style={{position:"relative",padding:"2rem 1.5rem",overflow:"hidden"}}>
+        <div className="sealScan"/>
+
+        <div style={{textAlign:"center",marginBottom:"1.25rem"}}>
+          <div style={{display:"inline-block",border:"3px solid #cc2222",borderRadius:3,
+            padding:"6px 22px",transform:"rotate(-8deg)",animation:"sealStamp .5s cubic-bezier(.2,1.4,.4,1) both",
+            boxShadow:"0 0 24px rgba(204,34,34,.28), inset 0 0 18px rgba(204,34,34,.14)"}}>
+            <div style={{fontFamily:"'Cinzel',serif",fontWeight:900,fontSize:30,letterSpacing:"0.22em",
+              color:"#cc2222",textShadow:"0 0 18px rgba(204,34,34,.55)",lineHeight:1.1,
+              animation:"sealFlicker 5s infinite"}}>
+              CLASSIFIED
+            </div>
+          </div>
+        </div>
+
+        <div className="mono" style={{textAlign:"center",fontSize:10,letterSpacing:".26em",
+          color:"#cc5050",marginBottom:4}}>RECORD SEALED</div>
+        <div style={{textAlign:"center",fontSize:13,color:"#8a5a5a",fontStyle:"italic",
+          marginBottom:"1.5rem",lineHeight:1.6,maxWidth:400,marginLeft:"auto",marginRight:"auto"}}>
+          A record for this subject is held by the Ministry. Your clearance does not open it.
+        </div>
+
+        <div style={{maxWidth:340,margin:"0 auto",padding:"0.85rem 1rem",
+          background:"#0a0303",border:"1px solid #2a1010",borderRadius:3}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,padding:"5px 0",
+            borderBottom:"1px solid #2a1010",marginBottom:4}}>
+            <span className="mono" style={{fontSize:8,color:"#6a3a3a",letterSpacing:".14em",width:96,flexShrink:0}}>SUBJECT</span>
+            <span className="mono" style={{fontSize:12,color:"#aa7070"}}>{subject.username}</span>
+          </div>
+          <Field label="IDENTITY NO." w={128}/>
+          <Field label="PROVINCE" w={86}/>
+          <Field label="ARREST REC." w={150}/>
+          <Field label="STATUS" w={64}/>
+        </div>
+
+        <div className="mono" style={{textAlign:"center",fontSize:8,letterSpacing:".2em",
+          color:"#5a2a2a",marginTop:"1.5rem"}}>
+          ACCESS ATTEMPT LOGGED · {(currentUser?.username||"UNKNOWN").toUpperCase()} ·{" "}
+          {CL(currentUser?.clearance||0).short}
+          <span style={{animation:"blink 1.1s infinite"}}>▌</span>
+        </div>
+      </div>
+      <div className="sealTape" style={{height:8,opacity:.55}}/>
+    </div>
+  );
+}
+
+// A record is sealed if it is restricted and the viewer is under the bar. The
+// Minister and the Emperor oversee the register, so nothing is sealed to them.
+function mdtSealed(subject,viewer){
+  if(!subject?.mdtRestricted) return false;
+  if(isMinisterOrAbove(viewer)) return false;
+  return (viewer?.clearance||0)<(subject.mdtClearance||0);
+}
+
+function LFPMdt({accounts,arrests,currentUser,onAction,notify,setProcessing,canEdit}){
   const [search,setSearch]=useState("");
   const [viewing,setViewing]=useState(null);
-  const holders=Object.values(accounts||{}).filter(a=>a.stateOfResidency&&PROVINCES[a.stateOfResidency]);
   const q=search.trim().toLowerCase();
-  const list=holders.filter(a=>!q
+
+  // Deliberately empty until asked: no browsing the population at rest.
+  const results=q.length<2?[]:Object.values(accounts||{}).filter(a=>
+      (a.username||"").toLowerCase().includes(q)
       ||(a.displayName||"").toLowerCase().includes(q)
-      ||(a.username||"").toLowerCase().includes(q)
-      ||genIdNumber(a.username,PROVINCES[a.stateOfResidency].code).toLowerCase().includes(q)
-      ||PROVINCES[a.stateOfResidency].name.toLowerCase().includes(q))
-    .sort((a,b)=>(a.displayName||a.username).localeCompare(b.displayName||b.username));
+      ||(a.stateOfResidency&&PROVINCES[a.stateOfResidency]
+        &&genIdNumber(a.username,PROVINCES[a.stateOfResidency].code).toLowerCase().includes(q)))
+    .sort((a,b)=>(a.username||"").localeCompare(b.username||""))
+    .slice(0,25);
+
+  const subject=viewing?accounts[viewing]:null;
+  const sealed=mdtSealed(subject,currentUser);
+  const record=sealed?[]:arrestsFor(subject,arrests);
+  const open=record.filter(a=>a.status==="detained"||a.status==="pending_trial").length;
+
   return(
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"0.5rem",gap:8,flexWrap:"wrap"}}>
-        <STitle style={{marginBottom:0}}>Provincial ID Registry</STitle>
-        <span className="mono" style={{fontSize:9,color:C.textDD}}>{holders.length} CARD{holders.length!==1?"S":""} ON FILE</span>
+        <STitle style={{marginBottom:0}}>Mobile Dispatch Terminal</STitle>
+        <span className="mono" style={{fontSize:9,color:C.textDD}}>MDT · FEDERAL LOOKUP</span>
       </div>
       <div style={{fontSize:13,color:C.textD,fontStyle:"italic",marginBottom:"1rem",lineHeight:1.6}}>
-        Look up any resident by name, username, ID number, or province to view their provincial identity card.
+        Search a username to pull their identity card and arrest record.
       </div>
-      <div style={{maxWidth:420,marginBottom:"1.25rem"}}><Inp value={search} onChange={setSearch} placeholder="Search name, ID number, or province…"/></div>
-      {viewing&&<div style={{marginBottom:"1.5rem"}}><IDCard acc={viewing}/></div>}
-      {list.length===0?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No matching identity cards.</div>
-        :<div style={{display:"flex",flexDirection:"column",gap:4}}>
-          {list.map(a=>{const P=PROVINCES[a.stateOfResidency];const sel=viewing&&viewing.username===a.username;return(
-            <div key={a.username} onClick={()=>setViewing(sel?null:a)}
-              style={{display:"flex",alignItems:"center",gap:10,padding:"0.6rem 1rem",cursor:"pointer",
-                background:C.s1,border:`1px solid ${sel?C.accentD:C.border}`,borderRadius:3}}>
-              <img src={COA_B64} alt="" style={{height:22,width:"auto",display:"block"}}/>
-              <span style={{fontFamily:"'Cinzel',serif",fontSize:14,fontWeight:600,color:C.text,flex:1}}>{a.displayName||a.username}</span>
-              <span className="mono" style={{fontSize:11,color:P.foil}}>{genIdNumber(a.username,P.code)}</span>
-              <span className="mono" style={{fontSize:9,color:C.textDD,minWidth:80,textAlign:"right"}}>{P.name.toUpperCase()}</span>
-            </div>);})}
-        </div>}
+      <div style={{maxWidth:420,marginBottom:"1.25rem"}}>
+        <Inp value={search} onChange={v=>{setSearch(v);setViewing(null);}} placeholder="Search username, name, or ID number…"/>
+      </div>
+
+      {!subject&&(
+        q.length<2
+          ?<div style={{textAlign:"center",padding:"2.5rem 1rem",color:C.textDD}}>
+            <div style={{fontSize:28,marginBottom:8,opacity:0.5}}>🔎</div>
+            <div style={{fontStyle:"italic",fontSize:13}}>Enter at least two characters to run a search.</div>
+          </div>
+          :results.length===0
+            ?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No record matches that search.</div>
+            :<div style={{display:"flex",flexDirection:"column",gap:4}}>
+              {results.map(a=>{
+                const P=a.stateOfResidency?PROVINCES[a.stateOfResidency]:null;
+                // A sealed subject gives up nothing in the list either — not their
+                // name, not their ID, not whether they have any record at all.
+                const isSealed=mdtSealed(a,currentUser);
+                const n=isSealed?0:arrestsFor(a,arrests).length;
+                return(
+                  <div key={a.username} onClick={()=>setViewing(a.username)}
+                    style={{display:"flex",alignItems:"center",gap:10,padding:"0.6rem 1rem",cursor:"pointer",
+                      background:isSealed?"#120606":C.s1,
+                      border:`1px solid ${isSealed?"#3a1414":C.border}`,borderRadius:3}}>
+                    <img src={COA_B64} alt="" style={{height:22,width:"auto",display:"block",opacity:(P&&!isSealed)?1:0.3}}/>
+                    <span className="mono" style={{fontSize:13,color:C.text,fontWeight:600,minWidth:120}}>{a.username}</span>
+                    {isSealed
+                      ?<span style={{flex:1,display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{display:"inline-block",width:110,height:10,background:"#000",
+                          border:"1px solid #2a1010",borderRadius:1}}/>
+                      </span>
+                      :<span style={{fontSize:13,color:C.textD,fontStyle:"italic",flex:1}}>{a.displayName||""}</span>}
+                    {n>0&&<span className="mono" style={{fontSize:9,color:"#cc7a20",border:"1px solid #cc7a2044",padding:"1px 6px",borderRadius:2}}>{n} RECORD{n!==1?"S":""}</span>}
+                    {isSealed
+                      ?<span className="mono" style={{fontSize:9,color:"#cc2222",letterSpacing:".14em",
+                        minWidth:80,textAlign:"right"}}>🔒 SEALED</span>
+                      :<span className="mono" style={{fontSize:9,color:P?P.foil:C.textDD,minWidth:80,textAlign:"right"}}>
+                        {P?genIdNumber(a.username,P.code):"NO ID"}
+                      </span>}
+                  </div>);
+              })}
+            </div>
+      )}
+
+      {subject&&sealed&&(
+        <div>
+          <div style={{marginBottom:"1rem"}}>
+            <Btn small variant="ghost" onClick={()=>setViewing(null)}>← Back to results</Btn>
+          </div>
+          <SealedRecord subject={subject} currentUser={currentUser}/>
+        </div>
+      )}
+
+      {subject&&!sealed&&(
+        <div>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:"1rem",flexWrap:"wrap"}}>
+            <Btn small variant="ghost" onClick={()=>setViewing(null)}>← Back to results</Btn>
+            <span className="mono" style={{fontSize:13,color:C.text,fontWeight:600}}>{subject.username}</span>
+            {subject.displayName&&<span style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>{subject.displayName}</span>}
+            {subject.mdtRestricted&&<span className="mono" style={{fontSize:8,color:"#cc7a20",
+              border:"1px solid #cc7a2044",padding:"1px 6px",borderRadius:2}}
+              title="This record is restricted. Your clearance opens it.">🔓 RESTRICTED</span>}
+            {open>0&&<span className="mono" style={{fontSize:9,color:"#cc5050",border:"1px solid #cc505044",padding:"1px 6px",borderRadius:2}}>{open} OPEN</span>}
+          </div>
+
+          {subject.stateOfResidency&&PROVINCES[subject.stateOfResidency]
+            ?<div style={{marginBottom:"1.5rem",maxWidth:420}}><IDCard acc={subject}/></div>
+            :<div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`3px solid ${C.textDD}`,
+              borderRadius:"0 3px 3px 0",padding:"0.75rem 1rem",marginBottom:"1.5rem",
+              fontSize:13,color:C.textD,fontStyle:"italic"}}>
+              No province of residency on file — this person holds no provincial identity card.
+            </div>}
+
+          <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.15em",marginBottom:"0.75rem"}}>
+            ARREST RECORD ({record.length})
+          </div>
+          {record.length===0
+            ?<div style={{textAlign:"center",padding:"1.5rem",color:C.textDD,fontStyle:"italic",
+              background:C.s1,border:`1px solid ${C.border}`,borderRadius:3}}>No arrest record on file.</div>
+            :record.map(a=><ArrestCard key={a.id} arrest={a} currentUser={currentUser} canEdit={canEdit}
+                onAction={onAction} notify={notify} setProcessing={setProcessing}/>)}
+        </div>
+      )}
     </div>
   );
 }
 
-function LFPCaseFiles({currentUser,arrests,onAction,notify,setProcessing,canEdit,canFile,officerFilter,setOfficerFilter}){
+function LFPCaseFiles({currentUser,accounts,arrests,onAction,notify,setProcessing,canEdit,canFile,officerFilter,setOfficerFilter}){
   const [filterSt,setFilterSt]=useState("all");
   const [search,setSearch]=useState("");
   const [mine,setMine]=useState(false);
   const [filing,setFiling]=useState(false);
   const meNames=[currentUser.displayName,currentUser.username].filter(Boolean);
+  // A sealed subject is sealed everywhere. Withholding a record on the MDT while
+  // leaving it open on the next tab would only pretend to protect it.
+  const sealedUsers=new Set(Object.values(accounts||{})
+    .filter(a=>mdtSealed(a,currentUser)).map(a=>String(a.username||"").toLowerCase()));
+  const hidden=Object.values(arrests||{}).filter(a=>{
+    const au=String(a.suspectUsername||"").toLowerCase();
+    return au&&sealedUsers.has(au);
+  }).length;
   const list=Object.values(arrests||{})
     .filter(a=>{
+      const au=String(a.suspectUsername||"").toLowerCase();
+      if(au&&sealedUsers.has(au)) return false;
       const matchSt=filterSt==="all"||a.status===filterSt;
       const q=search.toLowerCase();
       const matchQ=!q||a.suspect?.toLowerCase().includes(q)||a.charges?.toLowerCase().includes(q)||a.caseNumber?.toLowerCase().includes(q);
@@ -1304,7 +1707,20 @@ function LFPCaseFiles({currentUser,arrests,onAction,notify,setProcessing,canEdit
         <span className="mono" style={{fontSize:10,color:C.textD,letterSpacing:"0.1em"}}>FILTERED TO OFFICER · {String(officerFilter).toUpperCase()}</span>
         <button onClick={()=>setOfficerFilter&&setOfficerFilter(null)} style={{background:"transparent",border:"none",color:C.accent,cursor:"pointer",fontSize:12,marginLeft:"auto"}}>Clear ✕</button>
       </div>}
-      {filing&&<CreateArrestForm onAction={onAction} notify={notify} setProcessing={setProcessing} onClose={()=>setFiling(false)} currentUser={currentUser}/>}
+      {filing&&<CreateArrestForm onAction={onAction} notify={notify} setProcessing={setProcessing} onClose={()=>setFiling(false)} currentUser={currentUser} accounts={accounts}/>}
+      {hidden>0&&(
+        <div style={{background:"#120606",border:"1px solid #3a1414",borderLeft:"3px solid #cc2222",
+          borderRadius:"0 3px 3px 0",padding:"0.6rem 1rem",marginBottom:"0.75rem",
+          display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <span style={{fontSize:13}}>🔒</span>
+          <span className="mono" style={{fontSize:9,color:"#cc5050",letterSpacing:".14em"}}>
+            {hidden} SEALED
+          </span>
+          <span style={{fontSize:12,color:"#8a5a5a",fontStyle:"italic"}}>
+            Case files withheld from this list. Your clearance does not open them.
+          </span>
+        </div>
+      )}
       {list.length===0?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No case files match.</div>
         :list.map(a=><ArrestCard key={a.id} arrest={a} currentUser={currentUser} canEdit={canEdit} onAction={onAction} notify={notify} setProcessing={setProcessing}/>)}
     </div>
@@ -1328,12 +1744,12 @@ function LFPOperationsTab({currentUser,lfpOps,onAction,notify,setProcessing,canC
 }
 
 function LFPPersonnelTab({accounts,arrests,onSelectOfficer}){
-  const lfpAccounts=Object.values(accounts||{}).filter(a=>
-    a.role==="lfp_officer"||a.role==="lfp_director"||a.officerAssigned
-  ).sort((a,b)=>{
-    const rank=r=>r==="lfp_director"?0:1;
-    return rank(a.role)-rank(b.role)||(a.displayName||a.username).localeCompare(b.displayName||b.username);
-  });
+  // Serving officers only — the Minister oversees the force without serving in it.
+  const lfpAccounts=Object.values(accounts||{}).filter(a=>!!lfpRole(a))
+    .sort((a,b)=>{
+      const rank=u=>lfpRole(u)==="director"?0:1;
+      return rank(a)-rank(b)||(a.displayName||a.username).localeCompare(b.displayName||b.username);
+    });
   return(
     <div>
       <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.15em",marginBottom:"0.75rem"}}>LFP PERSONNEL ({lfpAccounts.length}) · CLICK A NAME TO VIEW THEIR CASES</div>
@@ -1343,12 +1759,12 @@ function LFPPersonnelTab({accounts,arrests,onSelectOfficer}){
         const filedCases=Object.values(arrests||{}).filter(a=>a.officer===acc.displayName||a.officer===acc.username).length;
         const openCases=Object.values(arrests||{}).filter(a=>(a.officer===acc.displayName||a.officer===acc.username)&&(a.status==="detained"||a.status==="pending_trial")).length;
         return(
-          <div key={acc.username} onClick={()=>onSelectOfficer&&onSelectOfficer(who)} style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${acc.role==="lfp_director"?C.accent:"#6a5a20"}`,borderRadius:"0 3px 3px 0",padding:"0.65rem 1rem",marginBottom:"0.4rem",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",cursor:"pointer"}}>
+          <div key={acc.username} onClick={()=>onSelectOfficer&&onSelectOfficer(who)} style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${lfpRole(acc)==="director"?C.accent:"#6a5a20"}`,borderRadius:"0 3px 3px 0",padding:"0.65rem 1rem",marginBottom:"0.4rem",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",cursor:"pointer"}}>
             <div style={{flex:1}}>
               <span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,fontWeight:700}}>{who}</span>
               <span className="mono" style={{fontSize:9,color:C.textDD,marginLeft:8}}>{acc.username}</span>
             </div>
-            <span className="mono" style={{fontSize:9,color:acc.role==="lfp_director"?C.accent:"#a08040"}}>{acc.role==="lfp_director"?"DIRECTOR":acc.officerAssigned&&acc.role!=="lfp_officer"?"OFFICER (FLAG)":"OFFICER"}</span>
+            <span className="mono" style={{fontSize:9,color:lfpRole(acc)==="director"?C.accent:"#a08040"}}>{lfpRole(acc)==="director"?"DIRECTOR":"OFFICER"}</span>
             <span className="mono" style={{fontSize:9,color:C.textDD}}>{filedCases} case{filedCases!==1?"s":""} filed</span>
             {openCases>0&&<span className="mono" style={{fontSize:9,color:"#cc5050",border:"1px solid #cc505044",padding:"1px 6px",borderRadius:2}}>{openCases} OPEN</span>}
           </div>
@@ -1382,25 +1798,36 @@ function PermissionsReference(){
   const Note=({children})=><div style={{padding:"6px 14px",fontSize:11,color:C.textDD,
     borderTop:`1px solid ${C.border}33`,background:C.s1}}>{children}</div>;
   return <div style={{marginTop:"1.5rem",animation:"fadeIn .2s ease"}}>
-    <Sec title="SYSTEM ROLE">
+    <Sec title="SYSTEM ROLE · standing in the Ministry itself">
       <table style={T}><thead><tr>
         <th style={THL}>Role</th>
         <th style={TH}>Clearances</th>
-        <th style={TH}>LSS panel</th>
-        <th style={TH}>LFP panel</th>
-        <th style={TH}>Prosecutions</th>
+        <th style={TH}>Oversees LSS</th>
+        <th style={TH}>Oversees LFP</th>
         <th style={TH}>Minister tab</th>
         <th style={TH}>Emperor tab</th>
       </tr></thead><tbody>
-        <tr><td style={{...TDL,color:C.textD}}>Civilian</td><td style={TD}>{Y}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
-        <tr><td style={{...TDL,color:"#378ADD"}}>LSS Agent</td><td style={TD}>{Y}</td><td style={TD}><Lv c="agent"/></td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
-        <tr><td style={{...TDL,color:"#378ADD"}}>LFP Officer</td><td style={TD}>{Y}</td><td style={TD}>{N}</td><td style={TD}><Lv c="officer"/></td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
-        <tr><td style={{...TDL,color:"#1D9E75"}}>LSS Director</td><td style={TD}>{Y}</td><td style={TD}><Lv c="director"/></td><td style={TD}>{N}</td><td style={TD}>{Y}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
-        <tr><td style={{...TDL,color:"#1D9E75"}}>LFP Director</td><td style={TD}>{Y}</td><td style={TD}>{N}</td><td style={TD}><Lv c="director"/></td><td style={TD}>{Y}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
-        <tr><td style={{...TDL,color:"#8a6acc"}}>Minister of Interior</td><td style={TD}>{Y}</td><td style={TD}><Lv c="director"/></td><td style={TD}><Lv c="director"/></td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{N}</td></tr>
-        <tr><td style={{...TDL,color:C.accent,fontStyle:"italic"}}>Emperor</td><td style={TD}>{Y}</td><td style={TD}><Lv c="director"/></td><td style={TD}><Lv c="director"/></td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td></tr>
+        <tr><td style={{...TDL,color:C.textD}}>Civilian</td><td style={TD}>{Y}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={{...TDL,color:"#8a6acc"}}>Minister of Interior</td><td style={TD}>{Y}</td><td style={TD}><Lv c="director"/></td><td style={TD}><Lv c="director"/></td><td style={TD}>{Y}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={{...TDL,color:C.accent,fontStyle:"italic"}}>Emperor</td><td style={TD}>{Y}</td><td style={TD}><Lv c="director"/></td><td style={TD}><Lv c="director"/></td><td style={TD}>{Y}</td><td style={TD}>{Y}</td></tr>
       </tbody></table>
-      <Note>{"LSS \"agent\" = view ops, create/view docs, agent panel · \"director\" adds create ops + director panel. LFP mirrors the same structure."}</Note>
+      <Note>{"The system role says where someone stands in the Ministry, and nothing more. Serving in an agency is set separately below, so a Civilian can be an LFP Officer without holding any Ministry authority. The Minister and the Emperor oversee both agencies at director level without serving in either."}</Note>
+    </Sec>
+    <Sec title="AGENCY ROLE · standing within one agency, set independently of the system role">
+      <table style={T}><thead><tr>
+        <th style={THL}>Level</th>
+        <th style={TH}>Panel</th>
+        <th style={TH}>View ops</th>
+        <th style={TH}>Add field notes</th>
+        <th style={TH}>Create / edit ops</th>
+        <th style={TH}>Personnel tab</th>
+        <th style={TH}>Prosecutions</th>
+      </tr></thead><tbody>
+        <tr><td style={{...TDL,color:C.textD}}>No Access</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={{...TDL,color:"#378ADD"}}>Agent · Officer</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{N}</td><td style={TD}>{N}</td><td style={TD}>{N}</td></tr>
+        <tr><td style={{...TDL,color:"#1D9E75"}}>Director</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td></tr>
+      </tbody></table>
+      <Note>{"LSS and LFP are parallel: a level in one confers nothing in the other, so an LSS Director has no authority over police records. Ops are additionally filtered by clearance — a member never sees an operation classified above their level, whatever their agency role."}</Note>
     </Sec>
     <Sec title="CLEARANCE LEVEL · controls visibility of classified LSS/LFP data">
       <table style={T}><thead><tr>
@@ -1418,10 +1845,9 @@ function PermissionsReference(){
         <tr><td style={{...TDL,color:"#9a22cc"}}>4 — TS/SCI</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td><td style={TD}>{Y}</td></tr>
       </tbody></table>
     </Sec>
-    <Sec title="ACCESS FLAGS · checkboxes that extend access independently of role">
+    <Sec title="ACCESS FLAGS · checkboxes, independent of any role">
       {[
-        ["LSS Agent Assigned","Grants LSS agent-level access regardless of system role."],
-        ["LFP Officer Assigned","Grants LFP officer-level access regardless of system role."],
+        ["Restrict MDT record","Seals this person on the MDT and in Case Files. An officer below the required clearance is told a record exists and nothing else — never which clearance would open it. The Minister and the Emperor are never sealed out."],
         ["Foreign Affairs Panel","Enables login to the MFA portal. No effect on MOI panels."],
         ["External Contractor","Label only — marks the account as external. Does not grant or restrict panel access."],
       ].map(([name,desc])=><div key={name} style={{display:"flex",gap:10,padding:"8px 14px",
@@ -1490,7 +1916,7 @@ function PermissionsReference(){
       </tbody></table>
       <Note>{"Journalists may write and submit articles for review. Only the Editor-in-Chief may publish, unpublish, or delete any article."}</Note>
     </Sec>
-    <Sec title="MARITIME COMMISSION (IMC) ACCESS · set from MOI, controls IMC portal login">
+    <Sec title="MARITIME COMMISSION (IMC) ACCESS · COMING SOON — not yet in force">
       <table style={T}><thead><tr>
         <th style={THL}>Level</th>
         <th style={TH}>IMC login</th>
@@ -1623,8 +2049,13 @@ function AccountRow({acc,bk,currentUser,onUpdate,notify,setProcessing,canSetMini
   const [role,setRole]=useState(acc.role||"citizen");
   const [ministry,setMinistry]=useState(acc.ministry||"Civilian");
   const [isContractor,setIsContractor]=useState(acc.isContractor||false);
-  const [agentAssigned,setAgentAssigned]=useState(acc.agentAssigned||false);
-  const [officerAssigned,setOfficerAssigned]=useState(acc.officerAssigned||false);
+  // Seeded through the resolver, so an account still on the legacy fields opens
+  // showing the standing it actually has, and saving writes it to the new field.
+  const [lssRoleV,setLssRoleV]=useState(lssRole(acc));
+  const [lfpRoleV,setLfpRoleV]=useState(lfpRole(acc));
+  const [mdtRestricted,setMdtRestricted]=useState(!!acc.mdtRestricted);
+  const [mdtClearance,setMdtClearance]=useState(acc.mdtClearance||3);
+  const [tread,setTread]=useState(false);
   const [mowRole,setMowRole]=useState(acc.mowRole||"");
   const [canSetAlert,setCanSetAlert]=useState(acc.canSetAlert||false);
   const [mfaAccess,setMfaAccess]=useState(acc.mfaAccess||false);
@@ -1637,10 +2068,14 @@ function AccountRow({acc,bk,currentUser,onUpdate,notify,setProcessing,canSetMini
   const [newPw,setNewPw]=useState("");
   const [saving,setSaving]=useState(false);
 
-  const availRoles=ROLES.filter(r=>canSetMinister?true:r.v!=="minister"&&r.v!=="emperor");
+  // An account still carrying a retired agency role keeps it listed until saved,
+  // so the dropdown shows what they actually are rather than silently reassigning.
+  const availRoles=[...ROLES.filter(r=>canSetMinister?true:r.v!=="minister"&&r.v!=="emperor"),
+    ...(LEGACY_ROLES[role]?[{v:role,l:LEGACY_ROLES[role]}]:[])];
 
   return(
     <div style={{background:C.s1,border:`1px solid ${open?C.accentD:C.border}`,borderRadius:3,overflow:"hidden"}}>
+      {tread&&<DontTreadOnMe actor={currentUser} onClose={()=>setTread(false)}/>}
       <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,
         padding:"0.65rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
         <ClearanceBadge level={acc.clearance||0}/>
@@ -1677,10 +2112,27 @@ function AccountRow({acc,bk,currentUser,onUpdate,notify,setProcessing,canSetMini
             </div>
             {residency&&<div style={{flex:1,minWidth:280,maxWidth:400}}><IDCard acc={{...acc,stateOfResidency:residency}}/></div>}
           </div>
+          {/* Agency standing — set the same way as every other ministry below. */}
+          <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:200}}>
+              <FL>SECURITY SERVICE (LSS)</FL>
+              <select value={lssRoleV} onChange={e=>setLssRoleV(e.target.value)}
+                style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
+                         padding:"8px 12px",color:C.text,fontSize:14,outline:"none",fontFamily:"'Crimson Text',serif"}}>
+                {LSS_ROLES.map(r=><option key={r.v} value={r.v}>{r.l}</option>)}
+              </select>
+            </div>
+            <div style={{flex:1,minWidth:200}}>
+              <FL>FEDERAL POLICE (LFP)</FL>
+              <select value={lfpRoleV} onChange={e=>setLfpRoleV(e.target.value)}
+                style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
+                         padding:"8px 12px",color:C.text,fontSize:14,outline:"none",fontFamily:"'Crimson Text',serif"}}>
+                {LFP_ROLES.map(r=><option key={r.v} value={r.v}>{r.l}</option>)}
+              </select>
+            </div>
+          </div>
           <div style={{display:"flex",gap:"1.5rem",flexWrap:"wrap"}}>
             {[["isContractor","External Contractor",isContractor,setIsContractor],
-              ["agentAssigned","LSS Agent Assigned",agentAssigned,setAgentAssigned],
-              ["officerAssigned","LFP Officer Assigned",officerAssigned,setOfficerAssigned],
               ["mfaAccess","Foreign Affairs Panel",mfaAccess,setMfaAccess],
             ].map(([k,l,val,set])=>(
               <div key={k} onClick={()=>set(v=>!v)} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
@@ -1691,6 +2143,35 @@ function AccountRow({acc,bk,currentUser,onUpdate,notify,setProcessing,canSetMini
               </div>
             ))}
           </div>
+
+          {/* Seals this person's MDT record. The level is never shown to the
+              officer who is refused — only that a record exists and is sealed. */}
+          <div style={{background:mdtRestricted?"#180808":C.s1,
+            border:`1px solid ${mdtRestricted?"#5a1a1a":C.border}`,
+            borderLeft:`3px solid ${mdtRestricted?"#cc2222":C.border}`,
+            borderRadius:"0 3px 3px 0",padding:"0.75rem 1rem"}}>
+            <div style={{display:"flex",alignItems:"center",gap:"1.5rem",flexWrap:"wrap"}}>
+              <div onClick={()=>setMdtRestricted(v=>!v)} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
+                <div style={{width:16,height:16,border:`2px solid ${mdtRestricted?"#cc2222":C.border}`,borderRadius:2,
+                  background:mdtRestricted?"#4a0a0a":"transparent",display:"flex",alignItems:"center",
+                  justifyContent:"center",fontSize:10,color:"#cc5050"}}>{mdtRestricted?"✓":""}</div>
+                <span style={{fontSize:13,color:mdtRestricted?C.text:C.textD}}>Restrict MDT record</span>
+              </div>
+              {mdtRestricted&&(
+                <div style={{flex:1,minWidth:200}}>
+                  <FL>CLEARANCE REQUIRED TO VIEW</FL>
+                  <DD value={String(mdtClearance)} onChange={v=>setMdtClearance(parseInt(v))}
+                    options={CLEARANCE.filter(c=>c.level>0).map(c=>({v:String(c.level),l:c.level+" — "+c.code}))}/>
+                </div>
+              )}
+            </div>
+            <div style={{fontSize:11,color:C.textD,fontStyle:"italic",marginTop:6,lineHeight:1.5}}>
+              {mdtRestricted
+                ?"Officers below "+CL(mdtClearance).code+" see a sealed record on the MDT — they are told it exists, but never which clearance would open it."
+                :"This person's identity card and arrest record are visible to any officer on the MDT."}
+            </div>
+          </div>
+
           <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap",alignItems:"flex-end"}}>
             <div style={{flex:1,minWidth:180}}>
               <FL>WAR OFFICE ACCESS</FL>
@@ -1743,7 +2224,7 @@ function AccountRow({acc,bk,currentUser,onUpdate,notify,setProcessing,canSetMini
               </select>
             </div>
             <div style={{flex:1,minWidth:200}}>
-              <FL>MARITIME COMMISSION (IMC)</FL>
+              <FL>MARITIME COMMISSION (IMC) — COMING SOON</FL>
               <select value={imcRole} onChange={e=>setImcRole(e.target.value)}
                 style={{width:"100%",background:C.s3,border:`1px solid ${C.border}`,borderRadius:2,
                          padding:"8px 12px",color:C.text,fontSize:14,outline:"none",fontFamily:"'Crimson Text',serif"}}>
@@ -1768,14 +2249,27 @@ function AccountRow({acc,bk,currentUser,onUpdate,notify,setProcessing,canSetMini
               <Inp value={newPw} onChange={setNewPw} type="password" placeholder="New password…"/>
             </div>
             <Btn small variant="gold" disabled={saving} onClick={async()=>{
+              if(treadsOnEmperor(acc,currentUser)){ setTread(true); return; }
               setSaving(true); setProcessing("Saving account…");
-              const patch={role,ministry,isContractor,agentAssigned,officerAssigned,mowAccess:!!mowRole,mowRole,canSetAlert:canSetAlert&&!!mowRole,mfaAccess,ijAccess,mofRole,mofAccess:!!mofRole,pressRole,pressAccess:!!pressRole,imcRole,clearance:parseInt(clearance),stateOfResidency:residency};
+              // Saving writes agency standing to its own field and clears the
+              // legacy role/flags, so an account is migrated off them for good.
+              const legacyRole=LEGACY_ROLES[role]?"citizen":role;
+              const patch={role:legacyRole,ministry,isContractor,
+                lssRole:lssRoleV,lfpRole:lfpRoleV,agentAssigned:false,officerAssigned:false,
+                mdtRestricted,mdtClearance:mdtRestricted?mdtClearance:0,
+                mowAccess:!!mowRole,mowRole,canSetAlert:canSetAlert&&!!mowRole,mfaAccess,ijAccess,
+                mofRole,mofAccess:!!mofRole,pressRole,pressAccess:!!pressRole,imcRole,
+                clearance:parseInt(clearance),stateOfResidency:residency};
+              // Hashed here; the backend salts it on the account's next login
+              // (see the legacy-upgrade path in moi-backend.gs).
               if(newPw.trim()) patch.passwordHash=await sha256(newPw.trim());
               await onUpdate(acc.username,patch);
               setProcessing(null); setSaving(false); setNewPw("");
               notify("Account updated: "+acc.username,C.gold);
             }}>{saving?"Saving…":"Save Changes"}</Btn>
             {acc.username!==currentUser.username&&<ArmBtn small label="Delete Account" confirmLabel="Delete permanently?" onConfirm={async()=>{
+              // Deleting the Throne is the loudest way of altering it.
+              if(treadsOnEmperor(acc,currentUser)){ setTread(true); return; }
               setProcessing("Deleting account…");
               await onUpdate(acc.username,null); // null = delete
               setProcessing(null); notify("Account deleted.",C.textD);
@@ -1869,9 +2363,12 @@ function MainMenu({user,destinations,onSelect}){
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                     <span style={{fontFamily:"'Cinzel',serif",fontWeight:700,fontSize:15,
-                      letterSpacing:"0.08em",color:C.text}}>{d.title}</span>
-                    {d.external&&<span className="mono" style={{fontSize:7,letterSpacing:"0.15em",
-                      color:d.color,border:`1px solid ${d.color}55`,borderRadius:2,padding:"1px 5px"}}>↗ PORTAL</span>}
+                      letterSpacing:"0.08em",color:d.comingSoon?C.textD:C.text}}>{d.title}</span>
+                    {d.comingSoon
+                      ?<span className="mono" style={{fontSize:7,letterSpacing:"0.15em",
+                        color:C.textDD,border:`1px solid ${C.border}`,borderRadius:2,padding:"1px 5px"}}>COMING SOON</span>
+                      :d.external&&<span className="mono" style={{fontSize:7,letterSpacing:"0.15em",
+                        color:d.color,border:`1px solid ${d.color}55`,borderRadius:2,padding:"1px 5px"}}>↗ PORTAL</span>}
                   </div>
                   <div className="mono" style={{fontSize:8,letterSpacing:"0.18em",color:d.color,marginTop:3}}>
                     {d.tag}
@@ -1882,15 +2379,22 @@ function MainMenu({user,destinations,onSelect}){
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
                 marginTop:16,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
                 <span className="mono" style={{fontSize:8,letterSpacing:"0.15em",color:C.textDD}}>{d.access}</span>
-                <span style={{fontSize:13,color:d.color,fontFamily:"'Cinzel',serif",letterSpacing:"0.1em"}}>ENTER →</span>
+                <span style={{fontSize:13,color:d.comingSoon?C.textDD:d.color,fontFamily:"'Cinzel',serif",
+                  letterSpacing:"0.1em",fontStyle:d.comingSoon?"italic":"normal"}}>
+                  {d.comingSoon?"Not yet open":"ENTER →"}
+                </span>
               </div>
             </>
           );
-          const cardStyle={background:C.s1,border:`1px solid ${C.border}`,borderTop:`3px solid ${d.color}`,
-            borderRadius:"0 0 4px 4px",padding:"1.25rem",cursor:"pointer",transition:"all .15s",
-            display:"block",textDecoration:"none",color:"inherit"};
+          const cardStyle={background:C.s1,border:`1px solid ${C.border}`,
+            borderTop:`3px solid ${d.comingSoon?C.border:d.color}`,
+            borderRadius:"0 0 4px 4px",padding:"1.25rem",transition:"all .15s",
+            display:"block",textDecoration:"none",color:"inherit",
+            cursor:d.comingSoon?"default":"pointer",opacity:d.comingSoon?0.55:1};
           const hover=e=>{e.currentTarget.style.borderColor=d.color;e.currentTarget.style.background=C.s2;e.currentTarget.style.transform="translateY(-2px)";};
           const unhover=e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.borderTopColor=d.color;e.currentTarget.style.background=C.s1;e.currentTarget.style.transform="none";};
+          // A directorate that is not open yet is shown, but does not lead anywhere.
+          if(d.comingSoon) return <div key={d.key} style={cardStyle} title="This directorate is not yet open.">{inner}</div>;
           return d.external
             ?<a key={d.key} href={d.href} style={cardStyle} onMouseEnter={hover} onMouseLeave={unhover}>{inner}</a>
             :<div key={d.key} onClick={()=>onSelect(d.key)} style={cardStyle} onMouseEnter={hover} onMouseLeave={unhover}>{inner}</div>;
@@ -2066,8 +2570,8 @@ function App(){
      desc:"Police operations, arrest records, and case management for federal law enforcement.",
      access:"LFP CLEARANCE"}]:[]),
     ...(isIMC?[{key:"imc",title:"Imperial Maritime Commission",tag:"SHIP & PORT REGISTRY",icon:"⚓",color:"#2a8ab4",
-     desc:"Vessel and port registration, home-port assignment, and maritime registry administration.",
-     access:"IMC CLEARANCE",external:true,href:"imc.html"}]:[]),
+     desc:"Vessel and port registration, home-port assignment, and maritime registry administration. The Commission is being stood up — access will open in due course.",
+     access:"IMC CLEARANCE",comingSoon:true}]:[]),
     ...(isMinister?[{key:"minister",title:"Minister's Office",tag:"DIRECTORATE ADMINISTRATION",icon:"🎖",color:"#8a6acc",
      desc:"Account management, permission assignment, and ministry-wide oversight.",
      access:"MINISTER"}]:[]),

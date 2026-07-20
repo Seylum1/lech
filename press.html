@@ -119,23 +119,36 @@ function sgetAll(){
     return out;
   }).catch(function(){return{};});
 }
+var AUTH_TOKEN=null;
 function sset(k,v){
-  var bodyStr=JSON.stringify({action:"set",key:k,value:JSON.stringify(v)});
-  console.log("[sset] Saving key:",k,"| payload bytes:",bodyStr.length);
+  var bodyStr=JSON.stringify({action:"set",key:k,value:JSON.stringify(v),token:AUTH_TOKEN});
   return fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
     body:bodyStr
-  }).then(function(){
-    console.log("[sset] Fetch resolved (no-cors, opaque) for key:",k);
-    return true;
-  }).catch(function(e){
-    console.error("[sset] Fetch FAILED for key:",k,e);
-    return false;
-  });
+  }).then(function(){return true;}).catch(function(){return false;});
 }
 function sdel(k){
   return fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
-    body:JSON.stringify({action:"delete",key:k})
+    body:JSON.stringify({action:"del",key:k,token:AUTH_TOKEN})
   }).then(function(){return true;}).catch(function(){return false;});
+}
+// Dual-mode sign-in: hardened `login` endpoint first, legacy hash check as
+// fallback so the page works across the rollout. Returns the account.
+async function slogin(username,password){
+  var u=String(username||"").trim();
+  try{
+    var r=await fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"login",username:u,password:password})});
+    var d=await r.json();
+    if(d&&d.success){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}
+    if(d&&d.error&&d.error!=="Unknown action")return {ok:false,error:d.error};
+  }catch(e){/* old backend or CORS — fall through */}
+  var raw=await sgetAll();var accounts={};
+  Object.entries(raw).forEach(function(e){var k=e[0],val=e[1];if(k.indexOf("mi_acc_")===0&&val)accounts[val.username]=val;});
+  Object.entries(raw["mi_accounts"]||{}).forEach(function(e){if(!accounts[e[0]])accounts[e[0]]=e[1];});
+  var user=Object.values(accounts).find(function(a){return String(a.username||"").toLowerCase()===u.toLowerCase();});
+  if(!user)return {ok:false,error:"ACCESS DENIED"};
+  var hash=await sha256(password);
+  if(hash!==user.passwordHash)return {ok:false,error:"ACCESS DENIED"};
+  return {ok:true,account:user};
 }
 function fmtDateLong(ts){
   return new Date(ts).toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
@@ -599,23 +612,11 @@ function JournalistAuth(props){
   function doAuth(){
     if(!username.trim()||!password.trim()){setErr("Credentials required.");return;}
     setLoading(true);setErr("");
-    sgetAll().then(function(raw){
-      var accounts={};
-      Object.entries(raw).forEach(function(entry){
-        var k=entry[0]; var v=entry[1];
-        if(k.startsWith("mi_acc_")&&v)accounts[v.username]=v;
-      });
-      Object.entries(raw["mi_accounts"]||{}).forEach(function(entry){
-        var k=entry[0]; var v=entry[1];
-        if(!accounts[k])accounts[k]=v;
-      });
-      var user=Object.values(accounts).filter(function(a){return a.username.toLowerCase()===username.trim().toLowerCase();})[0];
-      if(!user){setErr("Access denied.");setLoading(false);return;}
-      sha256(password).then(function(hash){
-        if(hash!==user.passwordHash){setErr("Access denied.");setLoading(false);return;}
-        if(user.role!=="emperor"&&!user.pressRole&&!user.pressAccess){setErr("Press credentials not granted. Contact the Ministry of Interior.");setLoading(false);return;}
-        onAuth(user,raw);
-      });
+    slogin(username,password).then(function(res){
+      if(!res.ok){setErr(res.error==="ACCESS DENIED"?"Access denied.":res.error);setLoading(false);return;}
+      var user=res.account;
+      if(user.role!=="emperor"&&!user.pressRole&&!user.pressAccess){setErr("Press credentials not granted. Contact the Ministry of Interior.");setLoading(false);return;}
+      sgetAll().then(function(raw){onAuth(user,raw);});
     }).catch(function(){setErr("Connection error.");setLoading(false);});
   }
 

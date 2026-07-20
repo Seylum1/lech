@@ -100,7 +100,27 @@ const ppType=v=>PASSPORT_TYPES.find(t=>t.v===v)||PASSPORT_TYPES[0];
 async function sha256(t){const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,"0")).join("");}
 function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
 async function sgetAll(){try{const r=await fetch(SCRIPT_URL+"?action=getall");const d=await r.json();if(!d.success)return{};const o={};Object.entries(d.data||{}).forEach(([k,v])=>{if(v){try{o[k]=JSON.parse(v);}catch{}}});return o;}catch{return{};}}
-async function sset(k,v){try{await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v)})});return true;}catch{return false;}}
+let AUTH_TOKEN=null;
+async function sset(k,v){try{await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v),token:AUTH_TOKEN})});return true;}catch{return false;}}
+// Dual-mode sign-in: hardened `login` endpoint first, legacy hash check as
+// fallback so the page works across the rollout. Returns the account.
+async function slogin(username,password){
+  const u=String(username||"").trim();
+  try{
+    const r=await fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"login",username:u,password:password})});
+    const d=await r.json();
+    if(d&&d.success){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}
+    if(d&&d.error&&d.error!=="Unknown action")return {ok:false,error:d.error};
+  }catch(e){/* old backend or CORS — fall through */}
+  const raw=await sgetAll();const accounts={};
+  Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v)accounts[v.username]=v;});
+  Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(!accounts[k])accounts[k]=v;});
+  const user=Object.values(accounts).find(a=>String(a.username||"").toLowerCase()===u.toLowerCase());
+  if(!user)return {ok:false,error:"ACCESS DENIED"};
+  const hash=await sha256(password);
+  if(hash!==user.passwordHash)return {ok:false,error:"ACCESS DENIED"};
+  return {ok:true,account:user};
+}
 function fmtDate(d){if(d===undefined||d===null||d==="")return "—";const s=(typeof d==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(d))?d+"T12:00:00":d;const t=typeof s==="number"?s:new Date(s).getTime();if(isNaN(t))return ""+d;return new Date(t).toLocaleDateString("en-US",{month:"short",day:"2-digit",year:"numeric"});}
 
 const getAL=l=>ADVISORY_LEVELS.find(a=>a.level===l)||ADVISORY_LEVELS[0];
@@ -873,11 +893,9 @@ function AuthModal({accounts,onClose,onAuth,notify}){
     if(!u.trim()||!p){setErr("Enter your credentials.");return;}
     setBusy(true);setErr("");
     try{
-      const acc=(accounts||[]).find(a=>a.username.toLowerCase()===u.trim().toLowerCase());
-      if(!acc){setErr("No such account on the Republic's register.");setBusy(false);return;}
-      const h=await sha256(p);
-      if(h!==acc.passwordHash){setErr("Password rejected.");setBusy(false);return;}
-      onAuth(acc);
+      const res=await slogin(u,p);
+      if(!res.ok){setErr(res.error==="ACCESS DENIED"?"Credentials rejected.":res.error);setBusy(false);return;}
+      onAuth(res.account);
     }catch(e){setErr("Connection error.");setBusy(false);}
   };
   return <div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:"fixed",inset:0,zIndex:9000,background:"rgba(5,10,22,.92)",display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem"}}>

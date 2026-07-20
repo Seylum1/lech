@@ -25,7 +25,7 @@ input,select,textarea{font-family:'Crimson Text',Georgia,serif;}
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const {useState,useEffect,useRef,useCallback,useMemo}=React;
+const {useState,useEffect,useRef,useCallback,useMemo,useContext,createContext}=React;
 
 const SCRIPT_URL="https://script.google.com/macros/s/AKfycbxLu8jQehAZJEvMEeCLoHc9S2C4FM8o9fQh8Pp4gMzDNwwIG0S9qLJ5-1gyGM1c_InUfQ/exec";
 const BK_URL="https://script.google.com/macros/s/AKfycbz37c5Okp9c7PkXv38x2lq7Is3RifkJPee5ASb2KQfA7EJgsN0NwrigmiRr1a_G0E6d4Q/exec";
@@ -284,19 +284,26 @@ const COURTS=[
   {v:"constitutional",l:"Constitutional Court",short:"CC",color:"#4a6aaa",border:"#2a4a8a",bg:"#0a1020"},
   {v:"regional",      l:"Regional Court",       short:"RC",color:"#6a8aaa",border:"#3a5a7a",bg:"#0c1418"},
 ];
+// A style of address is carried by the Bench only. The Imperial Honors & Medals
+// Register grants one to the President of the Courts and to Justices; it grants
+// none to the Prosecution Service, which is counsel to the Crown rather than an
+// office of the court. Prosecutors therefore have no style.
 const APPOINTMENT_ROLES=[
   // ── The Bench (judiciary) ──
   {v:"president",  l:"President of the Courts",               court:"both",          style:"The Right Honourable", cat:"bench",       order:0},
   {v:"cc_justice", l:"Justice of the Constitutional Court",   court:"constitutional", style:"The Honourable",       cat:"bench",       order:1},
   {v:"rc_justice", l:"Justice of the Regional Court",         court:"regional",       style:"The Honourable",       cat:"bench",       order:2},
-  // ── Federal Prosecution Service ──
-  {v:"pg",  l:"Public Prosecutor General of the Empire", style:"The Right Honourable", cat:"prosecution", order:0},
-  {v:"dpg", l:"Deputy Prosecutor General",               style:"The Honourable",       cat:"prosecution", order:1},
-  {v:"apg", l:"Assistant Prosecutor General",            style:"The Honourable",       cat:"prosecution", order:2},
+  // ── Federal Prosecution Service — no style of address ──
+  {v:"pg",  l:"Public Prosecutor General of the Empire", style:"", cat:"prosecution", order:0},
+  {v:"dpg", l:"Deputy Prosecutor General",               style:"", cat:"prosecution", order:1},
+  {v:"apg", l:"Assistant Prosecutor General",            style:"", cat:"prosecution", order:2},
 ];
 const PROSECUTION_COLOR="#c05050";
 const PROSECUTION_ROLES=APPOINTMENT_ROLES.filter(r=>r.cat==="prosecution").map(r=>r.v);
 function apptRole(v){return APPOINTMENT_ROLES.find(r=>r.v===v)||APPOINTMENT_ROLES[1];}
+// Derived from the role rather than written by hand, so an office without a
+// style never acquires one by a subtitle being typed out somewhere.
+function apptSubtitle(v){const r=apptRole(v);return r.style?r.style+", "+r.l:r.l;}
 function apptColor(v){const r=apptRole(v);if(r.cat==="prosecution")return PROSECUTION_COLOR;const ct=COURTS.find(c=>c.v===r.court);return ct?ct.color:"#a8b8cc";}
 // Is this signed-in MOI account an appointed Federal Prosecutor? Returns the role value or null.
 function prosecutorRank(user,appointments){
@@ -327,9 +334,29 @@ async function sgetAll(){
     Object.entries(d.data||{}).forEach(([k,v])=>{if(v){try{out[k]=JSON.parse(v);}catch{}}});
     return out;}catch{return{};}
 }
+let AUTH_TOKEN=null;
 async function sset(k,v){
   try{await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
-    body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v)})});return true;}catch{return false;}
+    body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v),token:AUTH_TOKEN})});return true;}catch{return false;}
+}
+// Dual-mode sign-in: hardened `login` endpoint first, legacy hash check as
+// fallback so the page works across the rollout. Returns the account.
+async function slogin(username,password){
+  const u=String(username||"").trim();
+  try{
+    const r=await fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"login",username:u,password:password})});
+    const d=await r.json();
+    if(d&&d.success){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}
+    if(d&&d.error&&d.error!=="Unknown action")return {ok:false,error:d.error};
+  }catch(e){/* old backend or CORS — fall through */}
+  const raw=await sgetAll();const accounts={};
+  Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v)accounts[v.username]=v;});
+  Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(!accounts[k])accounts[k]=v;});
+  const user=Object.values(accounts).find(a=>String(a.username||"").toLowerCase()===u.toLowerCase());
+  if(!user)return {ok:false,error:"ACCESS DENIED"};
+  const hash=await sha256(password);
+  if(hash!==user.passwordHash)return {ok:false,error:"ACCESS DENIED"};
+  return {ok:true,account:user};
 }
 
 // ── UI ATOMS ──────────────────────────────────────────────────────────────────
@@ -1083,20 +1110,31 @@ const BK_PEERAGE_RANKS=[
   {v:"viscount",l:"Viscount",color:"#aa8866"},{v:"baron",l:"Baron",color:"#8899aa"},
   {v:"baronet",l:"Baronet",color:"#9a9a9a"},
 ];
-function bkCalcBT(members,votes,threshold=BK_BT_THRESH){
+// A vote is a historical fact and must not depend on who currently holds a seat.
+// Seats come from the snapshot written on the bill when the vote was cast,
+// falling back to the sitting member and then the former-members roll. Reading
+// live membership alone — as this once did — silently zeroed a departed
+// member's vote on every act they ever voted on. Kept in step with the same
+// resolution in bundeskongress.html.
+function bkResolveVoter(id,roster,former,snapshot){
+  return snapshot?.[id]||roster?.[id]||former?.[id]||null;
+}
+function bkCalcBT(members,votes,threshold=BK_BT_THRESH,snapshot,former){
   let f=0,a=0,ab=0;
   Object.entries(votes||{}).forEach(([id,v])=>{
-    const s=(members[id]?.seats)||0;
+    const s=(bkResolveVoter(id,members,former,snapshot)?.seats)||0;
     if(v==="for") f+=s; else if(v==="against") a+=s; else if(v==="abstain"||v==="absent") ab+=s;
   });
   return {for_seats:f,against_seats:a,abstain_seats:ab,passed:f>=threshold,threshold};
 }
-function bkCalcBH(bh,votes){
-  let f=0,a=0,ab=0;const total=Object.keys(bh||{}).length;
+function bkCalcBH(bh,votes,snapshot,former){
+  let f=0,a=0,ab=0;
   Object.entries(votes||{}).forEach(([id,v])=>{
-    if(!bh[id]) return;
+    if(!bkResolveVoter(id,bh,former,snapshot)) return;
     if(v==="for") f++; else if(v==="against") a++; else if(v==="abstain") ab++;
   });
+  // The bar reflects the chamber as it was, so a later appointment cannot move it.
+  const total=Math.max(Object.keys(bh||{}).length,Object.keys(votes||{}).length);
   const thresh=Math.floor(total/2)+1;
   return {for_count:f,against_count:a,abstain_count:ab,total,threshold:thresh,passed:f>=thresh};
 }
@@ -1176,13 +1214,701 @@ function LegalBillPipeline({bill}){
   </div>;
 }
 
-function LegalBillCard({bill,members,bundesherren,ijStatutes}){
+/* ══════════════════════════════════════════════════════════════════════════════
+   PERSON CARD — kept identical with the block of the same name in
+   bundeskongress.html. Only the adapter immediately below differs, which maps
+   this page's own tables and palette onto the names the block expects. If you
+   change the card, change it in both files: there is no build step here, and a
+   copy that drifts is how ij.html ended up with a stale vote tally.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+// ── Adapter ───────────────────────────────────────────────────────────────────
+const PARTIES=BK_PARTIES;
+const getParty=(id)=>BK_PARTIES.find(p=>p.id===id)||null;
+const BT_SEATS_TOTAL=BK_BT_SEATS;
+const STATUS_META=BK_STATUS_META;
+const fmtDate=(ts)=>ts?new Date(ts).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}):"—";
+// The peerage table here carries colours only; styles come from the Household's
+// register, where the rank itself carries the gender.
+const PEERAGE_STYLE={crown_prince:"His Imperial Highness",prince:"His Imperial Highness",
+  princess:"Her Imperial Highness",duke:"His Grace",marquess:"The Most Honourable",
+  count:"The Right Honourable",viscount:"The Right Honourable",baron:"The Honourable",
+  baronet:"Sir / Dame"};
+const PEERAGE_RANKS=BK_PEERAGE_RANKS.map(r=>({...r,style:PEERAGE_STYLE[r.v]||""}));
+const BK_PROVINCES={newport:"Newport",cracov:"Cracov",rome:"Rome",kingsland:"Kingsland",
+  aquitaine:"Aquitaine",monegasque:"Monégasque",weststadt:"Weststadt"};
+
+// ── Identity ──────────────────────────────────────────────────────────────────
+const idKey=(s)=>String(s||"").toLowerCase().replace(/[^a-z0-9]/g,"").replace(/(.)\1+/g,"$1");
+const memberKey=(u)=>"u_"+String(u||"").toLowerCase();
+const bhKey=(u)=>"ub_"+String(u||"").toLowerCase();
+function findSeat(roster,username,displayName){
+  if(!username) return null;
+  const direct=roster?.[memberKey(username)]||roster?.[bhKey(username)];
+  if(direct) return direct;
+  const u=String(username).toLowerCase(), d=String(displayName||"").toLowerCase();
+  return Object.values(roster||{}).find(m=>
+    String(m.username||"").toLowerCase()===u
+    ||(!m.username&&String(m.name||"").toLowerCase()===d&&!!d))||null;
+}
+function identityIds(person,members,bundesherren,formerMembers){
+  const ids=new Set();
+  const u=String(person?.username||"").toLowerCase();
+  const n=String(person?.name||"").toLowerCase();
+  const uk=idKey(u);
+  (person?.aliases||[]).forEach(a=>ids.add(a));
+  const rosters=[members,bundesherren,formerMembers];
+  let grew=true;
+  while(grew){
+    grew=false;
+    rosters.forEach(roster=>{
+      Object.entries(roster||{}).forEach(([id,r])=>{
+        if(ids.has(id)) return;
+        const ru=String(r.username||"").toLowerCase();
+        const rn=String(r.name||"").toLowerCase();
+        const same=(u&&ru===u)||(uk&&!ru&&idKey(rn)===uk)||(n&&rn===n&&(!ru||!u))
+          ||(r.aliases||[]).some(a=>ids.has(a))||(person?.aliases||[]).includes(id);
+        if(same){ ids.add(id); (r.aliases||[]).forEach(a=>ids.add(a)); grew=true; }
+      });
+    });
+  }
+  if(person?.id) ids.add(person.id);
+  if(u){ ids.add(memberKey(u)); ids.add(bhKey(u)); }
+  return ids;
+}
+function votingRecord(ids,bills){
+  const out=[];
+  Object.values(bills||{}).forEach(b=>{
+    ["bt","bh"].forEach(ch=>{
+      const votes=b[ch+"_votes"]||{};
+      for(const id of ids){
+        if(votes[id]!==undefined){ out.push({bill:b,chamber:ch,vote:votes[id],
+          when:b.ratified_at||b.failed_at||b.created||0}); break; }
+      }
+    });
+  });
+  return out.sort((a,b)=>b.when-a.when);
+}
+function submissionRecord(person,ids,bills){
+  const u=String(person?.username||"").toLowerCase();
+  const n=String(person?.name||"").toLowerCase();
+  const uk=idKey(u);
+  const isThem=(name,username)=>{
+    const un=String(username||"").toLowerCase(), nm=String(name||"").toLowerCase();
+    if(u&&un) return un===u;
+    if(!nm) return false;
+    return nm===n||nm===u||(!!uk&&idKey(nm)===uk);
+  };
+  const out=[];
+  Object.values(bills||{}).forEach(b=>{
+    if(isThem(b.submitter,b.submitterUsername)) out.push({bill:b,role:"submitter"});
+    else if((b.cosponsors||[]).some(c=>isThem(c.name,c.username))) out.push({bill:b,role:"cosponsor"});
+  });
+  return out.sort((a,b)=>(b.bill.created||0)-(a.bill.created||0));
+}
+function serviceRecord(person,governments){
+  const u=String(person?.username||"").toLowerCase();
+  const n=String(person?.name||"").toLowerCase();
+  const hit=(v)=>{const s=String(v||"").toLowerCase(); return !!s&&(s===u||s===n);};
+  const out=[];
+  Object.values(governments||{}).forEach(g=>{
+    if(g.example) return;
+    const roles=[];
+    if(hit(g.chancellor)) roles.push("Imperial Chancellor");
+    (g.ministers||[]).forEach(m=>{ if(hit(m.name)) roles.push(m.portfolio); });
+    if(roles.length) out.push({gov:g,roles});
+  });
+  return out.sort((a,b)=>String(b.gov.startDate||"").localeCompare(String(a.gov.startDate||"")));
+}
+function activityIndex(votes){
+  if(!votes||votes.length===0) return null;
+  const absent=votes.filter(v=>v.vote==="absent").length;
+  return {pct:Math.round(((votes.length-absent)/votes.length)*100),
+    attended:votes.length-absent,total:votes.length,absent};
+}
+function draftingRatio(votes,submissions){
+  const participated=(votes||[]).filter(v=>v.vote!=="absent");
+  if(participated.length===0) return null;
+  const mine=new Set((submissions||[]).map(s=>s.bill.id));
+  const drafted=participated.filter(v=>mine.has(v.bill.id)).length;
+  return {pct:Math.round((drafted/participated.length)*100),drafted,participated:participated.length};
+}
+function judicialRecord(person,ctx){
+  const u=String(person?.username||"").toLowerCase();
+  const n=String(person?.name||"").toLowerCase();
+  const uk=idKey(u);
+  const isThem=(v)=>{const s=String(v||"").toLowerCase(); if(!s) return false;
+    return s===u||s===n||(!!uk&&idKey(s)===uk);};
+  const appts=Object.values(ctx?.ijAppointments||{}).filter(a=>isThem(a.username)||isThem(a.name));
+  if(appts.length===0) return null;
+  const apptIds=new Set(appts.map(a=>a.id));
+  const presided=Object.values(ctx?.ijCases||{})
+    .filter(c=>(c.presiding||[]).some(pid=>apptIds.has(pid)))
+    .sort((a,b)=>(b.filed||0)-(a.filed||0));
+  const caseIds=new Set(presided.map(c=>c.id));
+  const rulings=Object.values(ctx?.ijJudgments||{}).filter(j=>caseIds.has(j.caseId))
+    .sort((a,b)=>(b.date||0)-(a.date||0));
+  const onBench=appts.some(a=>apptRole(a.role).cat==="bench");
+  return {appts,presided,rulings,onBench};
+}
+
+// ── The register ──────────────────────────────────────────────────────────────
+const STYLE_RANK={"His Imperial Majesty":100,"Her Imperial Majesty":100,
+  "His Imperial Highness":90,"Her Imperial Highness":90,
+  "His Serene Highness":80,"Her Serene Highness":80,
+  "His Grace":70,"Her Grace":70,"The Most Honourable":60,
+  "The Right Honourable":50,"The Honourable":40,"Sir / Dame":30};
+const OFFICE_HONOURS=[
+  {key:"emperor",     label:"Emperor",                  style:"His Imperial Majesty", suffix:""},
+  {key:"chancellor",  label:"Chancellor",               style:"The Right Honourable", suffix:"MB"},
+  {key:"minister",    label:"Council of Ministers",     style:"The Honourable",       suffix:"MB"},
+  {key:"bt_president",label:"President of the Bundestag",style:"The Right Honourable",suffix:"MB"},
+  {key:"member",      label:"Member of the Bundestag",  style:"",                     suffix:"MB"},
+  {key:"ips",         label:"Imperial Private Secretary",style:"The Right Honourable",suffix:"IPS"},
+];
+const OFFICE=(k)=>OFFICE_HONOURS.find(o=>o.key===k);
+const DECORATIONS=[
+  {v:"IIC",l:"Imperial Iron Cross",why:"Highest military valor honor"},
+  {v:"OBE",l:"Order of the Black Eagle",why:"Exceptional command and leadership"},
+  {v:"ICV",l:"Imperial Cross of Valor",why:"Bravery in combat and active warfare"},
+  {v:"ICOGO",l:"Imperial Civil Order of the Golden Oak",why:"Highest civil honor of the Empire"},
+  {v:"ORE",l:"Order of the Red Eagle",why:"Diplomatic, academic and cultural distinction"},
+  {v:"IOM",l:"Imperial Order of Merit",why:"National achievement"},
+  {v:"IDSM",l:"Imperial Defense Service Medal",why:"Loyal and long military service"},
+  {v:"MSMM",l:"Military Service Medal of Merit",why:"Dedication and excellence in military duty"},
+  {v:"MOH",l:"Medal of Honor",why:"Heroic defense of the Empire"},
+  {v:"DSA",l:"Defense Service Award",why:"Service to national defense"},
+  {v:"LEM",l:"Law Enforcement Service Medal",why:"Internal security and policing"},
+  {v:"PSM",l:"Public Services Medal",why:"Fire/Rescue/Emergency service distinction"},
+  {v:"EMCM",l:"Exemplary Military Conduct Medal",why:"Discipline and conduct"},
+  {v:"DCSM",l:"Distinguished Civil Service Medal",why:"Long civil service"},
+  {v:"GSM",l:"Good Samaritan Medal",why:"Humanitarian/charitable actions"},
+  {v:"MC",l:"Medal of Counselors",why:"Legal and judicial achievement"},
+  {v:"MH",l:"Medal of Health",why:"Excellence in medicine"},
+  {v:"CEM",l:"Civil Engineering Medal",why:"Infrastructure and development contributions"},
+  {v:"NIM",l:"National Intelligence Medal",why:"Intelligence service distinction"},
+  {v:"ESM",l:"Exemplary Service Medal",why:"General civil excellence"},
+  {v:"KESJM",l:"King Edward Silver Jubilee Medal",why:"Commemorates the Silver Jubilee of King Edward"},
+  {v:"FECM",l:"First Edward Campaigns Medal",why:"Served during the First Edward Campaigns"},
+];
+const DECOR=(v)=>DECORATIONS.find(d=>d.v===v)||null;
+
+function honorifics(person,ctx){
+  const styles=[],suffixes=[];
+  if(!person) return {prefix:null,suffixes:[],styles:[]};
+  const u=String(person.username||"").toLowerCase();
+  const n=String(person.name||"").toLowerCase();
+  const uk=idKey(u);
+  const isThem=(v)=>{const s=String(v||"").toLowerCase();
+    if(!s||s==="vacant") return false; return s===u||s===n||(!!uk&&idKey(s)===uk);};
+  const off=ctx?.officials||{};
+  const holds=(userKey,nameKey)=>{
+    const stored=String(off[userKey]||"").toLowerCase();
+    if(stored) return !!u&&stored===u;
+    return isThem(off[nameKey]);
+  };
+  const bhRec=Object.values(ctx?.bundesherren||{}).find(b=>isThem(b.username)||isThem(b.name))
+    ||Object.values(ctx?.formerMembers||{}).find(b=>b.rank&&(isThem(b.username)||isThem(b.name)));
+  const pr=bhRec?.rank?PEERAGE_RANKS.find(r=>r.v===bhRec.rank):null;
+  if(pr?.style) styles.push({style:pr.style,why:pr.l+" — a peerage, held for life"});
+  if(ctx?.account?.role==="emperor"){const o=OFFICE("emperor");styles.push({style:o.style,why:o.label});}
+
+  const seated=Object.values(ctx?.members||{}).some(m=>isThem(m.username)||isThem(m.name));
+  const cur=[];
+  if(holds("chancellor_username","chancellor")) cur.push(OFFICE("chancellor"));
+  if(holds("president_bt_username","president_bt")) cur.push(OFFICE("bt_president"));
+  Object.entries(off.ministers||{}).forEach(([p,name])=>{
+    const mu=(off.minister_usernames||{})[p];
+    const hit=mu?(!!u&&String(mu).toLowerCase()===u):isThem(name);
+    if(hit) cur.push({...OFFICE("minister"),label:p});
+  });
+  if(seated) cur.push(OFFICE("member"));
+  // The Bench carries a style; the Prosecution Service does not.
+  Object.values(ctx?.ijAppointments||{}).forEach(a=>{
+    if(!isThem(a.username)&&!isThem(a.name)) return;
+    const r=apptRole(a.role);
+    if(r?.style) styles.push({style:r.style,why:r.l});
+  });
+  cur.forEach(o=>{
+    if(o.style) styles.push({style:o.style,why:o.label});
+    if(o.suffix&&!suffixes.some(s=>s.code===o.suffix))
+      suffixes.push({code:o.suffix,label:o.label,why:o.label,current:true});
+  });
+  (ctx?.pastOffices||[]).forEach(({roles})=>{
+    roles.forEach(role=>{
+      const r=String(role).toLowerCase();
+      const o=r.includes("chancellor")?OFFICE("chancellor")
+        :r.includes("president of the bundestag")?OFFICE("bt_president"):OFFICE("minister");
+      if(o?.style&&!styles.some(s=>s.style===o.style&&s.why.startsWith(role)))
+        styles.push({style:o.style,why:role+" (former) — the style is retained"});
+    });
+  });
+  const seen=new Set();
+  const addDecor=(code,awarded)=>{
+    const d=DECOR(code); if(!d||seen.has(d.v)) return;
+    seen.add(d.v);
+    suffixes.push({code:d.v,label:d.l,why:d.l+" — "+d.why+(awarded?", awarded "+awarded:""),
+      current:true,decoration:true,order:DECORATIONS.findIndex(x=>x.v===d.v)});
+  };
+  Object.values(ctx?.ihHonours||{}).forEach(h=>{
+    if(!isThem(h.recipientUsername)&&!isThem(h.recipient)) return;
+    addDecor(h.medal,h.awarded);
+  });
+  Object.values(ctx?.mowPersonnel||{}).forEach(p=>{
+    if(!isThem(p.username)&&!isThem(p.name)) return;
+    (p.medals||[]).forEach(m=>addDecor(m.type,m.awarded));
+  });
+  suffixes.sort((a,b)=>{
+    if(!!a.decoration!==!!b.decoration) return a.decoration?-1:1;
+    if(a.decoration) return (a.order??99)-(b.order??99);
+    return 0;
+  });
+  styles.sort((a,b)=>(STYLE_RANK[b.style]||0)-(STYLE_RANK[a.style]||0));
+  return {prefix:styles[0]||null,styles,suffixes};
+}
+
+const HonoursCtx=createContext(null);
+const useHonours=()=>useContext(HonoursCtx);
+function honorificsFor(person,ctx){
+  if(!ctx||!person) return {prefix:null,styles:[],suffixes:[]};
+  return honorifics(person,{...ctx,
+    account:person.username?ctx.accounts?.[person.username]:null,
+    pastOffices:serviceRecord(person,ctx.governments)});
+}
+const FactsheetCtx=createContext(()=>{});
+const useFactsheet=()=>useContext(FactsheetCtx);
+
+const ACTIVITY_TOOLTIP=
+  "Activity Index — the share of votes put to this member that they took part in. "+
+  "Voting for, against or abstaining all count as taking part; only being marked "+
+  "absent counts against it. A member present for 3 of 4 votes scores 75%. "+
+  "It is drawn from their whole record in the chamber, not the current term.";
+const DRAFTING_TOOLTIP=
+  "Drafting to Voting — of the bills this member took part in, the share that were "+
+  "their own: submitted by them, or drafted with them as a co-sponsor. A low figure "+
+  "simply means they vote on others' bills more than they put forward their own, "+
+  "which is the ordinary work of the chamber. It is not a measure of merit.";
+const activityColor=(pct)=>pct>=75?"#7ad47a":pct>=50?C.gold:pct>=25?"#cc6a10":C.redL;
+const SHORT_POST_NOMINAL_LIMIT=4;
+
+function PostNominals({person,style:ex={}}){
+  const ctx=useHonours();
+  if(!ctx||!person) return null;
+  const {suffixes}=honorificsFor(person,ctx);
+  if(suffixes.length===0) return null;
+  const shown=suffixes.slice(0,SHORT_POST_NOMINAL_LIMIT);
+  const rest=suffixes.slice(SHORT_POST_NOMINAL_LIMIT);
+  const tip=shown.map(s=>s.code+" — "+s.why).join("\n")
+    +(rest.length?"\n\nAlso holds "+rest.map(s=>s.code).join(", ")
+      +" — see their factsheet for the full list.":"");
+  return(
+    <span className="mono" title={tip}
+      style={{fontSize:8,letterSpacing:"0.08em",color:C.gold,opacity:0.75,
+        cursor:"help",marginLeft:5,...ex}}>
+      {shown.map(s=>s.code).join(" ")}
+    </span>
+  );
+}
+function MemberLink({person,children,style:ex={}}){
+  const open=useFactsheet();
+  if(!person) return <span style={ex}>{children}</span>;
+  return(
+    <button onClick={(e)=>{e.stopPropagation();open(person);}} title="View factsheet"
+      style={{background:"none",border:"none",padding:0,margin:0,font:"inherit",color:"inherit",
+        cursor:"pointer",textDecoration:"underline",textDecorationColor:"transparent",
+        textUnderlineOffset:3,transition:"text-decoration-color .15s",...ex}}
+      onMouseEnter={e=>e.currentTarget.style.textDecorationColor="currentColor"}
+      onMouseLeave={e=>e.currentTarget.style.textDecorationColor="transparent"}>
+      {children}
+    </button>
+  );
+}
+function FactRow({label,children}){
+  if(!children) return null;
+  return(
+    <div style={{display:"flex",gap:10,padding:"5px 0",borderBottom:`1px solid ${C.border}55`}}>
+      <span style={{fontFamily:"'Cinzel',serif",fontSize:8,letterSpacing:"0.15em",color:C.textDD,
+        width:96,flexShrink:0,paddingTop:3,textTransform:"uppercase"}}>{label}</span>
+      <div style={{flex:1,minWidth:0,fontSize:13,color:C.text}}>{children}</div>
+    </div>
+  );
+}
+
+function JudicialRecordPanel({judicial}){
+  if(!judicial) return <div style={{fontSize:13,color:C.textDD,fontStyle:"italic"}}>No judicial service.</div>;
+  const {appts,presided,rulings,onBench}=judicial;
+  const OUTCOME_COLOR={upheld:"#7ad47a",overturned:C.redL,dismissed:C.textD,granted:"#7ad47a",denied:C.redL};
+  return(
+    <div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:"0.85rem"}}>
+        {appts.map((a,i)=>{
+          const r=apptRole(a.role);
+          const bench=r?.cat==="bench";
+          return(
+            <span key={i} title={r?.style?r.style+" — "+r.l:(r?.l||a.role)+" — this office carries no style"}
+              style={{fontSize:11,cursor:"help",borderRadius:2,padding:"2px 7px",
+                color:bench?C.silver:PROSECUTION_COLOR,
+                border:`1px solid ${bench?C.silver+"44":PROSECUTION_COLOR+"44"}`,
+                background:bench?C.s1:"#1a0c0c"}}>
+              ⚖ {r?.l||a.role}{a.since?" · "+a.since:""}
+            </span>
+          );
+        })}
+      </div>
+      {!onBench
+        ?<div style={{fontSize:13,color:C.textDD,fontStyle:"italic"}}>
+          The Prosecution Service brings cases before the courts; it does not decide them,
+          so no rulings are recorded against this office.
+        </div>
+        :<div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.18em",
+            color:C.textDD,marginBottom:6,textTransform:"uppercase"}}>
+            Rulings {rulings.length>0?"— "+rulings.length:""}
+          </div>
+          {rulings.length===0
+            ?<div style={{fontSize:13,color:C.textDD,fontStyle:"italic",marginBottom:"1rem"}}>No rulings handed down.</div>
+            :<div style={{maxHeight:200,overflowY:"auto",display:"flex",flexDirection:"column",gap:2,marginBottom:"1rem"}}>
+              {rulings.map((j,i)=>{
+                const oc=OUTCOME_COLOR[j.outcome]||C.textD;
+                return(
+                  <div key={i} style={{background:C.s2,border:`1px solid ${C.border}`,
+                    borderLeft:`2px solid ${oc}`,borderRadius:"0 2px 2px 0",padding:"5px 9px",
+                    display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                    <span style={{fontSize:12,color:C.text,flex:1,minWidth:120}}>{j.title}</span>
+                    {j.outcome&&<span style={{fontFamily:"'Cinzel',serif",fontSize:8,color:oc,
+                      border:`1px solid ${oc}44`,borderRadius:2,padding:"1px 6px",whiteSpace:"nowrap"}}>
+                      {String(j.outcome).replace(/_/g," ").toUpperCase()}
+                    </span>}
+                    <span className="mono" style={{fontSize:9,color:C.textDD}}>{j.date?fmtDate(j.date):""}</span>
+                  </div>
+                );
+              })}
+            </div>
+          }
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.18em",
+            color:C.textDD,marginBottom:6,textTransform:"uppercase"}}>
+            Cases Presided {presided.length>0?"— "+presided.length:""}
+          </div>
+          {presided.length===0
+            ?<div style={{fontSize:13,color:C.textDD,fontStyle:"italic"}}>No cases assigned.</div>
+            :<div style={{maxHeight:180,overflowY:"auto",display:"flex",flexDirection:"column",gap:2}}>
+              {presided.map((c,i)=>(
+                <div key={i} style={{background:C.s2,border:`1px solid ${C.border}`,
+                  borderRadius:2,padding:"5px 9px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                  <span style={{fontSize:12,color:C.text,flex:1,minWidth:120}}>{c.title||"Case"}</span>
+                  {c.number&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{c.number}</span>}
+                  <span className="mono" style={{fontSize:8,color:C.textDD,letterSpacing:".08em"}}>
+                    {String(c.status||"").replace(/_/g," ").toUpperCase()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          }
+        </div>
+      }
+    </div>
+  );
+}
+
+function MemberFactsheet({person,members,bundesherren,formerMembers,officials,bills,accounts,governments,onClose}){
+  const [voteTab,setVoteTab]=useState("bt");
+  const honCtx=useHonours();
+  if(!person) return null;
+  const hon=honorificsFor(person,honCtx);
+  const acc=person.username?accounts?.[person.username]:null;
+  const ids=identityIds(person,members,bundesherren,formerMembers);
+  const votes=votingRecord(ids,bills);
+  const submissions=submissionRecord(person,ids,bills);
+  const service=serviceRecord(person,governments);
+  // The card can be opened from a stub — a judicial appointment, an official's
+  // name in a banner — which carries no seat or party of its own. Resolve to the
+  // roster record that actually holds them so the card reads the same wherever
+  // it was opened from.
+  const btRec=Object.values(members||{}).find(m=>ids.has(m.id))||null;
+  const bhRec=Object.values(bundesherren||{}).find(b=>ids.has(b.id))||null;
+  const seated=!!btRec;
+  const bhSeated=!!bhRec;
+  const former=Object.values(formerMembers||{}).filter(f=>ids.has(f.id));
+  const rec=btRec||bhRec||former[0]||person;
+  const party=getParty(person.party||rec.party);
+  const region=acc?.stateOfResidency?BK_PROVINCES[acc.stateOfResidency]||acc.stateOfResidency:null;
+  const rpName=[acc?.displayName,person.name].find(n=>
+    n&&String(n).toLowerCase()!==String(person.username||"").toLowerCase())||null;
+
+  const offices=[];
+  const u=String(person.username||"").toLowerCase();
+  if(u&&String(officials?.president_bt_username||"").toLowerCase()===u) offices.push("President of the Bundestag");
+  if(u&&String(officials?.president_bh_username||"").toLowerCase()===u) offices.push("President of the Bundesherren");
+  if(u&&String(officials?.chancellor_username||"").toLowerCase()===u) offices.push("Imperial Chancellor");
+  Object.entries(officials?.minister_usernames||{}).forEach(([p,mu])=>{
+    if(u&&String(mu||"").toLowerCase()===u) offices.push(p);
+  });
+  if(offices.length===0){
+    const names=[person.name,person.username,acc?.displayName].filter(Boolean).map(s=>String(s).toLowerCase());
+    const is=(v)=>{const s=String(v||"").toLowerCase(); return !!s&&s!=="vacant"&&names.includes(s);};
+    if(is(officials?.president_bt)) offices.push("President of the Bundestag");
+    if(is(officials?.president_bh)) offices.push("President of the Bundesherren");
+    if(is(officials?.chancellor))   offices.push("Imperial Chancellor");
+    Object.entries(officials?.ministers||{}).forEach(([p,mn])=>{ if(is(mn)) offices.push(p); });
+  }
+
+  const partyHistory=[];
+  [...Object.values(members||{}),...Object.values(bundesherren||{}),...Object.values(formerMembers||{})]
+    .filter(r=>ids.has(r.id))
+    .forEach(r=>{ if(r.party&&!partyHistory.includes(r.party)) partyHistory.push(r.party); });
+
+  const btVotes=votes.filter(v=>v.chamber==="bt");
+  const bhVotes=votes.filter(v=>v.chamber==="bh");
+  const judicial=judicialRecord(person,honCtx);
+  const RECORDS=[
+    ...((seated||btVotes.length>0)?[{v:"bt",l:"Bundestag History",icon:"🏛",n:btVotes.length}]:[]),
+    ...((bhSeated||bhVotes.length>0)?[{v:"bh",l:"Bundesherren History",icon:"🏰",n:bhVotes.length}]:[]),
+    ...(judicial?[{v:"ij",l:"Judicial Record",icon:"⚖",n:judicial.rulings.length}]:[]),
+  ];
+  const activeTab=RECORDS.some(r=>r.v===voteTab)?voteTab:(RECORDS[0]?.v||"bt");
+  const shownVotes=activeTab==="bh"?bhVotes:activeTab==="bt"?btVotes:[];
+  const activity=activityIndex(shownVotes);
+  const drafting=draftingRatio(shownVotes,submissions);
+  const tally={for:0,against:0,abstain:0,absent:0};
+  shownVotes.forEach(v=>{ if(tally[v.vote]!==undefined) tally[v.vote]++; });
+
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"#000000dd",zIndex:300,
+      display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"2rem 1rem",overflowY:"auto"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:C.s1,border:`1px solid ${party?.color||C.silver}55`,
+        borderTop:`3px solid ${party?.color||C.silver}`,borderRadius:"0 0 4px 4px",maxWidth:620,width:"100%"}}>
+        <div style={{padding:"1.25rem 1.5rem",borderBottom:`1px solid ${C.border}`,
+          display:"flex",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:0}}>
+            {hon.prefix&&(
+              <div title={hon.styles.map(s=>s.style+" — "+s.why).join("\n")}
+                style={{fontFamily:"'Cinzel',serif",fontSize:10,letterSpacing:"0.16em",
+                  color:C.gold,marginBottom:3,cursor:"help"}}>
+                {hon.prefix.style.toUpperCase()}
+              </div>
+            )}
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:20,fontWeight:700,color:C.text,letterSpacing:"0.05em"}}>
+              {person.username||person.name}
+              <PostNominals person={person} style={{fontSize:11,opacity:1,marginLeft:8}}/>
+            </div>
+            {rpName&&<div style={{fontSize:14,color:C.gold,fontStyle:"italic",marginTop:2}}>{rpName}</div>}
+            <div style={{display:"flex",alignItems:"center",gap:8,marginTop:4,flexWrap:"wrap"}}>
+              {party&&<span style={{fontSize:12,color:party.color}}>{party.name}</span>}
+              {!person.username&&<span style={{fontSize:11,color:C.textDD,fontStyle:"italic"}}>unlinked record</span>}
+              <span style={{fontFamily:"'Cinzel',serif",fontSize:8,letterSpacing:"0.12em",
+                border:`1px solid ${seated||bhSeated?"#4a9a5a66":"#5a5a5a66"}`,borderRadius:2,padding:"1px 6px",
+                color:seated||bhSeated?"#7ad47a":"#8a8a8a"}}>
+                {seated?"SITTING":bhSeated?"BUNDESHERR":judicial?"JUDICIARY":"FORMER"}
+              </span>
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"transparent",border:"none",color:C.textD,
+            cursor:"pointer",fontSize:18,lineHeight:1}}>✕</button>
+        </div>
+
+        <div style={{padding:"1rem 1.5rem 1.5rem"}}>
+          {shownVotes.length>0&&(
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:"1rem"}}>
+              {[["For",tally.for,"#7ad47a"],["Against",tally.against,C.redL],
+                ["Abstain",tally.abstain,C.textD],["Absent",tally.absent,"#8888bb"]].map(([l,n,c])=>(
+                <div key={l} style={{background:C.s2,border:`1px solid ${C.border}`,borderTop:`2px solid ${c}`,
+                  borderRadius:"0 0 3px 3px",padding:"7px 4px",textAlign:"center"}}>
+                  <div style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:c,lineHeight:1}}>{n}</div>
+                  <div style={{fontFamily:"'Cinzel',serif",fontSize:7,letterSpacing:"0.12em",
+                    color:C.textDD,marginTop:2,textTransform:"uppercase"}}>{l}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          <FactRow label="Region">
+            {region||<span style={{color:C.textDD,fontStyle:"italic"}}>
+              {person.username?"No region on file":"Not a registered citizen"}
+            </span>}
+          </FactRow>
+          <FactRow label="Seats">
+            {/* Every Bundesherr has one vote, so saying so tells the reader nothing. */}
+            {seated&&btRec.seats?btRec.seats.toLocaleString()+" of "+BT_SEATS_TOTAL.toLocaleString():
+              bhSeated?"Sits in the Bundesherren":
+              <span style={{color:C.textDD,fontStyle:"italic"}}>No seat</span>}
+          </FactRow>
+          <FactRow label="Offices">
+            {offices.length>0
+              ?<div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                {offices.map((o,i)=>(
+                  <span key={i} style={{fontSize:11,color:C.gold,border:`1px solid ${C.gold}44`,
+                    background:"#1a1400",borderRadius:2,padding:"2px 7px"}}>{o}</span>
+                ))}
+              </div>
+              :<span style={{color:C.textDD,fontStyle:"italic"}}>None</span>}
+          </FactRow>
+          <FactRow label="Party">
+            {partyHistory.length>0
+              ?<div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                {partyHistory.map(pid=>{const p=getParty(pid);
+                  return <span key={pid} style={{fontSize:12,color:p?.color||C.textD}}>{p?.name||pid}</span>;})}
+              </div>
+              :null}
+          </FactRow>
+          {(hon.suffixes.length>0||hon.styles.length>0)&&(
+            <FactRow label="Honours">
+              <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                {hon.suffixes.map((s,i)=>(
+                  <span key={i} title={s.why} style={{fontSize:11,color:C.gold,cursor:"help",
+                    border:`1px solid ${C.gold}44`,background:"#1a1400",borderRadius:2,padding:"2px 7px"}}>{s.code}</span>
+                ))}
+                {hon.prefix&&(
+                  <span title={hon.styles.length>1
+                      ?"Addressed as "+hon.prefix.style+" — "+hon.prefix.why+"\n\nAlso entitled to:\n"
+                        +hon.styles.slice(1).map(s=>"· "+s.style+" — "+s.why).join("\n")
+                      :hon.prefix.style+" — "+hon.prefix.why}
+                    style={{fontSize:11,color:C.textD,cursor:"help",
+                      border:`1px solid ${C.border}`,borderRadius:2,padding:"2px 7px"}}>
+                    {hon.prefix.style}
+                    {hon.styles.length>1&&<span style={{color:C.textDD,marginLeft:5}}>+{hon.styles.length-1}</span>}
+                  </span>
+                )}
+              </div>
+            </FactRow>
+          )}
+          {former.length>0&&(
+            <FactRow label="Departures">
+              <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                {former.map((f,i)=>(
+                  <span key={i} style={{fontSize:12,color:C.textD,fontStyle:"italic"}}>
+                    {f.departed_reason||"Departed"}{f.departed_at?" · "+fmtDate(f.departed_at):""}
+                  </span>
+                ))}
+              </div>
+            </FactRow>
+          )}
+          {activity&&(
+            <FactRow label={<span title={ACTIVITY_TOOLTIP} style={{cursor:"help",borderBottom:`1px dotted ${C.textDD}`}}>Activity Index</span>}>
+              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}} title={ACTIVITY_TOOLTIP}>
+                <span style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,
+                  color:activityColor(activity.pct),lineHeight:1,cursor:"help"}}>{activity.pct}%</span>
+                <div style={{flex:1,minWidth:100,maxWidth:180,height:5,background:C.s3,borderRadius:3,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:activity.pct+"%",background:activityColor(activity.pct),transition:"width .4s"}}/>
+                </div>
+                <span style={{fontSize:11,color:C.textDD,fontStyle:"italic"}}>
+                  present for {activity.attended} of {activity.total}{activity.absent>0?" · absent "+activity.absent:""}
+                </span>
+              </div>
+            </FactRow>
+          )}
+          {drafting&&(
+            <FactRow label={<span title={DRAFTING_TOOLTIP} style={{cursor:"help",borderBottom:`1px dotted ${C.textDD}`}}>Drafting to Voting</span>}>
+              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}} title={DRAFTING_TOOLTIP}>
+                <span style={{fontFamily:"'Cinzel',serif",fontSize:18,fontWeight:700,color:C.textD,lineHeight:1,cursor:"help"}}>{drafting.pct}%</span>
+                <div style={{flex:1,minWidth:100,maxWidth:180,height:5,background:C.s3,borderRadius:3,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:drafting.pct+"%",background:C.textD,transition:"width .4s"}}/>
+                </div>
+                <span style={{fontSize:11,color:C.textDD,fontStyle:"italic"}}>
+                  {drafting.drafted} of {drafting.participated} were their own
+                </span>
+              </div>
+            </FactRow>
+          )}
+
+          {service.length>0&&(
+            <div style={{marginTop:"1.25rem"}}>
+              <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.18em",
+                color:C.textDD,marginBottom:6,textTransform:"uppercase"}}>Service Record</div>
+              {service.map(({gov,roles})=>(
+                <div key={gov.id} style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:2,
+                  padding:"6px 10px",marginBottom:3}}>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+                    <span style={{fontFamily:"'Cinzel',serif",fontSize:12,color:C.text}}>{gov.name||"Ministry"}</span>
+                    <span className="mono" style={{fontSize:10,color:C.textDD}}>{gov.startDate||"?"} — {gov.endDate||"present"}</span>
+                  </div>
+                  <div style={{fontSize:12,color:C.gold,marginTop:2}}>{roles.join(" · ")}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{marginTop:"1.25rem"}}>
+            {RECORDS.length>1
+              ?<div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:8,flexWrap:"wrap"}}>
+                {RECORDS.map(r=>(
+                  <button key={r.v} onClick={()=>setVoteTab(r.v)}
+                    style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.12em",
+                      textTransform:"uppercase",padding:"5px 12px",background:"transparent",
+                      border:"none",cursor:"pointer",
+                      borderBottom:`2px solid ${activeTab===r.v?C.gold:"transparent"}`,
+                      color:activeTab===r.v?C.gold:C.textD}}>
+                    {r.icon} {r.l}{r.n>0?" ("+r.n+")":""}
+                  </button>
+                ))}
+              </div>
+              :<div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.18em",
+                color:C.textDD,marginBottom:6,textTransform:"uppercase"}}>
+                {activeTab==="ij"?"Judicial Record":"Voting History "+(shownVotes.length>0?"— "+shownVotes.length+" recorded":"")}
+              </div>
+            }
+            {activeTab==="ij"
+              ?<JudicialRecordPanel judicial={judicial}/>
+              :shownVotes.length===0
+                ?<div style={{fontSize:13,color:C.textDD,fontStyle:"italic"}}>No votes recorded.</div>
+                :<div style={{maxHeight:260,overflowY:"auto",display:"flex",flexDirection:"column",gap:2}}>
+                  {shownVotes.map(({bill,chamber,vote,when},i)=>{
+                    const vc=vote==="for"?"#7ad47a":vote==="against"?C.redL:vote==="absent"?"#8888bb":C.textDD;
+                    return(
+                      <div key={i} style={{background:C.s2,border:`1px solid ${C.border}`,
+                        borderLeft:`2px solid ${vc}`,borderRadius:"0 2px 2px 0",padding:"5px 9px",
+                        display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                        <span style={{fontSize:12,color:C.text,flex:1,minWidth:120}}>{bill.title}</span>
+                        <span className="mono" style={{fontSize:9,color:C.textDD}}>
+                          {chamber.toUpperCase()}{when?" · "+fmtDate(when):""}
+                        </span>
+                        <span style={{fontFamily:"'Cinzel',serif",fontSize:9,fontWeight:700,color:vc}}>{vote.toUpperCase()}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+            }
+          </div>
+
+          <div style={{marginTop:"1.25rem"}}>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.18em",
+              color:C.textDD,marginBottom:6,textTransform:"uppercase"}}>
+              Submission History {submissions.length>0?"— "+submissions.length:""}
+            </div>
+            {submissions.length===0
+              ?<div style={{fontSize:13,color:C.textDD,fontStyle:"italic"}}>Nothing submitted.</div>
+              :<div style={{maxHeight:200,overflowY:"auto",display:"flex",flexDirection:"column",gap:2}}>
+                {submissions.map(({bill,role},i)=>{
+                  const sm=STATUS_META[bill.status]||{label:bill.status,color:C.textDD,icon:"•"};
+                  return(
+                    <div key={i} style={{background:C.s2,border:`1px solid ${C.border}`,
+                      borderLeft:`2px solid ${sm.color}`,borderRadius:"0 2px 2px 0",padding:"5px 9px",
+                      display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                      <span style={{fontSize:12,color:C.text,flex:1,minWidth:120}}>{bill.title}</span>
+                      {role==="cosponsor"&&<span style={{fontSize:9,color:"#7ad47a",fontStyle:"italic"}}>co-sponsored</span>}
+                      <span className="mono" style={{fontSize:9,color:C.textDD}}>{fmtDate(bill.created)}</span>
+                      <span style={{fontFamily:"'Cinzel',serif",fontSize:8,color:sm.color,
+                        border:`1px solid ${sm.color}44`,borderRadius:2,padding:"1px 6px",whiteSpace:"nowrap"}}>
+                        {sm.icon} {sm.label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            }
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+/* ═══════════════ END PERSON CARD ═══════════════════════════════════════════ */
+
+function LegalBillCard({bill,members,bundesherren,ijStatutes,formerMembers}){
   const [open,setOpen]=useState(false);
   const sm=BK_STATUS_META[bill.status]||{label:bill.status,color:C.textD,icon:"\u2022"};
   const bt=BK_BILL_TYPES[bill.type]||BK_BILL_TYPES.regular;
   const fmtD=ts=>ts?new Date(ts).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}):"—";
-  const btData=bill.bt_result||(Object.keys(bill.bt_votes||{}).length>0?bkCalcBT(members,bill.bt_votes,bill.type==="constitutional_amendment"?BK_BT_SUPER:BK_BT_THRESH):null);
-  const bhData=bill.bh_result||(Object.keys(bill.bh_votes||{}).length>0?bkCalcBH(bundesherren,bill.bh_votes):null);
+  const btData=bill.bt_result||(Object.keys(bill.bt_votes||{}).length>0?bkCalcBT(members,bill.bt_votes,bill.type==="constitutional_amendment"?BK_BT_SUPER:BK_BT_THRESH,bill.bt_vote_names,formerMembers):null);
+  const bhData=bill.bh_result||(Object.keys(bill.bh_votes||{}).length>0?bkCalcBH(bundesherren,bill.bh_votes,bill.bh_vote_names,formerMembers):null);
   const isConstitution=bill.grandfathered&&bill.type==="constitutional_amendment";
   const isDecree=bill.status==="decree";
   const bkStatuteId="bk_"+bill.id;
@@ -1380,7 +2106,7 @@ function JudicialStatuteCard({statute:s,caseCount,mods,courtRepealRecord}){
 }
 
 // ── LEGAL CODE TAB ────────────────────────────────────────────────────────────
-function LegalCodeTab({statutes,bills,cases,members,bundesherren}){
+function LegalCodeTab({statutes,bills,cases,members,bundesherren,formerMembers}){
   const [section,setSection]=useState("acts");
   const [statusFilter,setStatusFilter]=useState("force");
   const [catFilter,setCatFilter]=useState("all");
@@ -1506,7 +2232,7 @@ function LegalCodeTab({statutes,bills,cases,members,bundesherren}){
       <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:"0.75rem"}}>{bkActs.length} ENACTMENT{bkActs.length!==1?"S":""}</div>
       {bkActs.length===0
         ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No acts match your filters.</div>
-        :<div>{bkActs.map(b=><LegalBillCard key={b.id} bill={b} members={members||{}} bundesherren={bundesherren||{}} ijStatutes={statutes}/>)}</div>}
+        :<div>{bkActs.map(b=><LegalBillCard key={b.id} bill={b} members={members||{}} bundesherren={bundesherren||{}} ijStatutes={statutes} formerMembers={formerMembers}/>)}</div>}
     </div>}
 
     {section==="judicial"&&<div>
@@ -1535,7 +2261,11 @@ function BenchHero({appt,color,subtitle}){
   return <div style={{background:`linear-gradient(135deg,${C.s2},${C.s1})`,border:`1px solid ${color}44`,
     borderTop:`3px solid ${color}`,borderRadius:"0 0 4px 4px",padding:"1.25rem 1.5rem",
     display:"flex",alignItems:"center",gap:"1.5rem",flexWrap:"wrap"}}>
-    <div><div style={{fontFamily:"'Cinzel',serif",fontSize:17,fontWeight:700,color:C.text,marginBottom:appt.username?1:3}}>{appt.name}</div>
+    <div><div style={{marginBottom:appt.username?1:3}}>
+        <MemberLink person={{username:appt.username||"",name:appt.name}}
+          style={{fontFamily:"'Cinzel',serif",fontSize:17,fontWeight:700,color:C.text}}>{appt.name}</MemberLink>
+        <PostNominals person={{username:appt.username||"",name:appt.name}} style={{fontSize:9}}/>
+      </div>
       {appt.username&&<div className="mono" style={{fontSize:9,color:C.silverD,letterSpacing:"0.08em",fontStyle:"italic",marginBottom:3}}>{appt.username}</div>}
       <div style={{fontSize:13,color,fontStyle:"italic"}}>{subtitle}</div>
       {appt.since&&<div className="mono" style={{fontSize:9,color:C.textDD,marginTop:4}}>Appointed {appt.since}</div>}
@@ -1574,7 +2304,7 @@ function AppointmentsTab({appointments}){
       {benchCount===0&&<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No justices appointed to the bench.</div>}
       {president&&<div style={{marginBottom:"1.5rem"}}>
         <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.2em",marginBottom:8}}>PRESIDENT OF THE COURTS</div>
-        <BenchHero appt={president} color={C.silver} subtitle={"The Right Honourable, President of the Courts"}/>
+        <BenchHero appt={president} color={C.silver} subtitle={apptSubtitle("president")}/>
       </div>}
       {cc.length>0&&<div style={{marginBottom:"1.5rem"}}>
         <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.2em",marginBottom:8}}>CONSTITUTIONAL COURT</div>
@@ -1593,7 +2323,7 @@ function AppointmentsTab({appointments}){
       {proseCount===0&&<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No prosecutors appointed.</div>}
       {pg&&<div style={{marginBottom:"1.5rem"}}>
         <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.2em",marginBottom:8}}>PUBLIC PROSECUTOR GENERAL OF THE EMPIRE</div>
-        <BenchHero appt={pg} color={PROSECUTION_COLOR} subtitle={"The Right Honourable, Public Prosecutor General of the Empire"}/>
+        <BenchHero appt={pg} color={PROSECUTION_COLOR} subtitle={apptSubtitle("pg")}/>
       </div>}
       {dpg.length>0&&<div style={{marginBottom:"1.5rem"}}>
         <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.2em",marginBottom:8}}>DEPUTY PROSECUTOR GENERAL</div>
@@ -1608,12 +2338,17 @@ function AppointmentsTab({appointments}){
 }
 function OfficerCard({appointment:a}){
   const role=apptRole(a.role);const col=apptColor(a.role);
+  const person={username:a.username||"",name:a.name};
   return <div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${col}`,
     borderRadius:"0 3px 3px 0",padding:"0.75rem 1.25rem",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
     <div style={{flex:1}}>
-      <div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,marginBottom:a.username?1:2}}>{a.name}</div>
+      <div style={{marginBottom:a.username?1:2}}>
+        <MemberLink person={person} style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text}}>{a.name}</MemberLink>
+        <PostNominals person={person}/>
+      </div>
       {a.username&&<div className="mono" style={{fontSize:9,color:C.silverD,letterSpacing:"0.08em",fontStyle:"italic",marginBottom:3}}>{a.username}</div>}
-      <div style={{fontSize:12,color:col,fontStyle:"italic"}}>{role.style} {" \u2014 "} {role.l}</div>
+      {/* An office with no style shows the office alone, not a dangling dash. */}
+      <div style={{fontSize:12,color:col,fontStyle:"italic"}}>{apptSubtitle(a.role)}</div>
     </div>
     {a.since&&<div className="mono" style={{fontSize:9,color:C.textDD}}>Since {a.since}</div>}
   </div>;
@@ -1627,14 +2362,10 @@ function SignIn({onAuth,onClose}){
     if(!username.trim()||!password.trim()){setErr("Credentials required.");return;}
     setLoading(true);setErr("");
     try{
-      const raw=await sgetAll();const accounts={};
-      Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v)accounts[v.username]=v;});
-      Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(!accounts[k])accounts[k]=v;});
-      const user=Object.values(accounts).find(a=>a.username.toLowerCase()===username.trim().toLowerCase());
-      if(!user){setErr("No such account.");setLoading(false);return;}
-      const hash=await sha256(password);
-      if(hash!==user.passwordHash){setErr("Incorrect password.");setLoading(false);return;}
-      onAuth(user,raw);
+      const res=await slogin(username,password);
+      if(!res.ok){setErr(res.error==="ACCESS DENIED"?"Incorrect password.":res.error);setLoading(false);return;}
+      const raw=await sgetAll();
+      onAuth(res.account,raw);
     }catch(e){setErr("Connection error: "+e.message);}
     setLoading(false);
   }
@@ -2276,6 +3007,7 @@ function App(){
   const [tab,setTab]=useState("docket");
   const [raw,setRaw]=useState({});const [loaded,setLoaded]=useState(false);
   const [user,setUser]=useState(null);const [authOpen,setAuthOpen]=useState(false);
+  const [factsheet,setFactsheet]=useState(null);
   const [toast,setToast]=useState({msg:"",color:""});const [processing,setProcessing]=useState(null);
 
   const notify=useCallback((msg,color=C.accent)=>{
@@ -2308,6 +3040,23 @@ function App(){
   const canPanel=user&&(user.role==="emperor"||user.ijAccess==="judge"||user.ijAccess==="president");
   const members=useMemo(()=>raw["bk_members"]||{},[raw]);
   const bundesherren=useMemo(()=>raw["bk_bh"]||{},[raw]);
+  // Needed so a departed member's vote still carries its weight on legal acts.
+  const formerMembers=useMemo(()=>raw["bk_former_members"]||{},[raw]);
+  const bkOfficials=useMemo(()=>raw["bk_officials"]||{},[raw]);
+  const bkGovernments=useMemo(()=>raw["bk_governments"]||{},[raw]);
+  const bkParties=useMemo(()=>raw["bk_parties"]||{},[raw]);
+  const ihHonours=useMemo(()=>raw["ih_honours"]||{},[raw]);
+  const mowPersonnel=useMemo(()=>raw["mow_personnel"]||{},[raw]);
+  // `accounts` above is a sorted array for the pickers; the person card needs a
+  // lookup by username.
+  const accountsByName=useMemo(()=>{
+    const m={}; accounts.forEach(a=>{ if(a?.username) m[a.username]=a; }); return m;
+  },[accounts]);
+  const honoursCtx=useMemo(()=>({members,bundesherren,formerMembers,officials:bkOfficials,
+    ihHonours,ijAppointments:appointments,ijCases:cases,ijJudgments:judgments,
+    mowPersonnel,accounts:accountsByName,governments:bkGovernments}),
+    [members,bundesherren,formerMembers,bkOfficials,ihHonours,appointments,cases,judgments,
+     mowPersonnel,accountsByName,bkGovernments]);
   const bills=useMemo(()=>{
     const all={};
     Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("bk_bill_")&&v)all[k]=v;});
@@ -2361,9 +3110,14 @@ function App(){
   const TABS=[{v:"docket",l:"Case Docket",icon:"📋"},{v:"code",l:"Legal Code",icon:"📖"},{v:"bench",l:"The Bench",icon:"⚖"},{v:"panel",l:"Judicial Panel",icon:"⚙"}];
   function handleTab(v){setTab(v);}
 
-  return <div style={{background:C.bg,minHeight:"100vh",color:C.text}}>
+  return <HonoursCtx.Provider value={honoursCtx}>
+  <FactsheetCtx.Provider value={setFactsheet}>
+  <div style={{background:C.bg,minHeight:"100vh",color:C.text}}>
     <Toast msg={toast.msg} color={toast.color}/>
     <Overlay label={processing}/>
+    {factsheet&&<MemberFactsheet person={factsheet} members={members} bundesherren={bundesherren}
+      formerMembers={formerMembers} officials={bkOfficials} bills={bills} accounts={accountsByName}
+      governments={bkGovernments} onClose={()=>setFactsheet(null)}/>}
     <div style={{background:C.s1,borderBottom:`1px solid ${C.border}`,padding:"0 1.25rem"}}>
       <div style={{maxWidth:1100,margin:"0 auto"}}>
         <div style={{display:"flex",alignItems:"center",gap:12,padding:"0.85rem 0",borderBottom:`1px solid ${C.border}`}}>
@@ -2408,7 +3162,7 @@ function App(){
       {loaded&&tab==="docket"&&<DocketTab cases={cases} judgments={judgments} statutes={statutes} appointments={appointments}
         user={user} accounts={accounts} isProsecutor={!!myProsecutorRank} onRequireSignIn={()=>setAuthOpen(true)}
         onAction={onAction} notify={notify}/>}
-      {loaded&&tab==="code"&&<LegalCodeTab statutes={statutes} bills={bills} cases={cases} members={members} bundesherren={bundesherren}/>}
+      {loaded&&tab==="code"&&<LegalCodeTab statutes={statutes} bills={bills} cases={cases} members={members} bundesherren={bundesherren} formerMembers={formerMembers}/>}
       {loaded&&tab==="bench"&&<AppointmentsTab appointments={appointments}/>}
       {loaded&&tab==="panel"&&canPanel&&<JudicialPanel user={user} cases={cases}
         judgments={judgments} statutes={statutes} bills={bills} appointments={appointments} accounts={accounts}
@@ -2424,7 +3178,9 @@ function App(){
       <div className="mono" style={{maxWidth:1100,margin:"0 auto",fontSize:9,color:C.textDD,
         letterSpacing:"0.15em",textAlign:"center"}}>{"Imperial Judiciary \u00B7 Empire of Lech \u00B7 Fiat Justitia"}</div>
     </div>
-  </div>;
+  </div>
+  </FactsheetCtx.Provider>
+  </HonoursCtx.Provider>;
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);

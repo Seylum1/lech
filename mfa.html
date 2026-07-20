@@ -129,7 +129,27 @@ function genPassportNo(passports){
 async function sha256(t){const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");}
 function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
 async function sgetAll(){try{const r=await fetch(SCRIPT_URL+"?action=getall");const d=await r.json();if(!d.success)return{};const out={};Object.entries(d.data||{}).forEach(([k,v])=>{if(v){try{out[k]=JSON.parse(v);}catch{}}});return out;}catch{return{};}}
-async function sset(k,v){try{await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v)})});return true;}catch{return false;}}
+let AUTH_TOKEN=null;
+async function sset(k,v){try{await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v),token:AUTH_TOKEN})});return true;}catch{return false;}}
+// Dual-mode sign-in: hardened `login` endpoint first, legacy browser-side hash
+// check as fallback so the page works across the rollout. Returns the account.
+async function slogin(username,password){
+  const u=String(username||"").trim();
+  try{
+    const r=await fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"login",username:u,password:password})});
+    const d=await r.json();
+    if(d&&d.success){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}
+    if(d&&d.error&&d.error!=="Unknown action")return {ok:false,error:d.error};
+  }catch(e){/* old backend or CORS — fall through */}
+  const raw=await sgetAll();const accounts={};
+  Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v)accounts[v.username]=v;});
+  Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(!accounts[k])accounts[k]=v;});
+  const user=Object.values(accounts).find(a=>String(a.username||"").toLowerCase()===u.toLowerCase());
+  if(!user)return {ok:false,error:"ACCESS DENIED"};
+  const hash=await sha256(password);
+  if(hash!==user.passwordHash)return {ok:false,error:"ACCESS DENIED"};
+  return {ok:true,account:user};
+}
 
 function Btn({children,onClick,variant="primary",disabled,small,full,style:ex={}}){
   const base={fontFamily:"'Cinzel',serif",letterSpacing:"0.1em",fontWeight:700,textTransform:"uppercase",fontSize:small?10:11,padding:small?"4px 12px":"7px 18px",border:"1px solid",borderRadius:2,cursor:disabled?"not-allowed":"pointer",opacity:disabled?.4:1,transition:"all .15s",width:full?"100%":"auto"};
@@ -166,15 +186,10 @@ function SignIn({onAuth,onClose}){
     if(!username.trim()||!password.trim()){setErr("Credentials required.");return;}
     setLoading(true);setErr("");
     try{
+      const res=await slogin(username,password);
+      if(!res.ok){setErr(res.error==="ACCESS DENIED"?"Incorrect password.":res.error);setLoading(false);return;}
       const raw=await sgetAll();
-      const accounts={};
-      Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v)accounts[v.username]=v;});
-      Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(!accounts[k])accounts[k]=v;});
-      const user=Object.values(accounts).find(a=>a.username.toLowerCase()===username.trim().toLowerCase());
-      if(!user){setErr("No such account.");setLoading(false);return;}
-      const hash=await sha256(password);
-      if(hash!==user.passwordHash){setErr("Incorrect password.");setLoading(false);return;}
-      onAuth(user,raw);
+      onAuth(res.account,raw);
     }catch(e){setErr("Connection error: "+e.message);}
     setLoading(false);
   }

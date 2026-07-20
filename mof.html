@@ -19,6 +19,19 @@ input,select,textarea{font-family:'Crimson Text',Georgia,serif;}
 @keyframes pulse{0%,100%{opacity:.6;}50%{opacity:1;}}
 .fadeIn{animation:fadeIn .3s ease both;}
 .mono{font-family:'Share Tech Mono',monospace;}
+/* The certificate is a modal inside the React tree, so it cannot be isolated by
+   hiding its siblings. Hiding the whole root and re-showing the overlay subtree
+   leaves the certificate alone on the page. */
+@media print{
+  body{background:#fff !important;}
+  .noprint{display:none !important;}
+  body.cert-print #root{visibility:hidden;}
+  body.cert-print .certoverlay{visibility:visible;position:absolute !important;top:0;left:0;
+    width:100%;background:none !important;padding:0 !important;overflow:visible !important;}
+  body.cert-print .certoverlay *{visibility:visible;}
+  .printsheet{box-shadow:none !important;margin:0 !important;max-width:100% !important;}
+  @page{size:A4 portrait;margin:12mm;}
+}
 </style>
 </head>
 <body>
@@ -57,6 +70,52 @@ const BUDGET_PORTFOLIOS=["Minister of the Chancellery","Minister of Colonies","M
 const PAYROLL_CATEGORIES=["Imperial Household","Ministry of the Chancellery","Ministry of Colonies","Ministry of Interior","Ministry of Finance","Ministry of War","Ministry of Infrastructure","Ministry of Health","Ministry of Foreign Affairs","Bundeskongress","Judiciary","Extra"];
 const DEBT_STATUSES=["active","settled","defaulted","restructured"];
 const LICENSE_STATUSES=["pending","active","suspended","revoked"];
+const EXP_STATUSES=["pending","approved","rejected","withdrawn"];
+// Sign-off thresholds. A request always needs the minister whose allocation it
+// draws on; past these amounts it needs a second signature from higher up.
+const SENIOR_THRESHOLD=500000;
+const CHANCELLOR_THRESHOLD=1000000;
+
+// ── ACCOUNTS & OFFICES ────────────────────────────────────────────────────────
+// Accounts live in the Interior's register, written one row per account
+// (mi_acc_<username>) with a legacy blob kept as a fallback. Every ministry
+// reads them the same way.
+function accountsFrom(raw){
+  const seen={},out=[];
+  Object.entries(raw||{}).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v&&v.username&&!seen[v.username.toLowerCase()]){seen[v.username.toLowerCase()]=1;out.push(v);}});
+  Object.entries((raw||{})["mi_accounts"]||{}).forEach(([k,v])=>{if(v&&v.username&&!seen[v.username.toLowerCase()]){seen[v.username.toLowerCase()]=1;out.push(v);}});
+  return out.sort((a,b)=>((a.displayName||a.username)||"").localeCompare((b.displayName||b.username)||""));
+}
+const accountOpts=(accounts)=>(accounts||[]).map(a=>({v:a.username,l:(a.displayName?a.displayName+" ":"")+"@"+a.username}));
+function accountName(accounts,username){
+  const a=(accounts||[]).find(x=>String(x.username||"").toLowerCase()===String(username||"").toLowerCase());
+  return a?(a.displayName||a.username):username;
+}
+// Minecraft usernames: 3–16 of [A-Za-z0-9_]. Rejects the spaces and punctuation
+// a roleplay name would carry, which is the mistake this field exists to catch.
+const isUsername=(s)=>/^[A-Za-z0-9_]{3,16}$/.test(String(s||"").trim());
+
+// The Bundeskongress keeps the officeholders. A portfolio records both a name
+// and a username; older entries only have the name, so match either.
+function holderOf(officials,portfolio){
+  const off=officials||{};
+  if(portfolio==="Chancellor")return {username:off.chancellor_username||"",name:off.chancellor||""};
+  return {username:(off.minister_usernames||{})[portfolio]||"",name:(off.ministers||{})[portfolio]||""};
+}
+function holdsOffice(officials,portfolio,user){
+  if(!user)return false;
+  const h=holderOf(officials,portfolio);
+  const u=String(user.username||"").toLowerCase();
+  if(h.username)return String(h.username).toLowerCase()===u;
+  const bare=String(h.name||"").toLowerCase();
+  if(!bare||bare==="vacant")return false;
+  return bare===u||bare===String(user.displayName||"").toLowerCase();
+}
+function holderLabel(officials,portfolio){
+  const h=holderOf(officials,portfolio);
+  const n=h.name&&h.name!=="Vacant"?h.name:(h.username||"");
+  return n||"Vacant";
+}
 
 function budgetValidUntil(ratifiedAt){const d=new Date(ratifiedAt);const lastDay=new Date(d.getFullYear(),d.getMonth()+1,0,23,59,59,999);return lastDay.getTime()+15*24*60*60*1000;}
 function budgetCooldownUntil(ratifiedAt){const d=new Date(ratifiedAt);return new Date(d.getFullYear(),d.getMonth()+1,1,0,0,0,0).getTime();}
@@ -64,7 +123,28 @@ function budgetCooldownUntil(ratifiedAt){const d=new Date(ratifiedAt);return new
 async function sha256(t){const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");}
 function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
 async function sgetAll(){try{const r=await fetch(SCRIPT_URL+"?action=getall");const d=await r.json();if(!d.success)return{};const out={};Object.entries(d.data||{}).forEach(([k,v])=>{if(v){try{out[k]=JSON.parse(v);}catch{}}});return out;}catch{return{};}}
-async function sset(k,v){try{await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v)})});return true;}catch{return false;}}
+// Session token from the hardened backend. Held in memory for the tab session
+// and attached to every write; the backend enforces it only in secure mode.
+let AUTH_TOKEN=null;
+async function sset(k,v){try{await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v),token:AUTH_TOKEN})});return true;}catch{return false;}}
+// Dual-mode sign-in: try the hardened `login` endpoint, and if this is still the
+// old backend (or CORS blocks the read), fall back to the legacy browser-side
+// hash check so the page keeps working right across the rollout.
+async function slogin(username,password){
+  const u=String(username||"").trim();
+  try{
+    const r=await fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"login",username:u,password:password})});
+    const d=await r.json();
+    if(d&&d.success){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}
+    if(d&&d.error&&d.error!=="Unknown action")return {ok:false,error:d.error};
+  }catch(e){/* old backend or CORS — fall through to legacy */}
+  const raw=await sgetAll();
+  const user=accountsFrom(raw).find(a=>String(a.username||"").toLowerCase()===u.toLowerCase());
+  if(!user)return {ok:false,error:"ACCESS DENIED"};
+  const hash=await sha256(password);
+  if(hash!==user.passwordHash)return {ok:false,error:"ACCESS DENIED"};
+  return {ok:true,account:user};
+}
 function fmtCur(n){if(n===null||n===undefined||n==="")return "\u2014";const abs=Math.abs(Number(n));const s=abs>=1000000?(abs/1000000).toFixed(2)+"M":abs>=1000?(abs/1000).toFixed(1)+"K":Number(abs).toLocaleString();return "$"+(Number(n)<0?"-":"")+s;}
 function fmtDate(ts){return new Date(ts).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"});}
 function fmtDateShort(ts){return new Date(ts).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});}
@@ -131,6 +211,30 @@ function StepBar({step,steps}){
       </div>
       {i<steps.length-1&&<div style={{flex:1,height:1,background:step>n?C.goldD:C.border,margin:"0 6px",marginBottom:18}}/>}
     </React.Fragment>;})}
+  </div>;
+}
+
+// Picks a registered account. `allowManual` lets a party with no account be
+// named by username instead — never by roleplay name, which is what the hint
+// and the validation below are guarding against.
+function AccountPicker({value,onChange,accounts,manual,onManualChange,allowManual,blankLabel,disabled}){
+  const opts=[{v:"",l:blankLabel||"— Select a registered account —"},...accountOpts(accounts)];
+  const bad=manual&&value.trim()&&!isUsername(value);
+  return <div>
+    {manual
+      ?<Inp value={value} onChange={onChange} placeholder="Minecraft username (e.g. Steve_01)"/>
+      :<DD value={value} onChange={onChange} options={opts} style={disabled?{opacity:.5}:{}}/>}
+    {manual&&<div className="mono" style={{fontSize:9,color:bad?C.redL:C.textDD,marginTop:3}}>
+      {bad?"NOT A VALID USERNAME — 3–16 characters, letters/numbers/underscore only. This is their username, not their roleplay name."
+        :"Enter their username — not their roleplay name."}
+    </div>}
+    {allowManual&&<div onClick={()=>{onManualChange(!manual);onChange("");}}
+      style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",marginTop:6}}>
+      <div style={{width:14,height:14,borderRadius:2,border:"2px solid "+(manual?C.gold:C.border),
+        background:manual?C.goldD:"transparent",display:"flex",alignItems:"center",justifyContent:"center",
+        fontSize:9,color:C.gold,flexShrink:0}}>{manual?"✓":""}</div>
+      <span style={{fontSize:12,color:manual?C.text:C.textD}}>This person does not have an Intranet account</span>
+    </div>}
   </div>;
 }
 
@@ -369,7 +473,9 @@ function RegistryPublic({businesses}){
 }
 function BusinessPublicCard({business:b}){
   const [open,setOpen]=useState(false);
+  const [cert,setCert]=useState(false);
   return <div style={{background:C.s1,border:"1px solid "+C.border,borderLeft:"4px solid "+C.goldD,borderRadius:"0 3px 3px 0",overflow:"hidden"}}>
+    {cert&&<CertificateDoc business={b} onClose={()=>setCert(false)}/>}
     <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"0.75rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
       <StatusBadge status={b.licenseStatus||"active"}/>
       <span className="mono" style={{fontSize:9,color:C.textD}}>{b.registrationNo}</span>
@@ -390,17 +496,25 @@ function BusinessPublicCard({business:b}){
       {b.description&&<div style={{fontSize:13,color:C.textD,lineHeight:1.7,fontStyle:"italic",marginTop:"0.5rem"}}>{b.description}</div>}
       {b.licensesHeld?.length>0&&<div style={{marginTop:"0.65rem"}}><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:4}}>SPECIAL LICENSES HELD</div><div style={{display:"flex",flexWrap:"wrap",gap:4}}>{b.licensesHeld.map(l=><span key={l} style={{fontSize:11,padding:"1px 7px",border:"1px solid "+C.goldD+"55",borderRadius:2,color:C.gold,background:"#180e00"}}>{l}</span>)}</div></div>}
       {b.noblePatronage&&<div style={{marginTop:"0.5rem"}}><span style={{fontSize:12,color:C.gold,fontStyle:"italic"}}>⚜ Noble patronage or charter held</span></div>}
+      {b.certificate&&<div style={{marginTop:"0.85rem",paddingTop:"0.85rem",borderTop:"1px solid "+C.border,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:180}}>
+          <div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:2}}>CERTIFICATE OF OPERATIONS</div>
+          <span className="mono" style={{fontSize:11,color:C.gold}}>{b.certificate.certNo}</span>
+          <span style={{fontSize:12,color:C.textD,fontStyle:"italic",marginLeft:8}}>signed {b.certificate.ministerName} · {fmtDateShort(b.certificate.issuedAt)}</span>
+        </div>
+        <Btn small onClick={()=>setCert(true)}>View Certificate</Btn>
+      </div>}
     </div>}
   </div>;
 }
 
 // ── BUSINESS REGISTRATION WIZARD (public) ─────────────────────────────────────
-function RegistrationForm({countries,businesses,onSubmit,onCancel}){
+function RegistrationForm({countries,businesses,accounts,onSubmit,onCancel}){
   const [step,setStep]=useState(1);
   const [legalName,setLegalName]=useState("");
   const [tradingNamesRaw,setTradingNamesRaw]=useState("");
   const [entityType,setEntityType]=useState("");
-  const [owners,setOwners]=useState([{username:"",rpName:"",pct:"100"}]);
+  const [owners,setOwners]=useState([{username:"",rpName:"",pct:"100",manual:false}]);
   const [crownOfficer,setCrownOfficer]=useState(false);
   const [noblePatronage,setNoblePatronage]=useState(false);
   const [ownerCitizenships,setOwnerCitizenships]=useState([]);
@@ -428,13 +542,19 @@ function RegistrationForm({countries,businesses,onSubmit,onCancel}){
 
   const pctTotal=owners.reduce((a,o)=>a+(parseFloat(o.pct)||0),0);
   const step1Valid=legalName.trim()&&entityType;
-  const step2Valid=owners.every(o=>o.username.trim()&&o.pct)&&Math.abs(pctTotal-100)<0.1;
+  // The principal owner must hold an account. A co-owner may be off-register,
+  // but then their username has to actually look like one.
+  const ownerValid=(o,i)=>!!o.pct&&(o.manual&&i>0?isUsername(o.username):!!o.username.trim());
+  const step2Valid=owners.every(ownerValid)&&Math.abs(pctTotal-100)<0.1;
   const step3Valid=industries.length>0&&description.trim()&&strategicClass&&revenueBand;
   const step4Valid=hqCountry;
 
-  function addOwner(){if(owners.length<6)setOwners([...owners,{username:"",rpName:"",pct:""}]);}
+  function addOwner(){if(owners.length<6)setOwners([...owners,{username:"",rpName:"",pct:"",manual:false}]);}
   function removeOwner(i){if(owners.length>1)setOwners(owners.filter((_,idx)=>idx!==i));}
-  function updateOwner(i,field,val){const next=[...owners];next[i]={...next[i],[field]:val};setOwners(next);}
+  // Takes a patch rather than one field, and updates off the previous state:
+  // picking an account writes the username and the display name together, and
+  // two field-at-a-time calls in one handler would drop the first one.
+  function updateOwner(i,patch){setOwners(prev=>prev.map((o,idx)=>idx===i?{...o,...patch}:o));}
 
   async function submitForm(){
     setSaving(true);
@@ -442,7 +562,8 @@ function RegistrationForm({countries,businesses,onSubmit,onCancel}){
     const biz={
       id:"biz_"+uid(),registrationNo:regNo,legalName:legalName.trim(),
       tradingNames:tradingNamesRaw.split(",").map(s=>s.trim()).filter(Boolean),
-      entityType:entityType,owners:owners.map(o=>({username:o.username.trim(),rpName:o.rpName.trim(),pct:o.pct})),
+      entityType:entityType,owners:owners.map((o,i)=>({username:o.username.trim(),rpName:o.rpName.trim(),pct:o.pct,
+        hasAccount:!(o.manual&&i>0),principal:i===0})),
       crownOfficer:crownOfficer,noblePatronage:noblePatronage,
       ownerCitizenships:ownerCitizenships,foreignOwnership:foreignOwnership,foreignContracts:foreignContracts,
       industries:industries,description:description.trim(),strategicClass:strategicClass,
@@ -494,12 +615,29 @@ function RegistrationForm({countries,businesses,onSubmit,onCancel}){
       <div style={{display:"flex",flexDirection:"column",gap:"0.85rem"}}>
         <div>
           <FL>BENEFICIAL OWNERS * <span style={{fontStyle:"italic",color:C.textDD,fontWeight:400,letterSpacing:0}}>(percentages must total 100%)</span></FL>
-          {owners.map((o,i)=><div key={i} style={{display:"flex",gap:"0.5rem",marginBottom:4,alignItems:"flex-end",flexWrap:"wrap"}}>
-            <div style={{flex:2,minWidth:120}}><Inp value={o.username} onChange={v=>updateOwner(i,"username",v)} placeholder="Username"/></div>
-            <div style={{flex:2,minWidth:120}}><Inp value={o.rpName} onChange={v=>updateOwner(i,"rpName",v)} placeholder="Roleplay name (optional)"/></div>
-            <div style={{flex:1,minWidth:60}}><Inp value={o.pct} onChange={v=>updateOwner(i,"pct",v)} placeholder="%" style={{textAlign:"right"}}/></div>
-            {owners.length>1&&<Btn small variant="ghost" onClick={()=>removeOwner(i)}>{"\u2715"}</Btn>}
+          {owners.map((o,i)=><div key={i} style={{background:C.s1,border:"1px solid "+C.border,borderLeft:"3px solid "+(i===0?C.goldD:C.border),borderRadius:"0 3px 3px 0",padding:"0.6rem 0.75rem",marginBottom:5}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5}}>
+              <span className="mono" style={{fontSize:8,color:i===0?C.gold:C.textDD,letterSpacing:"0.15em"}}>{i===0?"PRINCIPAL OWNER":"CO-OWNER "+i}</span>
+              {owners.length>1&&<div style={{marginLeft:"auto"}}><Btn small variant="ghost" onClick={()=>removeOwner(i)}>{"\u2715"}</Btn></div>}
+            </div>
+            <div style={{display:"flex",gap:"0.5rem",alignItems:"flex-start",flexWrap:"wrap"}}>
+              <div style={{flex:2,minWidth:180}}>
+                <AccountPicker value={o.username}
+                  onChange={v=>{
+                    // Selecting an account offers its display name as the
+                    // roleplay name; typing a bare username offers nothing.
+                    if(o.manual){updateOwner(i,{username:v});return;}
+                    const nm=accountName(accounts,v);
+                    updateOwner(i,{username:v,rpName:v&&nm!==v?nm:""});
+                  }}
+                  accounts={accounts} manual={!!o.manual} onManualChange={m=>updateOwner(i,{manual:m})}
+                  allowManual={i>0} blankLabel={i===0?"\u2014 Select your account \u2014":"\u2014 Select an account \u2014"}/>
+              </div>
+              <div style={{flex:2,minWidth:140}}><Inp value={o.rpName} onChange={v=>updateOwner(i,{rpName:v})} placeholder="Roleplay name (optional)"/></div>
+              <div style={{flex:1,minWidth:60,maxWidth:80}}><Inp value={o.pct} onChange={v=>updateOwner(i,{pct:v})} placeholder="%" style={{textAlign:"right"}}/></div>
+            </div>
           </div>)}
+          <Disclaimer type="info">The principal owner must hold an Imperial Intranet account. Co-owners without an account may be recorded by username.</Disclaimer>
           {pctTotal!==100&&owners.some(o=>o.pct)&&<div className="mono" style={{fontSize:9,color:pctTotal===100?C.greenL:C.amber,marginTop:3}}>Total: {pctTotal.toFixed(1)}% {pctTotal===100?"\u2713":"(must equal 100%)"}</div>}
           {owners.length<6&&<Btn small variant="ghost" onClick={addOwner} style={{marginTop:4}}>+ Add Owner</Btn>}
         </div>
@@ -587,7 +725,11 @@ function RegistrationForm({countries,businesses,onSubmit,onCancel}){
           <div><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:2}}>CLASSIFICATION</div><div style={{fontSize:13,color:C.text}}>{strategicClass}</div></div>
           <div><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:2}}>REVENUE</div><div style={{fontSize:13,color:C.text}}>{REVENUE_BANDS.find(r=>r.v===revenueBand)?.l||revenueBand}</div></div>
         </div>
-        <div style={{marginBottom:"0.75rem"}}><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:3}}>OWNERS</div>{owners.map((o,i)=><div key={i} style={{fontSize:13,color:C.text}}>{o.rpName||o.username} ({o.pct}%)</div>)}</div>
+        <div style={{marginBottom:"0.75rem"}}><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:3}}>OWNERS</div>{owners.map((o,i)=><div key={i} style={{fontSize:13,color:C.text,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+          <span>{o.rpName||accountName(accounts,o.username)} ({o.pct}%)</span>
+          <span className="mono" style={{fontSize:9,color:C.textDD}}>@{o.username}</span>
+          {o.manual&&i>0&&<span className="mono" style={{fontSize:8,color:C.amber,border:"1px solid "+C.amberD,borderRadius:1,padding:"0 4px"}}>NO ACCOUNT</span>}
+        </div>)}</div>
         {industries.length>0&&<div style={{marginBottom:"0.75rem"}}><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:3}}>INDUSTRIES</div><div style={{fontSize:12,color:C.textD}}>{industries.join(", ")}</div></div>}
         <div style={{borderTop:"1px solid "+C.border,paddingTop:"0.75rem"}}><div className="mono" style={{fontSize:8,color:C.textDD,marginBottom:3}}>DESCRIPTION</div><div style={{fontSize:13,color:C.text,lineHeight:1.7}}>{description}</div></div>
       </div>
@@ -597,6 +739,93 @@ function RegistrationForm({countries,businesses,onSubmit,onCancel}){
         <Btn disabled={saving} onClick={submitForm}>{saving?"Submitting...":"Submit Application"}</Btn>
       </div>
     </div>}
+  </div>;
+}
+
+// ── CERTIFICATE OF OPERATIONS ─────────────────────────────────────────────────
+// Issued when the Ministry admits an enterprise to the register. The signature
+// is the Minister of Finance in office at the moment of authorisation and is
+// frozen onto the record — a later Minister does not retroactively sign it.
+function certNoFor(b){return "COO-"+String(b.registrationNo||"").replace(/^MoF-/,"");}
+function CertificateDoc({business:b,onClose}){
+  const cert=b.certificate||{};
+  const owners=b.owners||[];
+  const D={ink:"#1a1408",inkD:"#6a5c3a",rule:"#b9a468",gold:"#8a6c20",paper:"#f6f1e2"};
+  // Marks the body only while the certificate is on screen, so printing any
+  // other page of the portal is unaffected.
+  useEffect(()=>{document.body.classList.add("cert-print");return()=>document.body.classList.remove("cert-print");},[]);
+  return <div className="certoverlay" style={{position:"fixed",inset:0,zIndex:9998,background:"rgba(4,4,2,.94)",overflowY:"auto",padding:"1.5rem"}}>
+    <div className="noprint" style={{maxWidth:800,margin:"0 auto 1rem",display:"flex",gap:8,justifyContent:"flex-end"}}>
+      <Btn small onClick={()=>window.print()}>Save as PDF / Print</Btn>
+      <Btn small variant="ghost" onClick={onClose}>Close</Btn>
+    </div>
+    <div className="printsheet" style={{maxWidth:800,margin:"0 auto",background:D.paper,color:D.ink,
+      padding:"3rem 3.25rem",border:"1px solid "+D.rule,boxShadow:"0 0 40px rgba(0,0,0,.6)",position:"relative"}}>
+      <div style={{position:"absolute",inset:10,border:"2px solid "+D.rule,pointerEvents:"none"}}/>
+      <div style={{position:"absolute",inset:16,border:"1px solid "+D.rule+"88",pointerEvents:"none"}}/>
+      <div style={{position:"relative",textAlign:"center",paddingBottom:"1.25rem",borderBottom:"2px solid "+D.rule,marginBottom:"1.75rem"}}>
+        <div style={{fontSize:34,color:D.gold,lineHeight:1,marginBottom:6}}>⚜</div>
+        <div className="mono" style={{fontSize:9,letterSpacing:"0.5em",color:D.inkD,marginBottom:6}}>EMPIRE OF LECH</div>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:600,letterSpacing:"0.22em",color:D.ink,marginBottom:10}}>MINISTRY OF FINANCE</div>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:26,fontWeight:700,letterSpacing:"0.1em",color:D.ink}}>Certificate of Operations</div>
+        <div className="mono" style={{fontSize:10,letterSpacing:"0.25em",color:D.gold,marginTop:8}}>{cert.certNo||certNoFor(b)}</div>
+      </div>
+
+      <div style={{fontSize:16,lineHeight:2,textAlign:"center",fontStyle:"italic",color:D.ink,marginBottom:"1.75rem"}}>
+        This is to certify that the enterprise named below has been duly entered upon the Imperial Register of
+        Enterprises, and is authorised to conduct lawful commerce within the Empire of Lech and its territories,
+        subject to the laws of the Empire and to the continuing supervision of this Ministry.
+      </div>
+
+      <div style={{textAlign:"center",padding:"1.25rem 0",borderTop:"1px solid "+D.rule,borderBottom:"1px solid "+D.rule,marginBottom:"1.5rem"}}>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:24,fontWeight:700,color:D.ink,letterSpacing:"0.04em"}}>{b.legalName}</div>
+        {b.tradingNames?.length>0&&<div style={{fontSize:14,fontStyle:"italic",color:D.inkD,marginTop:4}}>trading as {b.tradingNames.join(", ")}</div>}
+        <div className="mono" style={{fontSize:11,color:D.gold,letterSpacing:"0.2em",marginTop:8}}>{b.registrationNo}</div>
+      </div>
+
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:14,marginBottom:"1.5rem"}}>
+        <tbody>
+          {[
+            ["Entity Type",b.entityType],
+            ["Registered Office",[b.hqCountry,b.hqLocation].filter(Boolean).join(" — ")],
+            ["Industries",(b.industries||[]).join(", ")],
+            ["Strategic Classification",b.strategicClass],
+            ["Revenue Band",REVENUE_BANDS.find(r=>r.v===b.revenueBand)?.l||b.revenueBand],
+            ["Beneficial Owners",owners.map(o=>(o.rpName||o.username)+" ("+(o.pct||"100")+"%)").join(", ")],
+            ["Special Licenses",(b.licensesHeld||[]).join(", ")||"None recorded"],
+            ["Date of Registration",b.registered?fmtDate(b.registered):"—"],
+          ].filter(([,v])=>v).map(([k,v])=><tr key={k} style={{borderBottom:"1px solid "+D.rule+"55"}}>
+            <td className="mono" style={{padding:"7px 0",fontSize:9,letterSpacing:"0.12em",color:D.inkD,width:190,verticalAlign:"top"}}>{String(k).toUpperCase()}</td>
+            <td style={{padding:"7px 0",color:D.ink}}>{v}</td>
+          </tr>)}
+        </tbody>
+      </table>
+
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",gap:24,marginTop:"2.5rem",flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:220}}>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:22,color:D.gold,fontStyle:"italic",
+            borderBottom:"1px solid "+D.ink,paddingBottom:4,marginBottom:6}}>{cert.ministerName||"—"}</div>
+          <div className="mono" style={{fontSize:9,letterSpacing:"0.15em",color:D.inkD}}>MINISTER OF FINANCE</div>
+          {cert.ministerUsername&&<div className="mono" style={{fontSize:8,color:D.inkD,marginTop:2}}>@{cert.ministerUsername}</div>}
+          <div className="mono" style={{fontSize:9,color:D.inkD,marginTop:6}}>ISSUED {cert.issuedAt?fmtDate(cert.issuedAt).toUpperCase():"—"}</div>
+        </div>
+        <div style={{width:120,height:120,borderRadius:"50%",border:"2px solid "+D.gold,display:"flex",
+          flexDirection:"column",alignItems:"center",justifyContent:"center",color:D.gold,textAlign:"center",
+          transform:"rotate(-8deg)",flexShrink:0,opacity:.85}}>
+          <div style={{fontSize:22,lineHeight:1}}>⚜</div>
+          <div className="mono" style={{fontSize:6,letterSpacing:"0.15em",marginTop:4,padding:"0 8px"}}>MINISTRY OF FINANCE</div>
+          <div className="mono" style={{fontSize:6,letterSpacing:"0.15em"}}>EMPIRE OF LECH</div>
+          <div className="mono" style={{fontSize:6,letterSpacing:"0.1em",marginTop:3}}>SEALED</div>
+        </div>
+      </div>
+
+      <div style={{marginTop:"2rem",paddingTop:"0.85rem",borderTop:"1px solid "+D.rule,textAlign:"center"}}>
+        <div className="mono" style={{fontSize:8,color:D.inkD,letterSpacing:"0.15em",lineHeight:1.9}}>
+          THIS CERTIFICATE REMAINS VALID ONLY WHILE THE REGISTRATION ABOVE IS IN GOOD STANDING.<br/>
+          IT MAY BE VERIFIED AGAINST THE IMPERIAL REGISTER OF ENTERPRISES · FIAT PECUNIA
+        </div>
+      </div>
+    </div>
   </div>;
 }
 
@@ -667,7 +896,8 @@ function DebtPublic({debts}){
           <StatusBadge status={d.status==="active"?"active_debt":d.status}/>
           <span className="mono" style={{fontSize:9,padding:"2px 6px",border:"1px solid "+(d.direction==="borrow"?C.redD+"66":C.greenD+"66"),color:d.direction==="borrow"?C.redL:C.greenL,background:d.direction==="borrow"?"#1a0808":"#0a1a0e",borderRadius:1}}>{d.direction==="borrow"?"CROWN BORROWS":"CROWN LENDS"}</span>
           <span className="mono" style={{fontSize:9,color:C.textD}}>{d.type==="bond"?"BOND":"LOAN"}</span>
-          <span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{d.counterparty}</span>
+          <span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{d.counterparty}
+            {d.counterpartyType!=="state"&&d.counterpartyUsername&&<span className="mono" style={{fontSize:9,color:C.textDD}}> @{d.counterpartyUsername}</span>}</span>
           <span className="mono" style={{fontSize:11,color:d.direction==="borrow"?C.redL:C.greenL,fontWeight:700}}>{fmtCur(d.principal)}</span>
         </div>
         <div style={{display:"flex",gap:"1.5rem",flexWrap:"wrap",fontSize:12,color:C.textD}}>
@@ -682,31 +912,396 @@ function DebtPublic({debts}){
   </div>;
 }
 
+// ── EXPENDITURE TRACKER ───────────────────────────────────────────────────────
+// Money may only be drawn against a line the Bundeskongress actually voted, so
+// the accounts here are read straight out of the ratified budget rather than
+// kept as a list of their own. A line that vanishes from the next budget stops
+// being spendable the moment that budget is ratified.
+function allocationsFrom(activeBudget){
+  const data=activeBudget?.data||{};
+  const out=[];
+  BUDGET_PORTFOLIOS.forEach(p=>{
+    const m=data.ministries?.[p];
+    if(!m)return;
+    const base=parseFloat(m.total)||0;
+    if(base>0)out.push({key:"min::"+p,label:p,portfolio:p,amount:base,kind:"ministry"});
+    (m.agencies||[]).forEach((ag,i)=>{
+      const amt=parseFloat(ag.amount)||0;
+      if(amt>0)out.push({key:"ag::"+p+"::"+i,label:ag.name||"Agency "+(i+1),portfolio:p,amount:amt,kind:"agency",parent:p});
+    });
+  });
+  (data.special||[]).forEach((s,i)=>{
+    const amt=parseFloat(s.amount)||0;
+    // Special allocations answer to no portfolio, so the Finance Minister holds them.
+    if(amt>0)out.push({key:"spec::"+i,label:s.label||"Special Allocation "+(i+1),portfolio:"Minister of Finance",amount:amt,kind:"special"});
+  });
+  return out;
+}
+// The rule applied to a request is the rule as it stood when the request was
+// made, so the chain is computed once and frozen onto the record.
+function approvalPlan(amount,portfolio){
+  const n=Number(amount)||0;
+  const stages=[{id:"portfolio",label:"Portfolio Minister",offices:[portfolio]}];
+  if(n>CHANCELLOR_THRESHOLD)
+    stages.push({id:"senior",label:"Chancellor",offices:["Chancellor"],
+      why:"Expenditure exceeds "+fmtCur(CHANCELLOR_THRESHOLD)+" — the Chancellor's signature is required."});
+  else if(n>SENIOR_THRESHOLD)
+    stages.push({id:"senior",label:"Senior Sign-Off",offices:["Minister of Finance","Vice Chancellor","Chancellor"],
+      why:"Expenditure exceeds "+fmtCur(SENIOR_THRESHOLD)+" — a second signature from the Minister of Finance, Vice Chancellor or Chancellor is required."});
+  return stages;
+}
+function genExpRef(expenditures){
+  const yr=new Date().getFullYear();
+  const existing=new Set(Object.values(expenditures||{}).map(e=>e.ref));
+  let ref,a=0;
+  do{ref="EXP-"+yr+"-"+String(Math.floor(Math.random()*9000)+1000);a++;}while(existing.has(ref)&&a<50);
+  return ref;
+}
+const nextStage=(e)=>(e.stages||[]).find(s=>!(e.approvals||{})[s.id]);
+// The Emperor may sign in place of any officeholder. It is recorded as the
+// prerogative it is, never as though the minister had signed.
+function canSignStage(user,officials,stage){
+  if(!user||!stage)return false;
+  if(user.role==="emperor")return true;
+  return (stage.offices||[]).some(o=>holdsOffice(officials,o,user));
+}
+function signingOffice(user,officials,stage){
+  const held=(stage.offices||[]).find(o=>holdsOffice(officials,o,user));
+  return held||(user.role==="emperor"?"Imperial Prerogative":"");
+}
+
+function ExpStatusBadge({status}){
+  const M={pending:{c:C.amber,bg:"#180e00",b:"#4a2a00",l:"Awaiting Sign-Off"},
+    approved:{c:C.greenL,bg:"#0a1a0e",b:"#1a4a2a",l:"Approved & Logged"},
+    rejected:{c:C.redL,bg:"#1a0808",b:"#4a1010",l:"Rejected"},
+    voided:{c:"#ff5050",bg:"#1a0404",b:"#8a1010",l:"Voided by the Crown"},
+    withdrawn:{c:C.textD,bg:C.s1,b:C.border,l:"Withdrawn"}};
+  const m=M[status]||M.pending;
+  return <span className="mono" style={{fontSize:9,padding:"2px 8px",background:m.bg,border:"1px solid "+m.b,color:m.c,borderRadius:1}}>{m.l.toUpperCase()}</span>;
+}
+
+function ApprovalChain({exp,officials}){
+  const stages=exp.stages||[];
+  const next=nextStage(exp);
+  return <div style={{display:"flex",flexDirection:"column",gap:3}}>
+    {stages.map(s=>{
+      const ap=(exp.approvals||{})[s.id];
+      const isNext=!ap&&next?.id===s.id&&exp.status==="pending";
+      const col=ap?C.greenL:isNext?C.amber:C.textDD;
+      return <div key={s.id} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",
+        background:C.s1,border:"1px solid "+C.border,borderLeft:"3px solid "+col,borderRadius:"0 2px 2px 0",padding:"5px 10px"}}>
+        <span style={{width:16,height:16,borderRadius:"50%",border:"2px solid "+col,color:ap?"#0a1a0e":col,
+          background:ap?C.green:"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,flexShrink:0}}>{ap?"✓":""}</span>
+        <span className="mono" style={{fontSize:9,color:col,letterSpacing:"0.1em",width:130,flexShrink:0}}>{s.label.toUpperCase()}</span>
+        <span style={{fontSize:12,color:C.textD,flex:1,minWidth:140}}>
+          {ap?<span style={{color:C.text}}>Signed by {ap.byName} <span className="mono" style={{fontSize:9,color:C.textDD}}>({ap.office})</span></span>
+            :s.offices.map(o=>o+" ("+holderLabel(officials,o)+")").join(" or ")}
+        </span>
+        {ap&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{fmtDateShort(ap.at)}</span>}
+        {isNext&&<span className="mono" style={{fontSize:8,color:C.amber}}>AWAITING</span>}
+      </div>;
+    })}
+  </div>;
+}
+
+function ExpCard({exp:e,officials,user,onAction,notify,setProcessing,defaultOpen}){
+  const [open,setOpen]=useState(!!defaultOpen);
+  const [reason,setReason]=useState("");
+  const [voidReason,setVoidReason]=useState("");
+  const [busy,setBusy]=useState(false);
+  const stage=nextStage(e);
+  const canSign=e.status==="pending"&&canSignStage(user,officials,stage);
+  const mine=user&&String(e.requestedBy||"").toLowerCase()===String(user.username||"").toLowerCase();
+  // The Crown's power to strike an expenditure is the Emperor's alone, and it
+  // is shown to nobody else — every other reader sees this card unchanged.
+  const isEmperor=user?.role==="emperor";
+  const isLogged=e.status==="approved"||e.status==="voided";
+  const col=e.status==="voided"?"#8a1010":e.status==="approved"?C.greenD:e.status==="rejected"?C.redD:e.status==="withdrawn"?C.border:C.amberD;
+  async function sign(){
+    setBusy(true);setProcessing("Recording signature...");
+    await onAction("signExpenditure",{id:e.id,stageId:stage.id,
+      by:user.username,byName:user.displayName||user.username,office:signingOffice(user,officials,stage),at:Date.now()});
+    setProcessing(null);setBusy(false);notify(e.ref+" signed.",C.greenL);
+  }
+  return <div style={{background:C.s1,border:"1px solid "+C.border,borderLeft:"4px solid "+col,borderRadius:"0 3px 3px 0",marginBottom:"0.5rem",overflow:"hidden"}}>
+    <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"0.75rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
+      <ExpStatusBadge status={e.status}/>
+      <span className="mono" style={{fontSize:9,color:C.textD}}>{e.ref}</span>
+      <span style={{fontFamily:"'Cinzel',serif",fontSize:13,color:e.status==="voided"?C.textD:C.text,flex:1,minWidth:140,
+        textDecoration:e.status==="voided"?"line-through":"none"}}>{e.purpose}</span>
+      <span style={{fontSize:11,color:C.textD,fontStyle:"italic"}}>{e.allocLabel}</span>
+      <span className="mono" style={{fontSize:13,color:e.status==="voided"?"#ff5050":C.gold,fontWeight:700,
+        textDecoration:e.status==="voided"?"line-through":"none"}}>{fmtCur(e.amount)}</span>
+      {canSign&&<span className="mono" style={{fontSize:8,color:C.amber,border:"1px solid "+C.amberD,borderRadius:1,padding:"1px 5px"}}>YOUR SIGNATURE</span>}
+      <span style={{fontSize:11,color:C.textDD}}>{open?"▲":"▼"}</span>
+    </div>
+    {open&&<div style={{borderTop:"1px solid "+C.border,padding:"1rem",background:C.s2}}>
+      <div style={{display:"flex",gap:"1.5rem",flexWrap:"wrap",marginBottom:"0.85rem",fontSize:12,color:C.textD}}>
+        <span>Requested by <span style={{color:C.text}}>{e.requestedByName}</span> <span className="mono" style={{fontSize:9,color:C.textDD}}>@{e.requestedBy}</span></span>
+        <span>{fmtDate(e.requestedAt)}</span>
+        <span>Drawn on <span style={{color:C.text}}>{e.allocLabel}</span></span>
+        {e.budgetTitle&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{e.budgetTitle}</span>}
+      </div>
+      {e.justification&&<div style={{fontSize:13,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"0.85rem",
+        borderLeft:"2px solid "+C.border,paddingLeft:10}}>{e.justification}</div>}
+      <div className="mono" style={{fontSize:8,color:C.textDD,letterSpacing:"0.15em",marginBottom:5}}>AUTHORISATION CHAIN</div>
+      <ApprovalChain exp={e} officials={officials}/>
+      {e.rejected&&<div style={{marginTop:"0.75rem"}}><Disclaimer type="danger">
+        Rejected by {e.rejected.byName} ({e.rejected.office}) on {fmtDate(e.rejected.at)}{e.rejected.reason?" — "+e.rejected.reason:"."}
+      </Disclaimer></div>}
+      {e.status==="approved"&&<div style={{marginTop:"0.75rem"}}><Disclaimer type="success">
+        Fully authorised and logged {fmtDate(e.loggedAt)}. This expenditure is charged against {e.allocLabel}.
+      </Disclaimer></div>}
+      {e.status==="voided"&&<div style={{marginTop:"0.75rem",background:"#120303",border:"1px solid #8a1010",
+        borderLeft:"3px solid #ff5050",borderRadius:"0 3px 3px 0",padding:"0.75rem 1rem"}}>
+        <div className="mono" style={{fontSize:9,color:"#ff5050",letterSpacing:"0.2em",marginBottom:5}}>VOIDED BY THE CROWN</div>
+        <div style={{fontSize:13,color:"#d09090",lineHeight:1.7}}>
+          This expenditure was struck by {e.voided?.byName} on {e.voided?.at?fmtDate(e.voided.at):"—"}. The sum of {fmtCur(e.amount)} has
+          been returned to {e.allocLabel} and is not charged against it. The entry is retained for the record.
+        </div>
+        {e.voided?.reason&&<div style={{fontSize:12,color:"#9a6060",fontStyle:"italic",marginTop:6,borderTop:"1px solid #4a1010",paddingTop:6}}>{e.voided.reason}</div>}
+      </div>}
+      {canSign&&<div style={{marginTop:"0.85rem",background:C.s1,border:"1px solid "+C.border,borderRadius:3,padding:"0.85rem"}}>
+        <div className="mono" style={{fontSize:9,color:C.amber,letterSpacing:"0.15em",marginBottom:"0.5rem"}}>
+          YOUR DECISION — SIGNING AS {String(signingOffice(user,officials,stage)).toUpperCase()}
+        </div>
+        <div style={{marginBottom:"0.5rem"}}><FL>REASON <span style={{fontStyle:"italic",color:C.textDD,fontWeight:400,letterSpacing:0}}>(required to reject)</span></FL>
+          <Inp value={reason} onChange={setReason} placeholder="Reason for rejection, if rejecting..."/></div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <Btn small variant="green" disabled={busy} onClick={sign}>{busy?"Signing...":"Approve & Sign"}</Btn>
+          <ArmBtn small label="Reject" confirmLabel="Reject this request?" onConfirm={async()=>{
+            if(!reason.trim()){notify("A reason is required to reject.",C.redL);return;}
+            setProcessing("Rejecting...");
+            await onAction("rejectExpenditure",{id:e.id,by:user.username,byName:user.displayName||user.username,
+              office:signingOffice(user,officials,stage),at:Date.now(),reason:reason.trim()});
+            setProcessing(null);notify(e.ref+" rejected.",C.redL);
+          }}/>
+        </div>
+      </div>}
+      {mine&&e.status==="pending"&&!canSign&&<div style={{marginTop:"0.85rem"}}>
+        <ArmBtn small label="Withdraw Request" confirmLabel="Withdraw?" onConfirm={async()=>{
+          setProcessing("Withdrawing...");await onAction("withdrawExpenditure",{id:e.id});setProcessing(null);notify(e.ref+" withdrawn.",C.textD);
+        }}/>
+      </div>}
+      {isEmperor&&isLogged&&<div style={{marginTop:"0.85rem",background:"#0e0400",border:"1px solid #5a1000",
+        borderTop:"3px solid #8a1a00",borderRadius:"0 0 3px 3px",padding:"0.85rem"}}>
+        <div className="mono" style={{fontSize:9,color:"#cc4020",letterSpacing:"0.2em",marginBottom:"0.5rem"}}>⚜ IMPERIAL PREROGATIVE</div>
+        {e.status==="approved"&&<>
+          <div style={{fontSize:12,color:"#9a6050",fontStyle:"italic",lineHeight:1.7,marginBottom:"0.65rem"}}>
+            Voiding returns {fmtCur(e.amount)} to {e.allocLabel}. Keep it on the log to strike it in the open record, or
+            remove it from the log to erase the entry entirely.
+          </div>
+          <div style={{marginBottom:"0.5rem"}}><FL>REASON <span style={{fontStyle:"italic",color:C.textDD,fontWeight:400,letterSpacing:0}}>(optional, shown on the record)</span></FL>
+            <Inp value={voidReason} onChange={setVoidReason} placeholder="Reason for the void..."/></div>
+        </>}
+        {e.status==="voided"&&<div style={{fontSize:12,color:"#9a6050",fontStyle:"italic",lineHeight:1.7,marginBottom:"0.65rem"}}>
+          Already voided — the money has been returned. It may still be removed from the log entirely.
+        </div>}
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {e.status==="approved"&&<ArmBtn small label="Void — Keep on Log" confirmLabel="Void and keep on log?" onConfirm={async()=>{
+            setProcessing("Voiding expenditure...");
+            await onAction("voidExpenditure",{id:e.id,by:user.username,byName:user.displayName||user.username,at:Date.now(),reason:voidReason.trim()});
+            setProcessing(null);notify(e.ref+" voided — "+fmtCur(e.amount)+" returned to "+e.allocLabel+".",C.redL);
+          }}/>}
+          <ArmBtn small label="Void — Remove from Log" confirmLabel="Void and delete the log entry?" onConfirm={async()=>{
+            setProcessing("Voiding and removing...");
+            await onAction("deleteExpenditure",{id:e.id});
+            setProcessing(null);notify(e.ref+" voided and removed from the log.",C.redL);
+          }}/>
+        </div>
+      </div>}
+    </div>}
+  </div>;
+}
+
+function ExpRequestForm({allocations,expenditures,activeBudget,user,officials,onAction,notify,setProcessing,onDone}){
+  const [allocKey,setAllocKey]=useState("");
+  const [amount,setAmount]=useState("");
+  const [purpose,setPurpose]=useState("");
+  const [justification,setJustification]=useState("");
+  const [saving,setSaving]=useState(false);
+  const alloc=allocations.find(a=>a.key===allocKey);
+  const n=Number(amount)||0;
+  const plan=alloc?approvalPlan(n,alloc.portfolio):[];
+  const committed=useMemo(()=>Object.values(expenditures||{})
+    .filter(e=>e.status==="approved"&&e.allocKey===allocKey&&e.budgetId===activeBudget?.id)
+    .reduce((a,e)=>a+(Number(e.amount)||0),0),[expenditures,allocKey,activeBudget]);
+  const remaining=alloc?alloc.amount-committed:0;
+  const over=alloc&&n>remaining;
+  const valid=alloc&&n>0&&purpose.trim();
+  return <div style={{background:C.s2,border:"1px solid "+C.border,borderTop:"3px solid "+C.gold,borderRadius:"0 0 4px 4px",padding:"1.25rem",marginBottom:"1.5rem"}}>
+    <div className="mono" style={{fontSize:9,color:C.textD,letterSpacing:"0.15em",marginBottom:"0.75rem"}}>REQUEST AN EXPENDITURE</div>
+    <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
+      <div><FL>ALLOCATION TO DRAW ON *</FL>
+        <DD value={allocKey} onChange={setAllocKey} options={[{v:"",l:"— Select an allocation —"},
+          ...allocations.map(a=>({v:a.key,l:(a.kind==="agency"?"    ↳ ":a.kind==="special"?"★ ":"")+a.label+" — "+fmtCur(a.amount)}))]}/>
+      </div>
+      {alloc&&<div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
+        {[["Allocated",alloc.amount,C.gold],["Committed",committed,"#8a6a9a"],["Remaining",remaining,remaining>0?C.greenL:C.redL]]
+          .map(([l,v,c])=><div key={l} style={{flex:1,minWidth:110,background:C.s1,border:"1px solid "+C.border,borderRadius:3,padding:"0.5rem 0.75rem"}}>
+          <div className="mono" style={{fontSize:8,color:C.textDD,letterSpacing:"0.15em",marginBottom:3}}>{l.toUpperCase()}</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:c,fontWeight:700}}>{fmtCur(v)}</div>
+        </div>)}
+      </div>}
+      <div style={{display:"flex",gap:"0.65rem",flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:140}}><FL>AMOUNT ($) *</FL><Inp value={amount} onChange={setAmount} placeholder="0" type="number"/></div>
+        <div style={{flex:2,minWidth:200}}><FL>PURPOSE *</FL><Inp value={purpose} onChange={setPurpose} placeholder="e.g. Procurement of patrol vessels"/></div>
+      </div>
+      <div><FL>JUSTIFICATION</FL><TA value={justification} onChange={setJustification} rows={3} placeholder="Why this expenditure is necessary, and what it will be spent on..."/></div>
+      {over&&<Disclaimer type="warning">This request exceeds the {fmtCur(remaining)} remaining on {alloc.label}. It may still be submitted, but the signing minister will see the overdraw.</Disclaimer>}
+      {alloc&&n>0&&<div>
+        <div className="mono" style={{fontSize:8,color:C.textDD,letterSpacing:"0.15em",marginBottom:5}}>SIGNATURES THIS REQUEST WILL NEED</div>
+        <div style={{display:"flex",flexDirection:"column",gap:3}}>
+          {plan.map(s=><div key={s.id} style={{background:C.s1,border:"1px solid "+C.border,borderLeft:"3px solid "+C.goldD,
+            borderRadius:"0 2px 2px 0",padding:"5px 10px",fontSize:12,color:C.textD}}>
+            <span className="mono" style={{fontSize:9,color:C.gold,letterSpacing:"0.1em",marginRight:8}}>{s.label.toUpperCase()}</span>
+            {s.offices.map(o=>o+" ("+holderLabel(officials,o)+")").join(" or ")}
+          </div>)}
+        </div>
+        {plan.length>1&&<Disclaimer type="info">{plan[1].why}</Disclaimer>}
+      </div>}
+      <div><Btn disabled={!valid||saving} onClick={async()=>{
+        setSaving(true);setProcessing("Submitting request...");
+        await onAction("createExpenditure",{
+          id:"exp_"+uid(),ref:genExpRef(expenditures),
+          budgetId:activeBudget?.id||null,budgetTitle:activeBudget?.title||"",
+          allocKey:alloc.key,allocLabel:alloc.label,allocKind:alloc.kind,portfolio:alloc.portfolio,
+          amount:n,purpose:purpose.trim(),justification:justification.trim(),
+          requestedBy:user.username,requestedByName:user.displayName||user.username,requestedAt:Date.now(),
+          status:"pending",stages:plan.map(s=>({id:s.id,label:s.label,offices:s.offices})),approvals:{},
+        });
+        setProcessing(null);setSaving(false);notify("Expenditure request submitted.",C.gold);
+        setAllocKey("");setAmount("");setPurpose("");setJustification("");
+        if(onDone)onDone();
+      }}>{saving?"Submitting...":"Submit Request"}</Btn></div>
+    </div>
+  </div>;
+}
+
+function ExpenditureTracker({expenditures,activeBudget,officials,user,onAction,notify,setProcessing,onRequireSignIn,onSignOut}){
+  const [sub,setSub]=useState("log");
+  const allocations=useMemo(()=>allocationsFrom(activeBudget),[activeBudget]);
+  const all=useMemo(()=>Object.values(expenditures||{}).sort((a,b)=>(b.requestedAt||0)-(a.requestedAt||0)),[expenditures]);
+  // A voided expenditure stays on the log but stops being money: `logged` is
+  // what the register shows, `charged` is what the allocations have actually
+  // spent. Every sum below must come from `charged`.
+  const logged=all.filter(e=>e.status==="approved"||e.status==="voided");
+  const charged=all.filter(e=>e.status==="approved");
+  const pending=all.filter(e=>e.status==="pending");
+  const awaitingMe=useMemo(()=>pending.filter(e=>canSignStage(user,officials,nextStage(e))),[pending,user,officials]);
+  const mine=useMemo(()=>user?all.filter(e=>String(e.requestedBy||"").toLowerCase()===String(user.username||"").toLowerCase()):[],[all,user]);
+  const totalLogged=charged.filter(e=>e.budgetId===activeBudget?.id).reduce((a,e)=>a+(Number(e.amount)||0),0);
+  const noBudget=!activeBudget||allocations.length===0;
+
+  return <div className="fadeIn">
+    <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap",marginBottom:"1.25rem"}}>
+      {[["Committed This Budget",totalLogged,C.gold],["Awaiting Sign-Off",pending.length,C.amber],["Expenditures Logged",charged.length,C.greenL]]
+        .map(([l,v,c],i)=><div key={l} style={{flex:1,minWidth:150,background:C.s1,border:"1px solid "+c+"33",borderTop:"3px solid "+c,
+          borderRadius:"0 0 3px 3px",padding:"0.75rem 1rem"}}>
+        <div className="mono" style={{fontSize:8,color:C.textDD,letterSpacing:"0.15em",marginBottom:4}}>{l.toUpperCase()}</div>
+        <div style={{fontFamily:"'Cinzel',serif",fontSize:18,color:c,fontWeight:700}}>{i===0?fmtCur(v):v}</div>
+      </div>)}
+    </div>
+
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:"1.25rem",flexWrap:"wrap"}}>
+      <div style={{display:"flex",gap:0,borderBottom:"1px solid "+C.border,flex:1,flexWrap:"wrap"}}>
+        {[["log","Logged Expenditures"],["pending","Awaiting Sign-Off"+(pending.length?" ("+pending.length+")":"")],["allocations","Allocations"]]
+          .concat(user?[["mine","My Requests"+(mine.length?" ("+mine.length+")":"")],["request","Request Expenditure"]]:[])
+          .concat(user&&awaitingMe.length?[["sign","For My Signature ("+awaitingMe.length+")"]]:[])
+          .map(([v,l])=><button key={v} onClick={()=>setSub(v)} style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.15em",
+            textTransform:"uppercase",padding:"0.6rem 0.9rem",background:"transparent",border:"none",cursor:"pointer",
+            borderBottom:"2px solid "+(sub===v?C.gold:"transparent"),color:sub===v?C.gold:(v==="sign"?C.amber:C.textD)}}>{l}</button>)}
+      </div>
+      {user
+        ?<div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span className="mono" style={{fontSize:9,color:C.textD}}>{user.displayName||user.username}</span>
+          <Btn small variant="ghost" onClick={onSignOut}>Sign Out</Btn>
+        </div>
+        :<Btn small onClick={onRequireSignIn}>Sign In to Request</Btn>}
+    </div>
+
+    {!user&&<div style={{marginBottom:"1rem"}}><Disclaimer type="info">Requesting an expenditure requires an Imperial Intranet account. The record below is open to public inspection.</Disclaimer></div>}
+    {noBudget&&<div style={{marginBottom:"1rem"}}><Disclaimer type="danger">There is no ratified budget with spendable allocations. No new expenditure may be drawn until the Bundeskongress passes a budget.</Disclaimer></div>}
+
+    {sub==="log"&&(logged.length===0
+      ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No expenditures have been authorised and logged.</div>
+      :logged.map(e=><ExpCard key={e.id} exp={e} officials={officials} user={user} onAction={onAction} notify={notify} setProcessing={setProcessing}/>))}
+
+    {sub==="pending"&&(pending.length===0
+      ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>Nothing is awaiting sign-off.</div>
+      :pending.map(e=><ExpCard key={e.id} exp={e} officials={officials} user={user} onAction={onAction} notify={notify} setProcessing={setProcessing}/>))}
+
+    {sub==="sign"&&(awaitingMe.length===0
+      ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>Nothing awaits your signature.</div>
+      :awaitingMe.map(e=><ExpCard key={e.id} exp={e} officials={officials} user={user} onAction={onAction} notify={notify} setProcessing={setProcessing} defaultOpen/>))}
+
+    {sub==="mine"&&(mine.length===0
+      ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>You have not requested any expenditure.</div>
+      :mine.map(e=><ExpCard key={e.id} exp={e} officials={officials} user={user} onAction={onAction} notify={notify} setProcessing={setProcessing}/>))}
+
+    {sub==="request"&&user&&(noBudget
+      ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No allocations are available to draw on.</div>
+      :<ExpRequestForm allocations={allocations} expenditures={expenditures} activeBudget={activeBudget} user={user}
+        officials={officials} onAction={onAction} notify={notify} setProcessing={setProcessing} onDone={()=>setSub("mine")}/>)}
+
+    {sub==="allocations"&&(noBudget
+      ?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No allocations on record.</div>
+      :<div style={{display:"flex",flexDirection:"column",gap:3}}>
+        {allocations.map(a=>{
+          const committed=charged.filter(e=>e.allocKey===a.key&&e.budgetId===activeBudget?.id).reduce((x,e)=>x+(Number(e.amount)||0),0);
+          const pend=pending.filter(e=>e.allocKey===a.key&&e.budgetId===activeBudget?.id).reduce((x,e)=>x+(Number(e.amount)||0),0);
+          const rem=a.amount-committed;
+          const pct=a.amount>0?Math.min(100,(committed/a.amount)*100):0;
+          const col=rem<0?C.redL:rem<a.amount*0.2?C.amber:C.greenL;
+          return <div key={a.key} style={{background:C.s1,border:"1px solid "+C.border,
+            borderLeft:"3px solid "+(a.kind==="special"?"#8a6a9a":a.kind==="agency"?C.silverD:C.goldD),
+            borderRadius:"0 3px 3px 0",padding:"0.6rem 1rem"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:5,flexWrap:"wrap"}}>
+              <span style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text,flex:1,minWidth:150}}>
+                {a.kind==="agency"?"↳ ":a.kind==="special"?"★ ":""}{a.label}
+              </span>
+              <span className="mono" style={{fontSize:9,color:C.textDD}}>{holderLabel(officials,a.portfolio)} signs</span>
+              <span className="mono" style={{fontSize:12,color:col,fontWeight:700}}>{fmtCur(rem)} left</span>
+              <span className="mono" style={{fontSize:9,color:C.textDD}}>of {fmtCur(a.amount)}</span>
+            </div>
+            <div style={{height:4,background:C.s3,borderRadius:2,overflow:"hidden"}}>
+              <div style={{width:pct+"%",height:"100%",background:"linear-gradient(90deg,"+col+"66,"+col+")"}}/>
+            </div>
+            {pend>0&&<div className="mono" style={{fontSize:9,color:C.amber,marginTop:3}}>{fmtCur(pend)} awaiting sign-off</div>}
+          </div>;
+        })}
+      </div>)}
+  </div>;
+}
+
 // ── PANEL AUTH ────────────────────────────────────────────────────────────────
-function PanelAuth({onAuth,onCancel}){
+// One sign-in serves the whole portal. The Finance panel additionally demands a
+// Finance role; the expenditure register does not, because the ministers who
+// must sign off on spending are not Finance officers and never will be.
+function PanelAuth({onAuth,onCancel,requireMof=true}){
   const [username,setUsername]=useState("");const [password,setPassword]=useState("");
   const [err,setErr]=useState("");const [loading,setLoading]=useState(false);
   async function doAuth(){
     if(!username.trim()||!password.trim()){setErr("Credentials required.");return;}
     setLoading(true);setErr("");
     try{
-      const raw=await sgetAll();const accounts={};
-      Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v)accounts[v.username]=v;});
-      Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(!accounts[k])accounts[k]=v;});
-      const user=Object.values(accounts).find(a=>a.username.toLowerCase()===username.trim().toLowerCase());
-      if(!user){setErr("ACCESS DENIED.");setLoading(false);return;}
-      const hash=await sha256(password);
-      if(hash!==user.passwordHash){setErr("ACCESS DENIED.");setLoading(false);return;}
-      const hasAccess=user.role==="emperor"||user.mofAccess||user.mofRole;
+      const res=await slogin(username,password);
+      if(!res.ok){setErr(res.error||"ACCESS DENIED.");setLoading(false);return;}
+      const user=res.account;
+      const hasAccess=!requireMof||user.role==="emperor"||user.mofAccess||user.mofRole;
       if(!hasAccess){setErr("AUTHORISATION DENIED \u2014 Finance panel access not granted.");setLoading(false);return;}
+      const raw=await sgetAll();
       onAuth(user,raw);
     }catch(e){setErr("Connection error: "+e.message);}
     setLoading(false);
   }
   return <div style={{maxWidth:420,margin:"0 auto"}}>
-    <STitle>Finance Panel Authentication</STitle>
+    <STitle>{requireMof?"Finance Panel Authentication":"Imperial Intranet Sign-In"}</STitle>
     <div style={{background:C.s1,border:"1px solid "+C.border,borderTop:"3px solid "+C.gold,padding:"1.75rem"}}>
-      <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.8,marginBottom:"1.25rem",textAlign:"center"}}>Restricted to officers of the Ministry of Finance. Authenticate using your Imperial Intranet credentials.</div>
+      <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.8,marginBottom:"1.25rem",textAlign:"center"}}>
+        {requireMof?"Restricted to officers of the Ministry of Finance. Authenticate using your Imperial Intranet credentials."
+          :"Any Imperial Intranet account may request an expenditure. Ministers, the Vice Chancellor and the Chancellor sign here."}
+      </div>
       <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
         <div><FL>USERNAME</FL><Inp value={username} onChange={setUsername} placeholder="Username"/></div>
         <div><FL>PASSWORD</FL><Inp value={password} onChange={setPassword} type="password" placeholder="Password"/></div>
@@ -719,7 +1314,7 @@ function PanelAuth({onAuth,onCancel}){
 }
 
 // ── PANEL: REGISTRY MANAGEMENT ────────────────────────────────────────────────
-function PanelRegistry({businesses,countries,onAction,notify,setProcessing,isMinister}){
+function PanelRegistry({businesses,countries,accounts,officials,user,onAction,notify,setProcessing,isMinister}){
   const [sub,setSub]=useState("review");
   const [search,setSearch]=useState("");
   const pending=Object.values(businesses||{}).filter(b=>b.licenseStatus==="pending");
@@ -732,28 +1327,47 @@ function PanelRegistry({businesses,countries,onAction,notify,setProcessing,isMin
 
     {sub==="review"&&<div>
       {pending.length===0?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No pending applications.</div>
-      :pending.map(b=><PanelBusinessCard key={b.id} business={b} onAction={onAction} notify={notify} setProcessing={setProcessing} isMinister={isMinister}/>)}
+      :pending.map(b=><PanelBusinessCard key={b.id} business={b} onAction={onAction} notify={notify} setProcessing={setProcessing} isMinister={isMinister} user={user} officials={officials}/>)}
     </div>}
 
     {sub==="all"&&<div>
       <div style={{marginBottom:"1rem"}}><Inp value={search} onChange={setSearch} placeholder="Search by name or registration number..."/></div>
       <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:"0.75rem"}}>{allList.length} ENTERPRISE{allList.length!==1?"S":""}</div>
-      {allList.map(b=><PanelBusinessCard key={b.id} business={b} onAction={onAction} notify={notify} setProcessing={setProcessing} isMinister={isMinister}/>)}
+      {allList.map(b=><PanelBusinessCard key={b.id} business={b} onAction={onAction} notify={notify} setProcessing={setProcessing} isMinister={isMinister} user={user} officials={officials}/>)}
     </div>}
 
-    {sub==="add"&&<RegistrationForm countries={countries} businesses={businesses}
+    {sub==="add"&&<RegistrationForm countries={countries} businesses={businesses} accounts={accounts}
       onSubmit={async(biz)=>{setProcessing("Registering...");await onAction("createBusiness",biz);setProcessing(null);notify(biz.registrationNo+" registered (pending).",C.gold);setSub("review");}}
       onCancel={()=>setSub("all")}/>}
   </div>;
 }
 
-function PanelBusinessCard({business:b,onAction,notify,setProcessing,isMinister}){
+function PanelBusinessCard({business:b,onAction,notify,setProcessing,isMinister,user,officials}){
   const [open,setOpen]=useState(b.licenseStatus==="pending");
   const [notes,setNotes]=useState(b.registrationNotes||"");
   const [status,setStatus]=useState(b.licenseStatus||"pending");
   const [saving,setSaving]=useState(false);
-  async function saveStatus(){setSaving(true);setProcessing("Updating...");await onAction("updateBusiness",{id:b.id,licenseStatus:status,registrationNotes:notes});setProcessing(null);setSaving(false);notify(b.registrationNo+" updated.",C.gold);}
+  const [cert,setCert]=useState(false);
+  // Admitting an enterprise to the register is what authorises its certificate,
+  // so the two happen in one act. The Minister in office signs it; if the seat
+  // is vacant the officer who admitted it signs in their own name.
+  async function saveStatus(){
+    setSaving(true);setProcessing("Updating...");
+    const patch={id:b.id,licenseStatus:status,registrationNotes:notes};
+    if(status==="active"&&!b.certificate){
+      const h=holderOf(officials,"Minister of Finance");
+      const vacant=!h.name||h.name==="Vacant";
+      patch.certificate={certNo:certNoFor(b),issuedAt:Date.now(),
+        ministerName:vacant?(user.displayName||user.username):(h.name||h.username),
+        ministerUsername:vacant?user.username:(h.username||""),
+        authorisedBy:user.username};
+    }
+    await onAction("updateBusiness",patch);
+    setProcessing(null);setSaving(false);
+    notify(patch.certificate?b.registrationNo+" registered — certificate issued.":b.registrationNo+" updated.",C.gold);
+  }
   return <div style={{background:C.s1,border:"1px solid "+(b.licenseStatus==="pending"?"#4a3000":C.border),borderLeft:"4px solid "+(b.licenseStatus==="active"?C.greenD:b.licenseStatus==="pending"?C.amberD:C.redD),borderRadius:"0 3px 3px 0",marginBottom:"0.5rem",overflow:"hidden"}}>
+    {cert&&<CertificateDoc business={b} onClose={()=>setCert(false)}/>}
     <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"0.75rem 1rem",cursor:"pointer",flexWrap:"wrap"}}>
       <StatusBadge status={b.licenseStatus||"pending"}/>
       <span className="mono" style={{fontSize:9,color:C.textD}}>{b.registrationNo}</span>
@@ -763,7 +1377,7 @@ function PanelBusinessCard({business:b,onAction,notify,setProcessing,isMinister}
     </div>
     {open&&<div style={{borderTop:"1px solid "+C.border,padding:"1rem",background:C.s2}}>
       <div style={{display:"flex",gap:"1.5rem",flexWrap:"wrap",marginBottom:"0.85rem",fontSize:13,color:C.textD}}>
-        {b.owners?.map((o,i)=><span key={i}>{o.rpName||o.username} ({o.pct}%)</span>)}
+        {b.owners?.map((o,i)=><span key={i}>{o.rpName||o.username} <span className="mono" style={{fontSize:10,color:C.textDD}}>@{o.username}</span>{o.hasAccount===false?<span className="mono" style={{fontSize:8,color:C.amber,marginLeft:4}}>(no account)</span>:""} ({o.pct}%)</span>)}
         {b.hqCountry&&<span>HQ: {b.hqCountry}{b.hqLocation?" \u2014 "+b.hqLocation:""}</span>}
         {b.industries?.length>0&&<span>{b.industries.join(", ")}</span>}
         {b.strategicClass&&b.strategicClass!=="Civillian"&&<span style={{color:C.amber}}>{b.strategicClass}</span>}
@@ -776,8 +1390,11 @@ function PanelBusinessCard({business:b,onAction,notify,setProcessing,isMinister}
             <DD value={status} onChange={setStatus} options={LICENSE_STATUSES.map(s=>({v:s,l:s.charAt(0).toUpperCase()+s.slice(1)}))}/>
           </div>
           <Btn small variant={status==="active"?"green":status==="revoked"?"danger":"primary"} disabled={saving} onClick={saveStatus}>{saving?"Saving...":"Update Status"}</Btn>
+          {b.certificate&&<Btn small variant="ghost" onClick={()=>setCert(true)}>View Certificate</Btn>}
           <ArmBtn small label="Delete Record" confirmLabel="Delete permanently?" onConfirm={async()=>{setProcessing("Removing...");await onAction("deleteBusiness",{id:b.id});setProcessing(null);notify(b.registrationNo+" deleted.",C.textD);}}/>
         </div>
+        {status==="active"&&!b.certificate&&<div style={{marginBottom:"0.65rem"}}><Disclaimer type="success">Setting this enterprise to Active will authorise its Certificate of Operations, signed by {holderLabel(officials,"Minister of Finance")}.</Disclaimer></div>}
+        {b.certificate&&<div style={{marginBottom:"0.65rem"}}><Disclaimer type="info">Certificate {b.certificate.certNo} issued {fmtDate(b.certificate.issuedAt)}, signed by {b.certificate.ministerName}.</Disclaimer></div>}
         <div><FL>MINISTRY NOTES / REJECTION REASON</FL><TA value={notes} onChange={setNotes} rows={2} placeholder="Internal notes or reason for rejection/suspension..."/></div>
         {notes!==b.registrationNotes&&<div style={{marginTop:6}}><Btn small variant="ghost" onClick={async()=>{setSaving(true);await onAction("updateBusiness",{id:b.id,registrationNotes:notes});setSaving(false);notify("Notes saved.",C.textD);}}>Save Notes</Btn></div>}
       </div>}
@@ -786,20 +1403,53 @@ function PanelBusinessCard({business:b,onAction,notify,setProcessing,isMinister}
 }
 
 // ── PANEL: PAYROLL MANAGEMENT ─────────────────────────────────────────────────
+// Every rate carries the trail of who set it to what. It is kept inside the
+// panel rather than on the public rate table — the public needs the rate, the
+// Ministry needs the accountability.
+function SalaryHistory({entry}){
+  const hist=[...(entry.history||[])].sort((a,b)=>(b.at||0)-(a.at||0));
+  if(hist.length===0)return <div style={{padding:"8px 14px",fontSize:12,color:C.textDD,fontStyle:"italic"}}>No salary history recorded for this rate.</div>;
+  return <div style={{padding:"2px 14px 10px"}}>
+    <div className="mono" style={{fontSize:8,color:C.textDD,letterSpacing:"0.15em",marginBottom:6}}>SALARY HISTORY — {hist.length} CHANGE{hist.length!==1?"S":""}</div>
+    <div style={{display:"flex",flexDirection:"column",gap:2}}>
+      {hist.map((h,i)=>{
+        const rise=h.prev!=null&&h.amount>h.prev, fall=h.prev!=null&&h.amount<h.prev;
+        return <div key={i} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",background:i===0?C.s2:"transparent",
+          border:"1px solid "+(i===0?C.border:"transparent"),borderRadius:2,padding:"4px 8px"}}>
+          <span className="mono" style={{fontSize:9,color:C.textDD,width:96,flexShrink:0}}>{fmtDateShort(h.at)}</span>
+          <span className="mono" style={{fontSize:12,color:C.gold,fontWeight:700,width:80}}>{fmtCur(h.amount)}</span>
+          <span className="mono" style={{fontSize:9,color:rise?C.greenL:fall?C.redL:C.textDD,width:110,flexShrink:0}}>
+            {h.prev==null?"INITIAL RATE":(rise?"▲ ":"▼ ")+"from "+fmtCur(h.prev)}
+          </span>
+          <span style={{fontSize:12,color:C.textD,fontStyle:"italic",flex:1}}>set by {h.byName||h.by}</span>
+          {h.by&&<span className="mono" style={{fontSize:9,color:C.textDD}}>@{h.by}</span>}
+        </div>;
+      })}
+    </div>
+  </div>;
+}
+
 function PayrollEditRow({entry,onSave,onRemove,setProcessing,notify}){
   const [editing,setEditing]=useState(false);
+  const [showHist,setShowHist]=useState(false);
   const [pexGroup,setPexGroup]=useState(entry.pexGroup||"");
   const [roleName,setRoleName]=useState(entry.roleName||"");
   const [category,setCategory]=useState(entry.category||"Extra");
   const [amount,setAmount]=useState(String(entry.amount||""));
   const [saving,setSaving]=useState(false);
+  const last=[...(entry.history||[])].sort((a,b)=>(b.at||0)-(a.at||0))[0];
   if(!editing)return(
-    <div style={{padding:"8px 14px",display:"flex",alignItems:"center",gap:12,borderBottom:"1px solid "+C.border+"44",flexWrap:"wrap"}}>
-      <span className="mono" style={{fontSize:11,color:C.text,flex:1}}>{entry.pexGroup}</span>
-      <span style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>{entry.roleName||""}</span>
-      <span className="mono" style={{fontSize:13,color:C.gold,fontWeight:700}}>{fmtCur(entry.amount)}</span>
-      <Btn small variant="ghost" onClick={()=>setEditing(true)}>Edit</Btn>
-      <ArmBtn small label="Remove" confirmLabel="Remove rate?" onConfirm={()=>onRemove(entry.id)}/>
+    <div style={{borderBottom:"1px solid "+C.border+"44"}}>
+      <div style={{padding:"8px 14px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+        <span className="mono" style={{fontSize:11,color:C.text,flex:1}}>{entry.pexGroup}</span>
+        <span style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>{entry.roleName||""}</span>
+        {last&&<span className="mono" style={{fontSize:9,color:C.textDD}}>set by {last.byName||last.by} · {fmtDateShort(last.at)}</span>}
+        <span className="mono" style={{fontSize:13,color:C.gold,fontWeight:700}}>{fmtCur(entry.amount)}</span>
+        <Btn small variant="ghost" onClick={()=>setShowHist(h=>!h)}>{"History"+((entry.history||[]).length?" ("+entry.history.length+")":"")}</Btn>
+        <Btn small variant="ghost" onClick={()=>setEditing(true)}>Edit</Btn>
+        <ArmBtn small label="Remove" confirmLabel="Remove rate?" onConfirm={()=>onRemove(entry.id)}/>
+      </div>
+      {showHist&&<SalaryHistory entry={entry}/>}
     </div>
   );
   return(
@@ -822,7 +1472,8 @@ function PayrollEditRow({entry,onSave,onRemove,setProcessing,notify}){
   );
 }
 
-function PanelPayroll({payroll,onAction,notify,setProcessing,canEdit}){
+function PanelPayroll({payroll,onAction,notify,setProcessing,canEdit,user}){
+  const actor={by:user?.username||"unknown",byName:user?.displayName||user?.username||"Unknown"};
   const [pexGroup,setPexGroup]=useState("");const [roleName,setRoleName]=useState("");
   const [category,setCategory]=useState("Imperial Household");const [amount,setAmount]=useState("");
   const [saving,setSaving]=useState(false);
@@ -840,7 +1491,7 @@ function PanelPayroll({payroll,onAction,notify,setProcessing,canEdit}){
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
         <Btn small disabled={!pexGroup.trim()||!amount||saving} onClick={async()=>{
           setSaving(true);setProcessing("Saving...");
-          await onAction("setPayroll",{id:"pay_"+uid(),pexGroup:pexGroup.trim(),roleName:roleName.trim(),category,amount:Number(amount),updatedAt:Date.now()});
+          await onAction("setPayroll",{id:"pay_"+uid(),pexGroup:pexGroup.trim(),roleName:roleName.trim(),category,amount:Number(amount),updatedAt:Date.now(),actor});
           setProcessing(null);setSaving(false);notify(pexGroup+" rate set.",C.gold);
           setPexGroup("");setRoleName("");setAmount("");
         }}>{saving?"Saving...":"Set Rate"}</Btn>
@@ -854,7 +1505,7 @@ function PanelPayroll({payroll,onAction,notify,setProcessing,canEdit}){
         <div style={{background:C.s1,padding:"6px 14px",borderBottom:"1px solid "+C.border}}><span className="mono" style={{fontSize:9,color:C.gold,letterSpacing:"0.2em"}}>{cat.toUpperCase()}</span></div>
         {entries.map(e=>canEdit
           ?<PayrollEditRow key={e.id} entry={e}
-              onSave={async(updated)=>await onAction("setPayroll",updated)}
+              onSave={async(updated)=>await onAction("setPayroll",{...updated,actor})}
               onRemove={async(id)=>{setProcessing("Removing...");await onAction("deletePayroll",{id:id});setProcessing(null);notify(e.pexGroup+" removed.",C.textD);}}
               setProcessing={setProcessing} notify={notify}/>
           :<div key={e.id} style={{padding:"8px 14px",display:"flex",alignItems:"center",gap:12,borderBottom:"1px solid "+C.border+"44",flexWrap:"wrap"}}>
@@ -874,7 +1525,10 @@ function DebtRow({debt:d,canEdit,onAction,setProcessing,notify}){
   return <div style={{background:C.s1,border:"1px solid "+C.border,borderLeft:"4px solid "+(d.direction==="borrow"?C.redD:C.greenD),borderRadius:"0 3px 3px 0",padding:"0.75rem 1rem",marginBottom:"0.4rem",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
     <StatusBadge status={d.status==="active"?"active_debt":d.status}/>
     <span className="mono" style={{fontSize:9,padding:"2px 6px",border:"1px solid "+(d.direction==="borrow"?C.redD+"66":C.greenD+"66"),color:d.direction==="borrow"?C.redL:C.greenL,background:d.direction==="borrow"?"#1a0808":"#0a1a0e",borderRadius:1}}>{d.direction==="borrow"?"BORROWS":"LENDS"}</span>
-    <span style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text,flex:1}}>{d.counterparty}{d.counterpartyType==="state"?<span style={{fontSize:10,color:C.blueL}}> (State)</span>:""}</span>
+    <span style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text,flex:1}}>{d.counterparty}
+      {d.counterpartyType==="state"?<span style={{fontSize:10,color:C.blueL}}> (State)</span>
+        :d.counterpartyUsername?<span className="mono" style={{fontSize:9,color:C.textDD}}> @{d.counterpartyUsername}</span>
+        :<span className="mono" style={{fontSize:8,color:C.amber}}> (unlinked)</span>}</span>
     <span className="mono" style={{fontSize:12,color:d.direction==="borrow"?C.redL:C.greenL}}>{fmtCur(d.principal)}</span>
     {d.interestRate>0&&<span className="mono" style={{fontSize:9,color:C.textD}}>{d.interestRate}%</span>}
     {d.dueAt&&<span className="mono" style={{fontSize:9,color:d.status==="active"&&d.dueAt<Date.now()?C.redL:C.textDD}}>{"Due "+fmtDateShort(d.dueAt)}</span>}
@@ -886,22 +1540,33 @@ function DebtRow({debt:d,canEdit,onAction,setProcessing,notify}){
   </div>;
 }
 
-function PanelDebt({debts,onAction,notify,setProcessing,canEdit}){
+function PanelDebt({debts,accounts,countries,onAction,notify,setProcessing,canEdit}){
   const [counterparty,setCounterparty]=useState("");const [counterpartyType,setCounterpartyType]=useState("player");
   const [type,setType]=useState("loan");const [direction,setDirection]=useState("borrow");
   const [principal,setPrincipal]=useState("");const [interestRate,setInterestRate]=useState("");
   const [dueAt,setDueAt]=useState("");const [notes,setNotes]=useState("");
   const [saving,setSaving]=useState(false);
   const list=Object.values(debts||{}).sort((a,b)=>(b.issuedAt||0)-(a.issuedAt||0));
+  const countryOpts=useMemo(()=>Object.values(countries||{}).map(c=>c.name).filter(Boolean).sort(),[countries]);
+  // Credit is extended to identified persons only, so a private counterparty
+  // must resolve to an account on the Interior's register. A sovereign
+  // counterparty resolves to the Foreign Ministry's register instead.
+  const isState=counterpartyType==="state";
+  const cpName=isState?counterparty:accountName(accounts,counterparty);
   return <div>
     {canEdit&&<div style={{background:C.s2,border:"1px solid "+C.border,borderTop:"3px solid "+C.gold,borderRadius:"0 0 4px 4px",padding:"1.25rem",marginBottom:"1.5rem"}}>
       <div className="mono" style={{fontSize:9,color:C.textD,letterSpacing:"0.15em",marginBottom:"0.75rem"}}>LOG DEBT OR BOND</div>
       <div style={{display:"flex",gap:"0.65rem",flexWrap:"wrap",marginBottom:"0.65rem"}}>
-        <div style={{flex:2,minWidth:160}}><FL>COUNTERPARTY *</FL><Inp value={counterparty} onChange={setCounterparty} placeholder="Username or state name"/></div>
-        <div style={{flex:1,minWidth:120}}><FL>COUNTERPARTY TYPE</FL><DD value={counterpartyType} onChange={setCounterpartyType} options={[{v:"player",l:"Player"},{v:"state",l:"Foreign State"}]}/></div>
+        <div style={{flex:1,minWidth:140}}><FL>COUNTERPARTY TYPE</FL><DD value={counterpartyType} onChange={v=>{setCounterpartyType(v);setCounterparty("");}} options={[{v:"player",l:"Player (account required)"},{v:"state",l:"Foreign State"}]}/></div>
+        <div style={{flex:2,minWidth:200}}><FL>COUNTERPARTY *</FL>
+          {isState
+            ?<DD value={counterparty} onChange={setCounterparty} options={[{v:"",l:"— Select a state —"},...countryOpts.map(c=>({v:c,l:c}))]}/>
+            :<DD value={counterparty} onChange={setCounterparty} options={[{v:"",l:"— Select a registered account —"},...accountOpts(accounts)]}/>}
+        </div>
         <div style={{flex:1,minWidth:100}}><FL>INSTRUMENT</FL><DD value={type} onChange={setType} options={[{v:"loan",l:"Loan"},{v:"bond",l:"Bond"}]}/></div>
         <div style={{flex:1,minWidth:130}}><FL>DIRECTION</FL><DD value={direction} onChange={setDirection} options={[{v:"borrow",l:"Crown Borrows"},{v:"lend",l:"Crown Lends"}]}/></div>
       </div>
+      {!isState&&<div style={{marginBottom:"0.65rem"}}><Disclaimer type="info">A private counterparty must hold an Imperial Intranet account. The Crown neither lends to nor borrows from unregistered persons — direct them to the Ministry of the Interior to register first.</Disclaimer></div>}
       <div style={{display:"flex",gap:"0.65rem",flexWrap:"wrap",marginBottom:"0.65rem"}}>
         <div style={{flex:1,minWidth:120}}><FL>PRINCIPAL ($) *</FL><Inp value={principal} onChange={setPrincipal} placeholder="0" type="number"/></div>
         <div style={{flex:1,minWidth:100}}><FL>INTEREST RATE (%)</FL><Inp value={interestRate} onChange={setInterestRate} placeholder="0" type="number"/></div>
@@ -910,7 +1575,9 @@ function PanelDebt({debts,onAction,notify,setProcessing,canEdit}){
       <div style={{marginBottom:"0.65rem"}}><FL>NOTES</FL><Inp value={notes} onChange={setNotes} placeholder="Terms, context, or other notes..."/></div>
       <Btn small disabled={!counterparty.trim()||!principal||saving} onClick={async()=>{
         setSaving(true);setProcessing("Logging...");
-        await onAction("createDebt",{id:"debt_"+uid(),counterparty:counterparty.trim(),counterpartyType,type,direction,principal:Number(principal),interestRate:Number(interestRate)||0,issuedAt:Date.now(),dueAt:dueAt?new Date(dueAt).getTime():null,status:"active",notes:notes.trim()});
+        await onAction("createDebt",{id:"debt_"+uid(),counterparty:cpName,
+          counterpartyUsername:isState?"":counterparty.trim(),
+          counterpartyType,type,direction,principal:Number(principal),interestRate:Number(interestRate)||0,issuedAt:Date.now(),dueAt:dueAt?new Date(dueAt).getTime():null,status:"active",notes:notes.trim()});
         setProcessing(null);setSaving(false);notify("Debt record logged.",C.gold);
         setCounterparty("");setPrincipal("");setInterestRate("");setDueAt("");setNotes("");
       }}>{saving?"Logging...":"Log Record"}</Btn>
@@ -1028,7 +1695,7 @@ function AnnouncementEditor({announcement,shutdown,currentUser,onAction,notify,s
 }
 
 // ── FINANCE PANEL ─────────────────────────────────────────────────────────────
-function FinancePanel({user,businesses,payroll,debts,countries,announcement,shutdown,onAction,notify,setProcessing}){
+function FinancePanel({user,businesses,payroll,debts,countries,accounts,officials,announcement,shutdown,onAction,notify,setProcessing}){
   const isEmperor=user.role==="emperor";
   const isMinister=isEmperor||user.mofRole==="minister";
   const isTreasurer=isMinister||user.mofRole==="treasurer";
@@ -1041,9 +1708,9 @@ function FinancePanel({user,businesses,payroll,debts,countries,announcement,shut
     <div style={{display:"flex",gap:0,borderBottom:"1px solid "+C.border,marginBottom:"1.5rem",flexWrap:"wrap"}}>
       {([["registry","Registry"],["payroll","Payroll"],["debt","Debt & Bonds"]].concat(isMinister?[["comms","Communications"]]:[])).map(([v,l])=><button key={v} onClick={()=>setSec(v)} style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.15em",textTransform:"uppercase",padding:"0.6rem 1rem",background:"transparent",border:"none",cursor:"pointer",borderBottom:"2px solid "+(sec===v?C.gold:"transparent"),color:sec===v?C.gold:C.textD}}>{l}</button>)}
     </div>
-    {sec==="registry"&&<PanelRegistry businesses={businesses} countries={countries} onAction={onAction} notify={notify} setProcessing={setProcessing} isMinister={isMinister}/>}
-    {sec==="payroll"&&<PanelPayroll payroll={payroll} onAction={onAction} notify={notify} setProcessing={setProcessing} canEdit={isTreasurer}/>}
-    {sec==="debt"&&<PanelDebt debts={debts} onAction={onAction} notify={notify} setProcessing={setProcessing} canEdit={isTreasurer}/>}
+    {sec==="registry"&&<PanelRegistry businesses={businesses} countries={countries} accounts={accounts} officials={officials} user={user} onAction={onAction} notify={notify} setProcessing={setProcessing} isMinister={isMinister}/>}
+    {sec==="payroll"&&<PanelPayroll payroll={payroll} onAction={onAction} notify={notify} setProcessing={setProcessing} canEdit={isTreasurer} user={user}/>}
+    {sec==="debt"&&<PanelDebt debts={debts} accounts={accounts} countries={countries} onAction={onAction} notify={notify} setProcessing={setProcessing} canEdit={isTreasurer}/>}
     {sec==="comms"&&isMinister&&<AnnouncementEditor announcement={announcement} shutdown={shutdown} currentUser={user} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
   </div>;
 }
@@ -1071,25 +1738,73 @@ function App(){
   const businesses=useMemo(()=>raw["mof_businesses"]||{},[raw]);
   const payroll=useMemo(()=>raw["mof_payroll"]||{},[raw]);
   const debts=useMemo(()=>raw["mof_debts"]||{},[raw]);
+  const expenditures=useMemo(()=>raw["mof_expenditures"]||{},[raw]);
   const announcement=useMemo(()=>raw["mof_announcement"]||null,[raw]);
   const shutdown=useMemo(()=>raw["mof_shutdown"]||null,[raw]);
+  const accounts=useMemo(()=>accountsFrom(raw),[raw]);
+  const officials=useMemo(()=>raw["bk_officials"]||{},[raw]);
 
   const onAction=useCallback(async(type,payload)=>{
     if(type==="createBusiness"){const next={...businesses,[payload.id]:payload};setRaw(r=>({...r,mof_businesses:next}));await sset("mof_businesses",next);}
     else if(type==="updateBusiness"){const {id,...rest}=payload;const next={...businesses,[id]:{...businesses[id],...rest,updatedAt:Date.now()}};setRaw(r=>({...r,mof_businesses:next}));await sset("mof_businesses",next);}
     else if(type==="deleteBusiness"){const next={...businesses};delete next[payload.id];setRaw(r=>({...r,mof_businesses:next}));await sset("mof_businesses",next);}
-    else if(type==="setPayroll"){const next={...payroll,[payload.id]:payload};setRaw(r=>({...r,mof_payroll:next}));await sset("mof_payroll",next);}
+    else if(type==="setPayroll"){
+      // A rate change is only worth a history entry when the money changed.
+      // Renaming a group or moving its category is not a salary decision.
+      const {actor,...entry}=payload;
+      const prev=payroll[entry.id];
+      const history=[...(prev?.history||[])];
+      if(!prev||Number(prev.amount)!==Number(entry.amount))
+        history.push({amount:Number(entry.amount),prev:prev?Number(prev.amount):null,at:Date.now(),
+          by:actor?.by||"unknown",byName:actor?.byName||"Unknown"});
+      const next={...payroll,[entry.id]:{...prev,...entry,history}};
+      setRaw(r=>({...r,mof_payroll:next}));await sset("mof_payroll",next);
+    }
     else if(type==="deletePayroll"){const next={...payroll};delete next[payload.id];setRaw(r=>({...r,mof_payroll:next}));await sset("mof_payroll",next);}
     else if(type==="wipePayroll"){setRaw(r=>({...r,mof_payroll:{}}));await sset("mof_payroll",{});}
     else if(type==="createDebt"){const next={...debts,[payload.id]:payload};setRaw(r=>({...r,mof_debts:next}));await sset("mof_debts",next);}
     else if(type==="updateDebt"){const {id,...rest}=payload;const next={...debts,[id]:{...debts[id],...rest}};setRaw(r=>({...r,mof_debts:next}));await sset("mof_debts",next);}
     else if(type==="deleteDebt"){const next={...debts};delete next[payload.id];setRaw(r=>({...r,mof_debts:next}));await sset("mof_debts",next);}
+    else if(type==="createExpenditure"){const next={...expenditures,[payload.id]:payload};setRaw(r=>({...r,mof_expenditures:next}));await sset("mof_expenditures",next);}
+    else if(type==="signExpenditure"){
+      // A request becomes a logged expenditure the moment its last required
+      // signature lands — there is no separate act of logging to forget.
+      const e=expenditures[payload.id];if(!e)return;
+      const approvals={...(e.approvals||{}),[payload.stageId]:{by:payload.by,byName:payload.byName,office:payload.office,at:payload.at}};
+      const updated={...e,approvals};
+      if(!(e.stages||[]).some(s=>!approvals[s.id])){updated.status="approved";updated.loggedAt=payload.at;}
+      const next={...expenditures,[e.id]:updated};setRaw(r=>({...r,mof_expenditures:next}));await sset("mof_expenditures",next);
+    }
+    else if(type==="rejectExpenditure"){
+      const e=expenditures[payload.id];if(!e)return;
+      const updated={...e,status:"rejected",rejected:{by:payload.by,byName:payload.byName,office:payload.office,at:payload.at,reason:payload.reason}};
+      const next={...expenditures,[e.id]:updated};setRaw(r=>({...r,mof_expenditures:next}));await sset("mof_expenditures",next);
+    }
+    else if(type==="voidExpenditure"){
+      // The entry stays on the log; only its status changes, and the sums are
+      // taken from status elsewhere, so the money returns to the allocation
+      // without anything being recomputed or written back to the budget.
+      const e=expenditures[payload.id];if(!e)return;
+      const updated={...e,status:"voided",voided:{by:payload.by,byName:payload.byName,at:payload.at,reason:payload.reason||""}};
+      const next={...expenditures,[e.id]:updated};setRaw(r=>({...r,mof_expenditures:next}));await sset("mof_expenditures",next);
+    }
+    else if(type==="withdrawExpenditure"){
+      const e=expenditures[payload.id];if(!e)return;
+      const next={...expenditures,[e.id]:{...e,status:"withdrawn",withdrawnAt:Date.now()}};
+      setRaw(r=>({...r,mof_expenditures:next}));await sset("mof_expenditures",next);
+    }
+    else if(type==="deleteExpenditure"){const next={...expenditures};delete next[payload.id];setRaw(r=>({...r,mof_expenditures:next}));await sset("mof_expenditures",next);}
     else if(type==="setAnnouncement"){setRaw(r=>({...r,mof_announcement:payload}));await sset("mof_announcement",payload);}
     else if(type==="setShutdown"){setRaw(r=>({...r,mof_shutdown:payload}));await sset("mof_shutdown",payload);}
-  },[raw,businesses,payroll,debts]);
+  },[raw,businesses,payroll,debts,expenditures]);
 
-  const TABS=[{v:"budget",l:"Treasury",icon:"\u2696"},{v:"registry",l:"Registry",icon:"\uD83C\uDFDB"},{v:"register",l:"Register",icon:"\u270D"},{v:"payroll",l:"Payroll",icon:"\uD83D\uDCB0"},{v:"ledger",l:"Debt Ledger",icon:"\uD83D\uDCCA"},{v:"panel",l:"Panel",icon:"\u2699"}];
-  function handleTab(v){if(v==="panel"&&!panelUser){setPanelAuth(true);return;}setTab(v);setPanelAuth(false);}
+  const TABS=[{v:"budget",l:"Treasury",icon:"\u2696"},{v:"registry",l:"Registry",icon:"\uD83C\uDFDB"},{v:"register",l:"Register",icon:"\u270D"},{v:"payroll",l:"Payroll",icon:"\uD83D\uDCB0"},{v:"ledger",l:"Debt Ledger",icon:"\uD83D\uDCCA"},{v:"expenditure",l:"Expenditure",icon:"\uD83E\uDDFE"},{v:"panel",l:"Panel",icon:"\u2699"}];
+  // The Panel demands a Finance role; everything else a sign-in touches does not.
+  const mofAccess=!!panelUser&&!!(panelUser.role==="emperor"||panelUser.mofAccess||panelUser.mofRole);
+  function handleTab(v){
+    if(v==="panel"&&!mofAccess){setPanelAuth({requireMof:true,then:"panel"});return;}
+    setTab(v);setPanelAuth(false);
+  }
 
   return <div style={{background:C.bg,minHeight:"100vh",color:C.text}}>
     <Toast msg={toast.msg} color={toast.color}/>
@@ -1113,15 +1828,25 @@ function App(){
       {!loaded&&<div style={{textAlign:"center",padding:"4rem",color:C.textDD}}><div className="mono" style={{fontSize:10,letterSpacing:"0.3em",animation:"pulse 1.5s infinite"}}>Loading...</div></div>}
       {loaded&&shutdown?.active&&<ShutdownBanner shutdown={shutdown}/>}
       {loaded&&announcement?.text&&!panelAuth&&<AnnouncementBanner announcement={announcement}/>}
-      {loaded&&panelAuth&&!panelUser&&<PanelAuth onAuth={(u,r)=>{setPanelUser(u);setRaw(prev=>({...prev,...r}));setPanelAuth(false);setTab("panel");notify("Authenticated.",C.gold);}} onCancel={()=>setPanelAuth(false)}/>}
+      {loaded&&panelAuth&&<PanelAuth requireMof={panelAuth.requireMof!==false}
+        onAuth={(u,r)=>{setPanelUser(u);setRaw(prev=>({...prev,...r}));setTab(panelAuth.then||"panel");setPanelAuth(false);notify("Authenticated.",C.gold);}}
+        onCancel={()=>setPanelAuth(false)}/>}
       {loaded&&!panelAuth&&tab==="budget"&&<BudgetTracker activeBudget={activeBudget} budgetCooldown={budgetCooldown} bkBills={bkBills}/>}
       {loaded&&!panelAuth&&tab==="registry"&&<RegistryPublic businesses={businesses}/>}
-      {loaded&&!panelAuth&&tab==="register"&&<RegistrationForm countries={countries} businesses={businesses} onSubmit={async(biz)=>{await onAction("createBusiness",biz);notify(biz.registrationNo+" application submitted.",C.gold);setTab("registry");}} onCancel={()=>setTab("registry")}/>}
+      {loaded&&!panelAuth&&tab==="register"&&!panelUser&&<div style={{textAlign:"center",padding:"3rem 1rem",color:C.textDD}}>
+        <div style={{fontSize:15,color:C.textD,fontStyle:"italic",lineHeight:1.8,maxWidth:460,margin:"0 auto 1.25rem"}}>Registering an enterprise requires an Imperial Intranet account. Sign in to continue — the principal owner must be the account holder.</div>
+        <Btn onClick={()=>setPanelAuth({requireMof:false,then:"register"})}>Sign In to Register</Btn>
+      </div>}
+      {loaded&&!panelAuth&&tab==="register"&&panelUser&&<RegistrationForm countries={countries} businesses={businesses} accounts={accounts} onSubmit={async(biz)=>{await onAction("createBusiness",biz);notify(biz.registrationNo+" application submitted.",C.gold);setTab("registry");}} onCancel={()=>setTab("registry")}/>}
       {loaded&&!panelAuth&&tab==="payroll"&&shutdown?.active&&<ShutdownPayrollNotice/>}
       {loaded&&!panelAuth&&tab==="payroll"&&<PayrollPublic payroll={payroll}/>}
       {loaded&&!panelAuth&&tab==="ledger"&&<DebtPublic debts={debts}/>}
-      {loaded&&!panelAuth&&tab==="panel"&&panelUser&&<FinancePanel user={panelUser} businesses={businesses} payroll={payroll} debts={debts} countries={countries} announcement={announcement} shutdown={shutdown} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
-      {loaded&&!panelAuth&&tab==="panel"&&!panelUser&&<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>Authentication required. Click Panel to log in.</div>}
+      {loaded&&!panelAuth&&tab==="expenditure"&&<ExpenditureTracker expenditures={expenditures} activeBudget={activeBudget}
+        officials={officials} user={panelUser} onAction={onAction} notify={notify} setProcessing={setProcessing}
+        onRequireSignIn={()=>setPanelAuth({requireMof:false,then:"expenditure"})}
+        onSignOut={()=>{setPanelUser(null);notify("Signed out.",C.textD);}}/>}
+      {loaded&&!panelAuth&&tab==="panel"&&mofAccess&&<FinancePanel user={panelUser} businesses={businesses} payroll={payroll} debts={debts} countries={countries} accounts={accounts} officials={officials} announcement={announcement} shutdown={shutdown} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+      {loaded&&!panelAuth&&tab==="panel"&&!mofAccess&&<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>Authentication required. Click Panel to log in.</div>}
     </div>
     <div style={{borderTop:"1px solid "+C.border,padding:"0.75rem 1.25rem",marginTop:"3rem"}}>
       <div className="mono" style={{maxWidth:1100,margin:"0 auto",fontSize:9,color:C.textDD,letterSpacing:"0.15em",textAlign:"center"}}>{"Ministry of Finance \u00B7 Empire of Lech \u00B7 Fiat Pecunia"}</div>

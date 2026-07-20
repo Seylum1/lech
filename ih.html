@@ -120,12 +120,32 @@ async function sgetAll(){
     return out;
   }catch{return{};}
 }
+let AUTH_TOKEN=null;
 async function sset(k,v){
   try{
     await fetch(SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
-      body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v)})});
+      body:JSON.stringify({action:"set",key:k,value:JSON.stringify(v),token:AUTH_TOKEN})});
     return true;
   }catch{return false;}
+}
+// Dual-mode sign-in: hardened `login` endpoint first, legacy hash check as
+// fallback so the page works across the rollout. Returns the account.
+async function slogin(username,password){
+  const u=String(username||"").trim();
+  try{
+    const r=await fetch(SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify({action:"login",username:u,password:password})});
+    const d=await r.json();
+    if(d&&d.success){AUTH_TOKEN=d.token;return {ok:true,account:d.account};}
+    if(d&&d.error&&d.error!=="Unknown action")return {ok:false,error:d.error};
+  }catch(e){/* old backend or CORS — fall through */}
+  const raw=await sgetAll();const accounts={};
+  Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v)accounts[v.username]=v;});
+  Object.entries(raw["mi_accounts"]||{}).forEach(([k,v])=>{if(!accounts[k])accounts[k]=v;});
+  const user=Object.values(accounts).find(a=>String(a.username||"").toLowerCase()===u.toLowerCase());
+  if(!user)return {ok:false,error:"ACCESS DENIED"};
+  const hash=await sha256(password);
+  if(hash!==user.passwordHash)return {ok:false,error:"ACCESS DENIED"};
+  return {ok:true,account:user};
 }
 
 // ── UI ────────────────────────────────────────────────────────────────────────
@@ -586,14 +606,11 @@ function PanelAuth({onAuth,onCancel}){
     if(!username.trim()||!password.trim()){setErr("Credentials required.");return;}
     setLoading(true); setErr("");
     try{
-      const raw=await sgetAll();
-      const accounts={};
-      Object.entries(raw).forEach(([k,v])=>{if(k.startsWith("mi_acc_")&&v) accounts[v.username]=v;});
-      const user=Object.values(accounts).find(a=>a.username.toLowerCase()===username.trim().toLowerCase());
-      if(!user){setErr("ACCESS DENIED.");setLoading(false);return;}
-      const hash=await sha256(password);
-      if(hash!==user.passwordHash){setErr("ACCESS DENIED.");setLoading(false);return;}
+      const res=await slogin(username,password);
+      if(!res.ok){setErr(res.error||"ACCESS DENIED.");setLoading(false);return;}
+      const user=res.account;
       if(user.role!=="emperor"){setErr("RESERVED FOR HIS IMPERIAL MAJESTY ONLY.");setLoading(false);return;}
+      const raw=await sgetAll();
       onAuth(user,raw);
     }catch(e){setErr("Connection error: "+e.message);}
     setLoading(false);
