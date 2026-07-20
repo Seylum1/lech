@@ -714,7 +714,7 @@ function PressReleaseDoc({office,seal,style,name,post,headline,body,refNo,issued
         <div style={{flex:1,textAlign:"center"}}>
           <div className="mono" style={{fontSize:9,letterSpacing:"0.45em",color:D.inkD,marginBottom:5}}>EMPIRE OF LECH</div>
           <div style={{fontFamily:"'Cinzel',serif",fontSize:20,fontWeight:700,letterSpacing:"0.08em",color:D.ink,lineHeight:1.2}}>Office of the {office}</div>
-          <div className="mono" style={{fontSize:9,letterSpacing:"0.3em",color:D.gold,marginTop:6}}>OFFICIAL COMMUNIQUÉ</div>
+          <div className="mono" style={{fontSize:9,letterSpacing:"0.3em",color:D.gold,marginTop:6}}>GOVERNMENT PRESS RELEASE</div>
         </div>
         <div style={{width:88}}/>
       </div>
@@ -723,7 +723,7 @@ function PressReleaseDoc({office,seal,style,name,post,headline,body,refNo,issued
       </div>
       <div style={{fontFamily:"'Cinzel',serif",fontSize:23,fontWeight:700,color:D.ink,lineHeight:1.25,marginBottom:"1.1rem"}}>{headline||"—"}</div>
       <div style={{fontSize:15,lineHeight:1.9,color:D.ink}}>
-        {paras.length?paras.map((p,i)=><p key={i} style={{margin:"0 0 0.9rem"}}>{p}</p>):<p style={{fontStyle:"italic",color:D.inkD}}>The body of the communiqué will appear here.</p>}
+        {paras.length?paras.map((p,i)=><p key={i} style={{margin:"0 0 0.9rem"}}>{p}</p>):<p style={{fontStyle:"italic",color:D.inkD}}>The body of the press release will appear here.</p>}
       </div>
       <div style={{marginTop:"2rem",display:"flex",justifyContent:"space-between",alignItems:"flex-end",gap:20,flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:220}}>
@@ -741,7 +741,7 @@ function PressReleaseDoc({office,seal,style,name,post,headline,body,refNo,issued
 }
 
 // The compose-and-issue panel shown to an officeholder.
-function CommuniquePanel({office,user,bundesherren,formerMembers,onAction,notify,setProcessing}){
+function CommuniquePanel({office,user,bundesherren,formerMembers,pressReleases,onAction,notify,setProcessing}){
   const [headline,setHeadline]=useState("");
   const [body,setBody]=useState("");
   const [saving,setSaving]=useState(false);
@@ -751,9 +751,14 @@ function CommuniquePanel({office,user,bundesherren,formerMembers,onAction,notify
   const name=user.displayName||user.username;
   const post="MB";
   const seal=officeSeal(office);
+  // Everything this office has already put out, newest first. The office issues
+  // them, so the office may withdraw them.
+  const issued=Object.values(pressReleases||{})
+    .filter(r=>r&&r.office===office)
+    .sort((a,b)=>(b.created||0)-(a.created||0));
   if(done) return <Card style={{textAlign:"center",padding:"2.5rem",maxWidth:520,margin:"0 auto"}}>
     <div style={{fontSize:32,marginBottom:8}}>📜</div>
-    <div style={{fontFamily:"'Cinzel',serif",fontSize:16,color:C.text,marginBottom:8}}>Communiqué Issued</div>
+    <div style={{fontFamily:"'Cinzel',serif",fontSize:16,color:C.text,marginBottom:8}}>Press Release Issued</div>
     <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.25rem"}}>Your press release has been published to the Imperial Gazette under the Office of the {office}.</div>
     <div style={{display:"flex",gap:8,justifyContent:"center"}}>
       <a href="press.html" style={{textDecoration:"none"}}><Btn>View on the Gazette</Btn></a>
@@ -761,13 +766,13 @@ function CommuniquePanel({office,user,bundesherren,formerMembers,onAction,notify
     </div>
   </Card>;
   return <div>
-    <STitle>Office of the {office} — Communiqués</STitle>
+    <STitle>Office of the {office} — Government Press Releases</STitle>
     <div style={{fontSize:13,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.25rem"}}>
       Issue an official press release under your office. It is sealed with your office's authority and published to the Imperial Gazette on generation.
     </div>
     <div style={{display:"grid",gridTemplateColumns:"1fr",gap:"1.5rem"}}>
       <div>
-        <FL>HEADLINE</FL><Inp value={headline} onChange={setHeadline} placeholder="Headline of the communiqué"/>
+        <FL>HEADLINE</FL><Inp value={headline} onChange={setHeadline} placeholder="Headline of the press release"/>
         <div style={{height:10}}/>
         <FL>STATEMENT</FL>
         <textarea value={body} onChange={e=>setBody(e.target.value)} rows={7} placeholder="The text of the press release. Separate paragraphs with a blank line."
@@ -779,10 +784,31 @@ function CommuniquePanel({office,user,bundesherren,formerMembers,onAction,notify
       </div>
       <div>
         <Btn disabled={!headline.trim()||!body.trim()||saving} onClick={async()=>{
-          setSaving(true);setProcessing("Issuing communiqué…");
+          setSaving(true);setProcessing("Issuing press release…");
           await onAction("issuePressRelease",{office,seal,style,name,post,headline:headline.trim(),body:body.trim()});
-          setProcessing(null);setSaving(false);setDone(true);notify("Communiqué published.",C.gold);
-        }}>{saving?"Issuing…":"Issue & Publish Communiqué"}</Btn>
+          setProcessing(null);setSaving(false);setDone(true);notify("Press release published.",C.gold);
+        }}>{saving?"Issuing…":"Issue & Publish Press Release"}</Btn>
+      </div>
+      <div>
+        <div className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.2em",marginBottom:8}}>ISSUED BY THIS OFFICE</div>
+        <div style={{fontSize:13,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"0.85rem"}}>
+          Redacting a press release removes it from the Imperial Gazette entirely. It cannot be recovered.
+        </div>
+        {issued.length===0
+          ? <Card style={{padding:"1.25rem",color:C.textDD,fontStyle:"italic",fontSize:13}}>No press releases have been issued under this office.</Card>
+          : issued.map(r=><Card key={r.id} style={{padding:"0.85rem 1rem",marginBottom:8,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:220}}>
+                <div style={{fontFamily:"'Cinzel',serif",fontSize:15,color:C.text,lineHeight:1.3}}>{r.headline}</div>
+                <div className="mono" style={{fontSize:9,letterSpacing:"0.12em",color:C.textDD,marginTop:4}}>
+                  {(r.refNo||"")+" · "+(r.created?new Date(r.created).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"}).toUpperCase():"")}
+                </div>
+              </div>
+              <ArmBtn small label="Redact" confirmLabel="Delete permanently?" onConfirm={async()=>{
+                setProcessing("Redacting press release…");
+                await onAction("redactPressRelease",{id:r.id});
+                setProcessing(null);notify("Press release redacted.",C.gold);
+              }}/>
+            </Card>)}
       </div>
     </div>
   </div>;
@@ -5667,7 +5693,7 @@ function EmperorPanelContent({bills,members,bundesherren,officials,orgChart,anno
 // Authority is derived from the signed-in MOI account. The old shared
 // passphrases (bk_bt_hash / bk_bh_hash / bk_emp_hash) are gone: an officeholder
 // signs in as themselves, and access follows their account when office changes.
-function PanelTab({bills,members,bundesherren,officials,orgChart,session,announcement,activeBudget,submitLock,imperialReserve,imperialLinks,nextElection,absences,accounts,formerMembers,parties,digitalVoting,user,isEmperor,isBTPresident,isBHPresident,onAction,notify,setProcessing}) {
+function PanelTab({bills,members,bundesherren,officials,orgChart,session,announcement,activeBudget,submitLock,imperialReserve,imperialLinks,nextElection,absences,accounts,formerMembers,parties,digitalVoting,pressReleases,user,isEmperor,isBTPresident,isBHPresident,onAction,notify,setProcessing}) {
   const myOffices=heldOffices(user,officials);
   const avail=[
     ...(isEmperor?[{id:"emperor",label:"Imperial Throne",icon:"👑"}]:[]),
@@ -5724,7 +5750,7 @@ function PanelTab({bills,members,bundesherren,officials,orgChart,session,announc
       {role==="emperor"&&<EmperorPanelContent bills={bills} members={members} bundesherren={bundesherren} officials={officials} orgChart={orgChart} announcement={announcement} activeBudget={activeBudget} submitLock={submitLock} imperialReserve={imperialReserve} imperialLinks={imperialLinks} nextElection={nextElection} accounts={accounts} formerMembers={formerMembers} parties={parties} digitalVoting={digitalVoting} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
       {role==="bt_president"&&<BTPanelContent bills={bills} members={members} bundesherren={bundesherren} session={session} absences={absences} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
       {role==="bh_president"&&<BHPanelContent bills={bills} members={members} bundesherren={bundesherren} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
-      {typeof role==="string"&&role.indexOf("office:")===0&&<CommuniquePanel office={role.slice(7)} user={user} bundesherren={bundesherren} formerMembers={formerMembers} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+      {typeof role==="string"&&role.indexOf("office:")===0&&<CommuniquePanel office={role.slice(7)} user={user} bundesherren={bundesherren} formerMembers={formerMembers} pressReleases={pressReleases} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
     </div>
   );
 }
@@ -7179,6 +7205,8 @@ function App() {
   const [factsheet,setFactsheet]=useState(null);
   const [user,setUser]=useState(null);
   const [bills,setBills]=useState({});
+  // Press releases already issued, so an officeholder can see and redact their own.
+  const [pressReleases,setPressReleases]=useState({});
   const [orgChart,setOrgChart]=useState({});
   const [session,setSession]=useState(null);
   const [absences,setAbsences]=useState({});
@@ -7213,11 +7241,13 @@ function App() {
             ir=g("bk_imperial_reserve"), il=g("bk_imperial_links"),
             abs=g("bk_absences"), elec=g("bk_next_election"), fm=g("bk_former_members"),
             govs=g("bk_governments"), pty=g("bk_parties"), dv=g("bk_digital_voting");
-      const billsRaw={}, logoRaw={};
+      const billsRaw={}, logoRaw={}, relRaw={};
       Object.entries(raw||{}).forEach(([k,v])=>{
         if(k.startsWith("bk_bill_")) billsRaw[k]=v;
         else if(k.startsWith("bk_logo_")) logoRaw[k]=v;
+        else if(k.startsWith("press_article_")&&v&&v.pressRelease&&v.id) relRaw[v.id]=v;
       });
+      setPressReleases(relRaw);
       setMembers(m||{}); setBH(bh||{}); setOff(off||{}); setFormerMembers(fm||{});
       setGovernments(govs||{});
       setDigitalVoting({bt:!!dv?.bt,bh:!!dv?.bh});
@@ -7296,6 +7326,14 @@ function App() {
         section:"Official", status:"published", created:now, publishedAt:now,
         issuedByUsername:(user&&user.username)||"" };
       await sset("press_article_"+id, rec);
+      setPressReleases(p=>({...p,[id]:rec}));
+    }
+    else if(type==="redactPressRelease"){
+      // A redaction erases the communiqué outright — it leaves the Gazette with
+      // it. The server re-checks that the actor still holds the issuing office.
+      const {id}=payload;
+      await sdel("press_article_"+id);
+      setPressReleases(p=>{ const n={...p}; delete n[id]; return n; });
     }
     else if(type==="importMembers"){
       // Member identity must be stable. This previously minted a fresh
@@ -8043,7 +8081,7 @@ function App() {
             <div style={{display:tab==="bundesherren"?"block":"none"}}><BundesherrenTab bundesherren={bundesherren} officials={officials} bills={bills} members={members}/></div>
             <div style={{display:tab==="submit"?"block":"none"}}><SubmitTab onSubmit={async(p)=>await onAction("submitBill",p)} onSubmitBudget={async(p)=>await onAction("submitBudget",p)} activeBudget={activeBudget} budgetCooldown={budgetCooldown} orgChart={orgChart} submitLock={submitLock} imperialReserve={imperialReserve} bills={bills} session={session} user={user} mySeat={mySeat} myBHSeat={myBHSeat} canSubmit={canSubmit} hasPanel={hasPanel} members={members} bundesherren={bundesherren} accounts={accounts} onRequestLogin={()=>setShowLogin(true)}/></div>
             <div style={{display:tab==="links"?"block":"none"}}><ImperialLinksTab imperialLinks={imperialLinks}/></div>
-            {hasPanel&&<div style={{display:tab==="panel"?"block":"none"}}><PanelTab bills={bills} members={members} bundesherren={bundesherren} officials={officials} orgChart={orgChart} session={session} announcement={announcement} activeBudget={activeBudget} submitLock={submitLock} imperialReserve={imperialReserve} imperialLinks={imperialLinks} nextElection={nextElection} absences={absences} accounts={accounts} formerMembers={formerMembers} parties={parties} digitalVoting={digitalVoting} user={user} isEmperor={isEmperor} isBTPresident={isBTPresident} isBHPresident={isBHPresident} onAction={onAction} notify={notify} setProcessing={setProcessing}/></div>}
+            {hasPanel&&<div style={{display:tab==="panel"?"block":"none"}}><PanelTab bills={bills} members={members} bundesherren={bundesherren} officials={officials} orgChart={orgChart} session={session} announcement={announcement} activeBudget={activeBudget} submitLock={submitLock} imperialReserve={imperialReserve} imperialLinks={imperialLinks} nextElection={nextElection} absences={absences} accounts={accounts} formerMembers={formerMembers} parties={parties} digitalVoting={digitalVoting} pressReleases={pressReleases} user={user} isEmperor={isEmperor} isBTPresident={isBTPresident} isBHPresident={isBHPresident} onAction={onAction} notify={notify} setProcessing={setProcessing}/></div>}
           </>
         )}
       </div>

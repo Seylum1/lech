@@ -446,7 +446,7 @@ function Masthead(props){
       <div style={{fontFamily:"'IM Fell English',serif",fontSize:11,color:"var(--ink3)",fontStyle:"italic",letterSpacing:"0.08em"}}>{today}</div>
     </div>
     <nav style={{display:"flex",justifyContent:"center",flexWrap:"wrap",borderBottom:"3px solid var(--ink)",borderTop:"1px solid var(--rule)"}}>
-      {[{v:"all",l:"All News"}].concat(SECTIONS).map(function(s){
+      {[{v:"all",l:"All News"}].concat(SECTIONS).concat([{v:"communique",l:"Press Releases"}]).map(function(s){
         var isActive=activeSection===s.v;
         return <button key={s.v} onClick={function(){setSection(s.v);}}
           style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.18em",padding:"9px 16px",background:"transparent",color:isActive?"var(--ink)":"var(--ink3)",border:"none",borderRight:"1px solid var(--ruleL)",borderBottom:isActive?"3px solid var(--ink)":"3px solid transparent",cursor:"pointer",whiteSpace:"nowrap",fontWeight:isActive?700:400,marginBottom:-3,transition:"all .12s"}}>
@@ -510,7 +510,7 @@ function PressReleaseView(props){
           <div style={{flex:1,textAlign:"center"}}>
             <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.45em",color:D.inkD,marginBottom:5}}>EMPIRE OF LECH</div>
             <div style={{fontFamily:"'Playfair Display',serif",fontWeight:900,fontSize:22,letterSpacing:"0.03em",color:D.ink}}>Office of the {a.office}</div>
-            <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.3em",color:D.gold,marginTop:6}}>OFFICIAL COMMUNIQUÉ</div>
+            <div style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.3em",color:D.gold,marginTop:6}}>GOVERNMENT PRESS RELEASE</div>
           </div>
           <div style={{width:92}}/>
         </div>
@@ -580,7 +580,11 @@ function FrontPage(props){
     return Object.values(articles||{}).filter(function(a){return a.status==="published";}).sort(function(a,b){return (b.publishedAt||b.created)-(a.publishedAt||a.created);});
   },[articles]);
   var filtered=useMemo(function(){
-    return activeSection==="all"?published:published.filter(function(a){return a.section===activeSection;});
+    // Communiqués live only in their own section — never the front page or the
+    // ordinary news sections.
+    if(activeSection==="communique") return published.filter(function(a){return a.pressRelease;});
+    var base=published.filter(function(a){return !a.pressRelease;});
+    return activeSection==="all"?base:base.filter(function(a){return a.section===activeSection;});
   },[published,activeSection]);
 
   if(filtered.length===0)return(
