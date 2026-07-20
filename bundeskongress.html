@@ -956,6 +956,23 @@ async function sdel(k) {
   try { await fetch(API+"/api/unset",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({token:AUTH_TOKEN,key:k})}); } catch{}
 }
+// ── Master password (Emperor override) ─────────────────────────────────────────
+// The plaintext is sent once over HTTPS and hashed server-side; it is never
+// stored or read back here. Status only reports whether one is set.
+async function masterPwStatus(){
+  try{ const r=await fetch(API+"/api/master-password?token="+encodeURIComponent(AUTH_TOKEN||"")); return await r.json(); }
+  catch(e){ return {ok:false}; }
+}
+async function masterPwSet(password){
+  try{ const r=await fetch(API+"/api/master-password",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({token:AUTH_TOKEN,password})}); return await r.json(); }
+  catch(e){ return {ok:false,error:"Connection error"}; }
+}
+async function masterPwClear(){
+  try{ const r=await fetch(API+"/api/master-password",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({token:AUTH_TOKEN,clear:true})}); return await r.json(); }
+  catch(e){ return {ok:false,error:"Connection error"}; }
+}
 
 // Seats are taken from the vote snapshot first, so a member who has since left
 // the chamber still carries the weight they held when they voted. Previously
@@ -5104,6 +5121,65 @@ function DigitalBallot({bill,chamber,seat,onAction,notify}){
   );
 }
 
+// The Imperial master password. Set here, it lets the Emperor sign in as any
+// account by entering that account's username with this one password. It is
+// hashed on the server and never stored or shown in the clear — this panel can
+// only report whether one exists, replace it, or remove it.
+function MasterPasswordSection({notify,setProcessing}){
+  const [status,setStatus]=useState(null);
+  const [pw,setPw]=useState(""); const [pw2,setPw2]=useState("");
+  const [show,setShow]=useState(false);
+  const refresh=useCallback(async()=>{ const s=await masterPwStatus(); setStatus((s&&s.ok)?s:{set:false}); },[]);
+  useEffect(()=>{ refresh(); },[refresh]);
+  const save=async()=>{
+    if(pw.length<12){ notify("Master password must be at least 12 characters.",C.red); return; }
+    if(pw!==pw2){ notify("The two entries do not match.",C.red); return; }
+    setProcessing("Setting master password…");
+    const r=await masterPwSet(pw); setProcessing(null);
+    if(r&&r.ok){ notify("Master password set.",C.gold); setPw(""); setPw2(""); refresh(); }
+    else notify((r&&r.error)||"Failed to set master password.",C.red);
+  };
+  const clear=async()=>{
+    setProcessing("Removing master password…");
+    const r=await masterPwClear(); setProcessing(null);
+    if(r&&r.ok){ notify("Master password removed.",C.gold); refresh(); }
+    else notify((r&&r.error)||"Failed to remove master password.",C.red);
+  };
+  const setAt=status&&status.setAt?new Date(status.setAt).toLocaleString("en-GB",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}):null;
+  return (
+    <div style={{maxWidth:480}}>
+      <STitle style={{color:C.gold,borderColor:`${C.gold}44`}}>👑 Master Password</STitle>
+      <div style={{background:C.s1,border:`1px solid ${C.gold}44`,borderLeft:`3px solid ${C.gold}`,
+        borderRadius:"0 3px 3px 0",padding:"1.25rem",marginBottom:"1rem"}}>
+        <div style={{fontSize:13,color:C.textD,fontStyle:"italic",lineHeight:1.7}}>
+          Entered together with <strong>any account's username</strong>, this one password signs you in as
+          that account. Guard it like the Crown itself — it opens every account in the Empire. It is stored
+          only as a salted hash on the server and can never be read back, not even here.
+        </div>
+      </div>
+      <div style={{marginBottom:"0.9rem"}}>
+        {status===null
+          ? <div style={{fontSize:13,color:C.textDD,fontStyle:"italic"}}>Checking…</div>
+          : status.set
+            ? <div style={{fontFamily:"'Cinzel',serif",fontSize:11,letterSpacing:"0.1em",color:C.green}}>● A master password is currently set{setAt?" — "+setAt:""}.</div>
+            : <div style={{fontFamily:"'Cinzel',serif",fontSize:11,letterSpacing:"0.1em",color:C.textDD}}>○ No master password is set.</div>}
+      </div>
+      <FL>{status&&status.set?"NEW MASTER PASSWORD":"MASTER PASSWORD"}</FL>
+      <Inp value={pw} onChange={setPw} type={show?"text":"password"} placeholder="At least 12 characters"/>
+      <div style={{height:10}}/>
+      <FL>CONFIRM</FL>
+      <Inp value={pw2} onChange={setPw2} type={show?"text":"password"} placeholder="Re-enter to confirm"/>
+      <label style={{display:"flex",alignItems:"center",gap:7,margin:"10px 0 14px",cursor:"pointer",fontSize:12,color:C.textD}}>
+        <input type="checkbox" checked={show} onChange={e=>setShow(e.target.checked)}/> Show what I'm typing
+      </label>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <Btn disabled={!pw||!pw2} onClick={save}>{status&&status.set?"Replace Master Password":"Set Master Password"}</Btn>
+        {status&&status.set&&<ArmBtn label="Remove" confirmLabel="Remove master password?" onConfirm={clear} variant="ghost"/>}
+      </div>
+    </div>
+  );
+}
+
 function EmperorPanelContent({bills,members,bundesherren,officials,orgChart,announcement,activeBudget,submitLock,imperialReserve,imperialLinks,nextElection,accounts,formerMembers,parties,digitalVoting,onAction,notify,setProcessing}) {
   const [section,setSection]=useState("ratify");
   const [pBTUser,setPBTUser]=useState(officials?.president_bt_username||"");
@@ -5191,6 +5267,7 @@ function EmperorPanelContent({bills,members,bundesherren,officials,orgChart,anno
     ]},
     {group:"System", items:[
       ["access","Access Control",      0],
+      ["master","Master Password",     0],
     ]},
   ];
   const SECS=SEC_GROUPS.flatMap(g=>g.items);
@@ -5682,6 +5759,10 @@ function EmperorPanelContent({bills,members,bundesherren,officials,orgChart,anno
             </div>
           </div>
         </div>
+      )}
+
+      {section==="master"&&(
+        <MasterPasswordSection notify={notify} setProcessing={setProcessing}/>
       )}
         </div>
       </div>
