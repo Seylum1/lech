@@ -264,8 +264,8 @@ function Toast({msg,color}){if(!msg)return null;return <div style={{position:"fi
 function Overlay({label}){if(!label)return null;return <div style={{position:"fixed",inset:0,zIndex:99999,background:"rgba(6,12,26,.96)",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{textAlign:"center"}}><div className="mono" style={{color:V.gold,fontSize:10,letterSpacing:"0.35em",marginBottom:8,animation:"pulse 1s infinite"}}>PROCESSING</div><div className="pf" style={{fontSize:17,color:V.text}}>{label}</div></div></div>;}
 function Seal({file,size=64,style:ex={}}){
   const [ok,setOk]=useState(true);
-  if(!ok)return <div style={{width:size,height:size,borderRadius:"50%",border:`2px solid ${V.gold}55`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,...ex}}><span className="pf" style={{fontWeight:900,fontSize:size*0.3,color:V.gold}}>VN</span></div>;
-  return <img src={"vindex/"+file} alt="" draggable={false} onError={()=>setOk(false)} style={{width:size,height:size,objectFit:"contain",flexShrink:0,...ex}}/>;
+  if(!ok||!file)return <div style={{width:size,height:size,borderRadius:"50%",border:`2px solid ${V.gold}55`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,background:V.navy,...ex}}><span className="pf" style={{fontWeight:900,fontSize:size*0.36,color:V.gold}}>★</span></div>;
+  return <img src={file} alt="" draggable={false} onError={()=>setOk(false)} style={{width:size,height:size,objectFit:"contain",flexShrink:0,...ex}}/>;
 }
 function PoweredBy(){
   const [ok,setOk]=useState(true);
@@ -307,7 +307,7 @@ function PassportViewer({passport:p,visas,onClose}){
     <div className="mono" style={{fontSize:fs(.024),color:label,letterSpacing:"0.1em",marginBottom:1}}>{k}</div>
     <div style={{fontFamily:big?"'Playfair Display',serif":"'Crimson Text',serif",fontSize:big?fs(.046):fs(.04),color:color||ink,fontWeight:big?700:600,lineHeight:1.15,overflowWrap:"anywhere"}}>{v}</div></div>);
   const PageNo=({n,side})=>(<div className="mono" style={{position:"absolute",bottom:8,[side]:14,fontSize:fs(.026),color:"#a89678"}}>{n}</div>);
-  const Watermark=()=>(<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none",opacity:.06}}><Seal file="coa.png" size={150}/></div>);
+  const Watermark=()=>(<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none",opacity:.06}}><Seal file="vindexcoa.png" size={150}/></div>);
 
   const Cover=({backCover})=>(
     <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",
@@ -320,14 +320,14 @@ function PassportViewer({passport:p,visas,onClose}){
           <div className="pf" style={{fontWeight:900,fontSize:fs(.05),letterSpacing:"0.14em",color:t.trim,textShadow:"0 1px 1px rgba(0,0,0,.6)",lineHeight:1.15}}>REPUBLIC OF VINDEX NATION</div>
           <div className="mono" style={{fontSize:fs(.022),letterSpacing:"0.4em",color:t.trim,opacity:.75,marginTop:5}}>★ E PLURIBUS UNUM ★</div>
         </div>
-        <div style={{flex:1,display:"flex",alignItems:"center"}}><Seal file="coa.png" size={fs(.42).includes("calc")?110:110}/></div>
+        <div style={{flex:1,display:"flex",alignItems:"center"}}><Seal file="vindexcoa.png" size={fs(.42).includes("calc")?110:110}/></div>
         <div style={{marginBottom:"12%",textAlign:"center"}}>
           <div className="pf" style={{fontWeight:900,fontSize:fs(.062),letterSpacing:"0.36em",color:t.trim,textShadow:"0 1px 1px rgba(0,0,0,.6)"}}>PASSPORT</div>
           {p.type!=="regular"&&<div style={{marginTop:8,paddingTop:6,borderTop:`1px solid ${t.trim}55`}}><span className="pf" style={{fontSize:fs(.032),letterSpacing:"0.3em",color:t.trim}}>{t.short}</span></div>}
           <svg width="26" height="18" viewBox="0 0 26 18" style={{marginTop:10,opacity:.8}}><rect x="1" y="1" width="24" height="16" rx="3" stroke={t.trim} strokeWidth="1.4" fill="none"/><circle cx="13" cy="9" r="4.2" stroke={t.trim} strokeWidth="1.4" fill="none"/><path d="M4 9 h4 M18 9 h4" stroke={t.trim} strokeWidth="1.4"/></svg>
         </div>
       </>:<div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14}}>
-        <Seal file="coa.png" size={62} style={{opacity:.85}}/>
+        <Seal file="vindexcoa.png" size={62} style={{opacity:.85}}/>
         <div className="mono" style={{fontSize:fs(.024),letterSpacing:"0.4em",color:t.trim,opacity:.7}}>E PLURIBUS UNUM</div>
       </div>}
     </div>);
@@ -336,7 +336,7 @@ function PassportViewer({passport:p,visas,onClose}){
     <div className="sp-paper" style={{position:"absolute",inset:0}}>
       <div className="sp-frame"/><Watermark/>
       <div style={{position:"absolute",inset:"26px 24px",display:"flex",flexDirection:"column",alignItems:"center",textAlign:"center",justifyContent:"center"}}>
-        <Seal file="coa.png" size={54}/>
+        <Seal file="vindexcoa.png" size={54}/>
         <div className="pf" style={{fontWeight:700,fontSize:fs(.036),letterSpacing:"0.1em",color:"#5a4520",margin:"14px 0 10px",lineHeight:1.5}}>THE SECRETARY OF STATE OF THE REPUBLIC OF VINDEX NATION</div>
         <div style={{width:"46%",height:1,background:"#b09a68",marginBottom:10}}/>
         <div style={{fontSize:fs(.038),color:"#4a3c24",fontStyle:"italic",lineHeight:1.7}}>
@@ -453,7 +453,7 @@ function PassportsTab({passports,visas}){
           <div style={{height:8,background:`linear-gradient(90deg,${t.cover},${t.coverDeep})`}}/>
           <div style={{padding:"0.85rem 1rem"}}>
             <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
-              <div style={{width:34,height:46,flexShrink:0,borderRadius:"2px 5px 5px 2px",background:`linear-gradient(160deg,${t.cover},${t.coverDeep})`,border:`1px solid ${t.trim}55`,display:"flex",alignItems:"center",justifyContent:"center"}}><Seal file="coa.png" size={20}/></div>
+              <div style={{width:34,height:46,flexShrink:0,borderRadius:"2px 5px 5px 2px",background:`linear-gradient(160deg,${t.cover},${t.coverDeep})`,border:`1px solid ${t.trim}55`,display:"flex",alignItems:"center",justifyContent:"center"}}><Seal file="vindexcoa.png" size={20}/></div>
               <div style={{flex:1,minWidth:0,lineHeight:1.25}}>
                 <div className="pf" style={{fontWeight:700,fontSize:15,color:V.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.username||p.name}</div>
                 {p.username&&p.name&&<div className="mono" style={{fontSize:9,color:V.textDD,fontStyle:"italic"}}>{p.name}</div>}
@@ -482,49 +482,30 @@ function PassportsTab({passports,visas}){
 }
 
 /* ── ADVISORIES ──────────────────────────────────────────────────────────── */
-function AdvisoriesTab({countries}){
-  const list=Object.values(countries||{}).filter(c=>!c.entityType||c.entityType==="state"||c.entityType==="territory").sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+/* ── FOREIGN RELATIONS (advisories + policy, in one) ─────────────────────── */
+function RelationsTab({countries,restrictions}){
+  const [q,setQ]=useState("");const [rel,setRel]=useState("all");
+  const query=q.trim().toLowerCase();
+  const list=Object.values(countries||{})
+    .filter(c=>(!query||(c.name||"").toLowerCase().includes(query))&&(rel==="all"||c.relation===rel))
+    .sort((a,b)=>{const o={full:0,limited:1,none:2,hostile:3};return(o[a.relation]||2)-(o[b.relation]||2)||(a.name||"").localeCompare(b.name||"");});
+  const all=Object.values(countries||{});
   return <div className="fadeIn">
-    <STitle>Travel Advisories</STitle>
-    <div style={{fontSize:14,color:V.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.2rem"}}>Advisories issued by the Department of State for citizens of Vindex Nation traveling abroad.</div>
-    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:"1.3rem"}}>
+    <STitle>Foreign Relations</STitle>
+    <div style={{fontSize:14,color:V.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.1rem"}}>
+      The Republic's diplomatic relations and travel advisories, as set by the Department of State. Each
+      nation's standing, policy and advisory are shown together.
+    </div>
+    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:"1rem"}}>
       {ADVISORY_LEVELS.map(al=><div key={al.level} style={{display:"flex",alignItems:"center",gap:6,background:al.bg,border:`1px solid ${al.border}`,borderRadius:2,padding:"4px 10px"}}><div style={{width:8,height:8,borderRadius:"50%",background:al.color}}/><span className="mono" style={{fontSize:9,color:al.color}}>{al.code}: {al.label}</span></div>)}
     </div>
-    {list.length===0?<div style={{textAlign:"center",padding:"3rem",color:V.textDD,fontStyle:"italic"}}>No advisories issued.</div>
-    :<div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
-      {list.map(c=>{const adv=getAdvisory(c);const al=getAL(adv.level||1);return(
-        <div key={c.id} style={{background:V.panel,border:`1px solid ${V.line}`,borderLeft:`4px solid ${al.color}`,borderRadius:"0 4px 4px 0",padding:"1rem 1.2rem"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8,marginBottom:"0.5rem"}}>
-            <div><div className="pf" style={{fontWeight:700,fontSize:15,color:V.text,marginBottom:3}}>{c.name}</div>
-              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}><RelBadge relation={c.relation}/><AdvBadge level={adv.level||1}/></div></div>
-            {c.entityType&&<span className="mono" style={{fontSize:9,color:V.textDD}}>{(ENTITY_TYPES.find(e=>e.v===c.entityType)||{l:""}).l}</span>}
-          </div>
-          {adv.text&&<div style={{fontSize:14,color:V.textD,lineHeight:1.7,fontStyle:"italic",marginTop:"0.5rem"}}>{adv.text}</div>}
-          {adv.updatedAt&&<div className="mono" style={{fontSize:9,color:V.textDD,marginTop:6}}>Last updated {fmtDate(adv.updatedAt)}</div>}
-          <VisaInfo country={c}/>
-        </div>);})}
+    {all.length>0&&<div style={{display:"flex",gap:"0.75rem",marginBottom:"1.1rem",flexWrap:"wrap"}}>
+      <div style={{flex:2,minWidth:180}}><Inp value={q} onChange={setQ} placeholder="Search a nation…"/></div>
+      <div style={{flex:1,minWidth:170}}><Sel value={rel} onChange={setRel} options={[{v:"all",l:"All relations"},...RELATION_TYPES.map(r=>({v:r.v,l:r.l}))]}/></div>
     </div>}
-  </div>;
-}
-
-/* ── FOREIGN POLICY ──────────────────────────────────────────────────────── */
-function PolicyTab({countries,restrictions}){
-  const [selected,setSelected]=useState(null);
-  const list=Object.values(countries||{}).sort((a,b)=>{const o={full:0,limited:1,none:2,hostile:3};return(o[a.relation]||2)-(o[b.relation]||2)||(a.name||"").localeCompare(b.name||"");});
-  const sel=selected?countries[selected]:null;
-  return <div className="fadeIn">
-    <STitle>Foreign Policy</STitle>
-    <div style={{fontSize:14,color:V.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.2rem"}}>The official foreign policy of the Republic of Vindex Nation, as set by the Department of State.</div>
-    {list.length===0?<div style={{textAlign:"center",padding:"3rem",color:V.textDD,fontStyle:"italic"}}>No foreign policy records published.</div>
-    :<div style={{display:"flex",gap:"1.3rem",flexWrap:"wrap"}}>
-      <div style={{flex:"0 0 220px",minWidth:180}}>
-        {list.map(c=>{const rt=getRT(c.relation);return <div key={c.id} onClick={()=>setSelected(selected===c.id?null:c.id)} style={{background:selected===c.id?V.panel2:V.panel,border:`1px solid ${selected===c.id?rt.color:V.line}`,borderLeft:`4px solid ${rt.color}`,borderRadius:"0 3px 3px 0",padding:"0.6rem 0.85rem",marginBottom:4,cursor:"pointer"}}>
-          <div className="pf" style={{fontWeight:700,fontSize:13,color:V.text,marginBottom:2}}>{c.name}</div><span className="mono" style={{fontSize:8,color:rt.color}}>{rt.badge}</span></div>;})}
-      </div>
-      <div style={{flex:1,minWidth:280}}>
-        {!sel?<div style={{textAlign:"center",padding:"3rem",color:V.textDD,fontStyle:"italic",border:`1px dashed ${V.line}`,borderRadius:4}}>Select a nation to view the Republic's policy.</div>
-        :<CountryDetail country={sel} restrictions={restrictions}/>}
-      </div>
+    {list.length===0?<div style={{textAlign:"center",padding:"3rem",color:V.textDD,fontStyle:"italic"}}>{all.length===0?"No nations on record.":"No nations match."}</div>
+    :<div style={{display:"flex",flexDirection:"column",gap:"1rem"}}>
+      {list.map(c=><CountryDetail key={c.id} country={c} restrictions={restrictions}/>)}
     </div>}
   </div>;
 }
@@ -693,7 +674,7 @@ function Panel({user,countries,restrictions,visas,citizens,passports,accounts,on
     {sec==="countries"&&<PanelCountries countries={countries} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
     {sec==="restrictions"&&<PanelRestrictions countries={countries} restrictions={restrictions} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
     {sec==="visas"&&<PanelVisas visas={visas} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
-    {sec==="passports"&&<PanelPassports passports={passports} visas={visas} accounts={accounts} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+    {sec==="passports"&&<PanelPassports passports={passports} visas={visas} accounts={accounts} citizens={citizens} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
     {sec==="citizens"&&<PanelCitizenship citizens={citizens} accounts={accounts} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
   </div>;
 }
@@ -803,12 +784,15 @@ function VisaRow({visa,onAction,notify,setProcessing}){
     </div>}
   </div>;
 }
-function PanelPassports({passports,visas,accounts,onAction,notify,setProcessing}){
+function PanelPassports({passports,visas,accounts,citizens,onAction,notify,setProcessing}){
   const [acct,setAcct]=useState("");const [name,setName]=useState("");const [username,setUsername]=useState("");const [type,setType]=useState("regular");const [certified,setCertified]=useState(false);
   const today=new Date().toISOString().slice(0,10);const plus10=new Date(Date.now()+10*365.25*86400000).toISOString().slice(0,10);
   const [issued,setIssued]=useState(today);const [expires,setExpires]=useState(plus10);const [place,setPlace]=useState("");const [saving,setSaving]=useState(false);const [viewing,setViewing]=useState(null);
   const tMeta=ppType(type);
-  const acctOpts=[{v:"",l:"— Select an account —"},...((accounts||[]).map(a=>({v:a.username,l:(a.displayName?a.displayName+" ":"")+"@"+a.username})))];
+  // Only citizens may be issued a passport — the register decides who qualifies.
+  const citizenSet=useMemo(()=>{const s=new Set();Object.values(citizens||{}).forEach(c=>{if(["citizen","naturalised"].includes(String(c.status||"")))s.add(String(c.username||"").toLowerCase());});return s;},[citizens]);
+  const citizenAccts=(accounts||[]).filter(a=>citizenSet.has(String(a.username||"").toLowerCase()));
+  const acctOpts=[{v:"",l:"— Select a citizen —"},...citizenAccts.map(a=>({v:a.username,l:(a.displayName?a.displayName+" ":"")+"@"+a.username}))];
   const pick=u=>{setAcct(u);setUsername(u);const a=(accounts||[]).find(x=>x.username===u);setName(a?(a.displayName||a.username):"");};
   const list=Object.values(passports||{}).sort((a,b)=>((a.username||a.name)||"").localeCompare((b.username||b.name)||""));
   return <div>
@@ -924,7 +908,7 @@ function AuthModal({accounts,onClose,onAuth,notify}){
   return <div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:"fixed",inset:0,zIndex:9000,background:"rgba(5,10,22,.92)",display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem"}}>
     <div style={{maxWidth:400,width:"100%",background:V.panel,border:`1px solid ${V.line}`,borderTop:`3px solid ${V.gold}`,borderRadius:"0 0 5px 5px",padding:"1.7rem"}} onKeyDown={e=>{if(e.key==="Enter")go();}}>
       <div style={{textAlign:"center",marginBottom:"1.2rem"}}>
-        <Seal file="state.png" size={56} style={{margin:"0 auto 10px",display:"block"}}/>
+        <Seal file="statedept.png" size={56} style={{margin:"0 auto 10px",display:"block"}}/>
         <div className="mono" style={{fontSize:9,letterSpacing:"0.4em",color:V.gold}}>DEPARTMENT OF STATE</div>
         <div className="pf" style={{fontWeight:900,fontSize:20,color:V.text,marginTop:4}}>Sign In</div>
         <div style={{fontSize:13,color:V.textD,fontStyle:"italic",marginTop:6,lineHeight:1.6}}>Use your Republic of Vindex Nation account. Public records are viewable without signing in.</div>
@@ -944,7 +928,7 @@ function AuthModal({accounts,onClose,onAuth,notify}){
 function App(){
   const [raw,setRaw]=useState({});
   const [loaded,setLoaded]=useState(false);
-  const [tab,setTab]=useState("advisories");
+  const [tab,setTab]=useState("relations");
   // Seeded from the cached session so the header shows you signed in immediately;
   // the effect below reconciles it against the server.
   const [user,setUser]=useState(()=>cachedAccount());
@@ -997,11 +981,10 @@ function App(){
   },[raw,countries,restrictions,visas,citizens,passports]);
 
   const TABS=[
-    {v:"advisories",l:"Travel Advisories"},
+    {v:"relations",l:"Foreign Relations"},
     {v:"citizenship",l:"Citizenship"},
     {v:"visa",l:"Visas"},
     {v:"passports",l:"Passports"},
-    {v:"policy",l:"Foreign Policy"},
     ...(iCanPanel?[{v:"panel",l:"Department Panel"}]:[]),
   ];
 
@@ -1011,7 +994,7 @@ function App(){
     <div style={{background:`linear-gradient(180deg,${V.navy},${V.bg2})`,borderBottom:`2px solid ${V.gold}55`}}>
       <div style={{maxWidth:1080,margin:"0 auto",padding:"0.8rem 1.2rem",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
         <a href="vindex.html" className="mono" style={{fontSize:8,letterSpacing:"0.1em",color:V.textD,textDecoration:"none",border:`1px solid ${V.line}`,borderRadius:2,padding:"4px 9px",flexShrink:0}}>← GOV PORTAL</a>
-        <Seal file="state.png" size={44}/>
+        <Seal file="statedept.png" size={44}/>
         <div style={{flex:1,minWidth:170}}>
           <div className="pf" style={{fontWeight:900,fontSize:16.5,letterSpacing:"0.05em",color:V.text,lineHeight:1.1}}>Department of State</div>
           <div className="mono" style={{fontSize:8,letterSpacing:"0.3em",color:V.gold,marginTop:2}}>REPUBLIC OF VINDEX NATION · E PLURIBUS UNUM</div>
@@ -1031,17 +1014,16 @@ function App(){
 
     {/* hero seal */}
     <div style={{maxWidth:1080,margin:"0 auto",padding:"1.5rem 1.2rem 0",textAlign:"center"}}>
-      <Seal file="state.png" size={128} style={{margin:"0 auto",display:"block"}}/>
+      <Seal file="statedept.png" size={128} style={{margin:"0 auto",display:"block"}}/>
       <div className="mono" style={{fontSize:8.5,letterSpacing:"0.45em",color:V.gold,marginTop:"0.7rem"}}>UNITED IN DIPLOMACY · SECURE IN LIBERTY</div>
     </div>
 
     <div style={{maxWidth:1080,margin:"0 auto",padding:"0.4rem 1.2rem 3rem"}}>
       {!loaded&&<div style={{textAlign:"center",padding:"4rem"}}><div className="mono" style={{fontSize:10,letterSpacing:"0.35em",color:V.textDD,animation:"pulse 1.4s infinite"}}>LOADING…</div></div>}
-      {loaded&&tab==="advisories"&&<AdvisoriesTab countries={countries}/>}
+      {loaded&&tab==="relations"&&<RelationsTab countries={countries} restrictions={restrictions}/>}
       {loaded&&tab==="citizenship"&&<CitizenshipTab citizens={citizens} user={user} myCitizenship={myCitizenship} onRequireSignIn={()=>setAuthOpen(true)} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
       {loaded&&tab==="visa"&&<VisaTab countries={countries} visas={visas} user={user} myCitizenship={myCitizenship} onAction={onAction} notify={notify}/>}
       {loaded&&tab==="passports"&&<PassportsTab passports={passports} visas={visas}/>}
-      {loaded&&tab==="policy"&&<PolicyTab countries={countries} restrictions={restrictions}/>}
       {loaded&&tab==="panel"&&iCanPanel&&<Panel user={user} countries={countries} restrictions={restrictions} visas={visas} citizens={citizens} passports={passports} accounts={accounts} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
     </div>
 

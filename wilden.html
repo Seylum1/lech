@@ -312,9 +312,7 @@ const stageOf=s=>STAGES[s]||STAGES.draft;
    appoint the Sovereign, which is the only way the first one gets there.       */
 const OFFICES=[
   {v:"",              l:"No office",                       short:"NONE",       tag:"grey",  house:null,
-   note:"Holds no office in Wilden."},
-  {v:"citizen",       l:"Wildenian citizen",               short:"CITIZEN",    tag:"grey",  house:null,
-   note:"A citizen of Wilden, holding no office. Citizens elect the House of Commons."},
+   note:"Holds no office in Wilden. Citizenship is recorded in the Ministry of Foreign Affairs."},
   {v:"mp",            l:"Member of the House of Commons",  short:"MP",         tag:"blue",  house:"commons",
    note:"One of the seven elected members. Votes in every division of the Commons."},
   {v:"speaker",       l:"Speaker of the House of Commons", short:"SPEAKER",    tag:"blue",  house:"commons",
@@ -350,8 +348,8 @@ const canIntroduce=u=>inCommons(u)||inLords(u)||canPreside(u);
 function grantableBy(actor){
   if(isOwner(actor)) return OFFICES.map(o=>o.v);
   if(isSovereign(actor)) return OFFICES.filter(o=>o.v!=="sovereign").map(o=>o.v);
-  if(isPM(actor)) return ["","citizen","mp","lord","appointed"];
-  if(isSpeaker(actor)) return ["","citizen","mp"];
+  if(isPM(actor)) return ["","mp","lord","appointed"];
+  if(isSpeaker(actor)) return ["","mp"];
   return [];
 }
 const canAppoint=u=>grantableBy(u).length>0;
@@ -975,7 +973,7 @@ function OfficeForm({user,accounts,citizens,onAction,notify,setBusy}){
     });
   // An office (past "citizen") needs citizenship. The Crown is the one exception —
   // the Sovereign is above citizenship, and is the administrator's to appoint.
-  const needsCit=v=>!!v&&v!=="citizen"&&v!=="sovereign";
+  const needsCit=v=>!!v&&v!=="sovereign";
   return <div>
     <h2 style={{marginTop:0}}>Appointments</h2>
     <Inset blue>

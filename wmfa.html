@@ -573,6 +573,74 @@ function IssuePassport({citizenAccounts,passports,onAction,notify,setBusy}){
   </div>;
 }
 
+/* ═══════════ FOREIGN RELATIONS ═══════════════════════════════════════════ */
+const WX_REL=[
+  {v:"full",   l:"Full relations",  tag:"green"},
+  {v:"limited",l:"Limited relations",tag:"blue"},
+  {v:"none",   l:"No relations",    tag:"grey"},
+  {v:"hostile",l:"Hostile",         tag:"red"},
+];
+const WX_ADV=[
+  {v:1,l:"Level 1 — Take normal precautions", tag:"green"},
+  {v:2,l:"Level 2 — Exercise increased caution",tag:"amber"},
+  {v:3,l:"Level 3 — Reconsider travel",       tag:"amber"},
+  {v:4,l:"Level 4 — Do not travel",           tag:"red"},
+];
+const FOREIGN=[
+  {key:"lech",  name:"Empire of Lech",             href:"lech.html"},
+  {key:"vindex",name:"Republic of Vindex Nation",  href:"vindex.html"},
+];
+const relOf=v=>WX_REL.find(r=>r.v===v)||WX_REL[2];
+const advOf=v=>WX_ADV.find(a=>a.v===Number(v))||WX_ADV[0];
+
+function RelationsTab({relations,user,gov,onAction,notify,setBusy}){
+  const manage=canManage(user,gov);
+  return <div>
+    <h1>Foreign Relations</h1>
+    <p className="lede">Wilden's diplomatic relations and travel advisories toward the other nations of
+      the network, as set by the Ministry of Foreign Affairs.</p>
+    <div className="grid g2">
+      {FOREIGN.map(c=><CountryCard key={c.key} country={c} rec={relations[c.key]||{}} manage={manage}
+        onAction={onAction} notify={notify} setBusy={setBusy}/>)}
+    </div>
+  </div>;
+}
+function CountryCard({country,rec,manage,onAction,notify,setBusy}){
+  const [open,setOpen]=useState(false);
+  const [relation,setRelation]=useState(rec.relation||"none");
+  const [advisory,setAdvisory]=useState(rec.advisory||1);
+  const [advisoryText,setAdvisoryText]=useState(rec.advisoryText||"");
+  const [policy,setPolicy]=useState(rec.policy||"");
+  const [saving,setSaving]=useState(false);
+  const r=relOf(rec.relation),a=advOf(rec.advisory);
+  const set=rec.relation!==undefined||rec.advisory!==undefined||rec.policy;
+  return <div className="card">
+    <h3 style={{marginTop:0}}><a href={country.href}>{country.name} ↗</a></h3>
+    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+      <Tag t={r.tag}>{r.l}</Tag><Tag t={a.tag}>{a.l}</Tag>
+    </div>
+    {rec.advisoryText&&<div className="inset blue" style={{margin:"0 0 12px"}}>
+      <div className="caption">Travel advisory</div>{rec.advisoryText}</div>}
+    {rec.policy&&<p style={{fontSize:15,marginBottom:manage?12:0}}>{rec.policy}</p>}
+    {!set&&!manage&&<p className="hint" style={{marginBottom:0}}>No relations recorded.</p>}
+    {manage&&<Btn small kind="sec" onClick={()=>setOpen(o=>!o)}>{open?"Close":"Edit"}</Btn>}
+    {manage&&open&&<div style={{borderTop:"1px solid var(--grey3)",marginTop:12,paddingTop:14}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"0 16px"}}>
+        <Field label="Relation"><select value={relation} onChange={e=>setRelation(e.target.value)}>{WX_REL.map(x=><option key={x.v} value={x.v}>{x.l}</option>)}</select></Field>
+        <Field label="Advisory level"><select value={advisory} onChange={e=>setAdvisory(Number(e.target.value))}>{WX_ADV.map(x=><option key={x.v} value={x.v}>{x.l}</option>)}</select></Field>
+      </div>
+      <Field label="Advisory text"><textarea rows={2} value={advisoryText} onChange={e=>setAdvisoryText(e.target.value)}/></Field>
+      <Field label="Policy statement"><textarea rows={3} value={policy} onChange={e=>setPolicy(e.target.value)}/></Field>
+      <Btn disabled={saving} onClick={async()=>{
+        setSaving(true);setBusy("Saving");
+        const res=await onAction("relation",{key:country.key,relation,advisory,advisoryText:advisoryText.trim(),policy:policy.trim()});
+        setBusy(null);setSaving(false);
+        if(res.ok){setOpen(false);notify("Relations with "+country.name+" updated.",true);}else notify(res.error,false);
+      }}>{saving?"Saving…":"Save"}</Btn>
+    </div>}
+  </div>;
+}
+
 /* ── sign in ─────────────────────────────────────────────────────────────── */
 function SignIn({onClose,onAuth}){
   const [u,setU]=useState(""),[p,setP]=useState(""),[err,setErr]=useState(""),[busy,setBusy]=useState(false);
@@ -610,6 +678,7 @@ function App(){
   const citizens=useMemo(()=>raw["wx_state_citizens"]||{},[raw]);
   const passports=useMemo(()=>raw["wx_state_passports"]||{},[raw]);
   const gov=useMemo(()=>raw["wx_gov"]||{},[raw]);
+  const relations=useMemo(()=>raw["wx_state_relations"]||{},[raw]);
   const me=useMemo(()=>{if(!user)return null;const u=String(user.username||"").toLowerCase();
     return Object.values(citizens).find(c=>String(c.username||"").toLowerCase()===u)||null;},[citizens,user]);
 
@@ -629,10 +698,11 @@ function App(){
     if(type==="remove"){const cur={...citizens};delete cur[p.id];return await put("wx_state_citizens",cur);}
     if(type==="issue"){const id="wpp_"+uid();const cur={...passports,[id]:{id,...p,issuedAt:Date.now()}};return await put("wx_state_passports",cur);}
     if(type==="ppUpdate"){const cur={...passports};if(cur[p.id])cur[p.id]={...cur[p.id],status:p.status};return await put("wx_state_passports",cur);}
+    if(type==="relation"){const {key,...rec}=p;const cur={...relations,[key]:{...rec,updatedAt:Date.now()}};return await put("wx_state_relations",cur);}
     return {ok:false,error:"Unknown action."};
-  },[citizens,passports]);
+  },[citizens,passports,relations]);
 
-  const TABS=[["home","Home"],["citizenship","Citizenship"],["passports","Passports"]];
+  const TABS=[["home","Home"],["citizenship","Citizenship"],["passports","Passports"],["relations","Foreign Relations"]];
   const manages=canManage(user,gov);
   const office=user?(wxRole(user)?wxRole(user):(isOwner(user)?"System administrator":"signed in")):"";
 
@@ -667,6 +737,7 @@ function App(){
       {loaded&&tab==="home"&&<HomeTab citizens={citizens} passports={passports} me={me} onGo={setTab}/>}
       {loaded&&tab==="citizenship"&&<CitizenshipTab citizens={citizens} accounts={accounts} user={user} gov={gov} onAction={onAction} notify={notify} setBusy={setBusy}/>}
       {loaded&&tab==="passports"&&<PassportsTab passports={passports} citizens={citizens} accounts={accounts} user={user} gov={gov} onAction={onAction} notify={notify} setBusy={setBusy}/>}
+      {loaded&&tab==="relations"&&<RelationsTab relations={relations} user={user} gov={gov} onAction={onAction} notify={notify} setBusy={setBusy}/>}
     </div></main>
 
     <footer className="ftr"><div className="w">

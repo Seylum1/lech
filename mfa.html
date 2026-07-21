@@ -252,33 +252,30 @@ function VisaInfo({country}){
     {country.visaPolicy&&<div style={{fontSize:13,color:C.textD,fontStyle:"italic",lineHeight:1.6,marginTop:hasReq?4:0}}>{country.visaPolicy}</div>}
   </div>;
 }
-function AdvisoriesTab({countries,advisories}){
-  // Advisories cover places you can travel — sovereign states & territories only (orgs/armed groups live under Foreign Policy).
-  const list=Object.values(countries||{}).filter(c=>!c.entityType||c.entityType==="state"||c.entityType==="territory").sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+/* ── FOREIGN RELATIONS (advisories + policy, in one) ─────────────────────── */
+function RelationsTab({countries,advisories,restrictions}){
+  const [q,setQ]=useState("");const [rel,setRel]=useState("all");
+  const query=q.trim().toLowerCase();
+  const all=Object.values(countries||{});
+  const list=all
+    .filter(c=>(!query||(c.name||"").toLowerCase().includes(query))&&(rel==="all"||c.relation===rel))
+    .sort((a,b)=>{const order={full:0,limited:1,none:2,hostile:3};return(order[a.relation]||2)-(order[b.relation]||2)||(a.name||"").localeCompare(b.name||"");});
   return <div className="fadeIn">
-    <STitle>Travel Advisories</STitle>
-    <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.5rem"}}>Advisories issued by the Ministry of Foreign Affairs for Imperial citizens travelling abroad.</div>
-    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:"1.5rem"}}>
+    <STitle>Foreign Relations</STitle>
+    <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.25rem"}}>
+      The Empire's diplomatic relations and travel advisories, as set by the Ministry of Foreign Affairs.
+      Each nation's standing, policy and advisory are shown together.
+    </div>
+    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:"1.1rem"}}>
       {ADVISORY_LEVELS.map(al=><div key={al.level} style={{display:"flex",alignItems:"center",gap:6,background:al.bg,border:`1px solid ${al.border}`,borderRadius:2,padding:"4px 10px"}}><div style={{width:8,height:8,borderRadius:"50%",background:al.color,flexShrink:0}}/><span className="mono" style={{fontSize:9,color:al.color}}>{al.code}: {al.label}</span></div>)}
     </div>
-    {list.length===0?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No advisories issued.</div>
-    :<div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
-      {list.map(country=>{
-        const adv=getAdvisory(country,advisories);
-        const al=getAL(adv.level||1);
-        return <div key={country.id} style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${al.color}`,borderRadius:"0 3px 3px 0",padding:"1rem 1.25rem"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8,marginBottom:"0.5rem"}}>
-            <div>
-              <div style={{fontFamily:"'Cinzel',serif",fontSize:15,fontWeight:700,color:C.text,marginBottom:3}}>{country.name}</div>
-              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}><RelationBadge relation={country.relation}/><AdvisoryBadge level={adv.level||1}/></div>
-            </div>
-            {country.entityType&&<span className="mono" style={{fontSize:9,color:C.textDD}}>{(ENTITY_TYPES.find(e=>e.v===country.entityType)||{l:""}).l}</span>}
-          </div>
-          {adv.text&&<div style={{fontSize:14,color:C.textD,lineHeight:1.7,fontStyle:"italic",marginTop:"0.5rem"}}>{adv.text}</div>}
-          {adv.updatedAt&&<div className="mono" style={{fontSize:9,color:C.textDD,marginTop:6}}>Last updated {new Date(adv.updatedAt).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})}</div>}
-          <VisaInfo country={country}/>
-        </div>;
-      })}
+    {all.length>0&&<div style={{display:"flex",gap:"0.75rem",marginBottom:"1.1rem",flexWrap:"wrap"}}>
+      <div style={{flex:2,minWidth:180}}><Inp value={q} onChange={setQ} placeholder="Search a nation…"/></div>
+      <div style={{flex:1,minWidth:170}}><DD value={rel} onChange={setRel} options={[{v:"all",l:"All relations"},...RELATION_TYPES.map(r=>({v:r.v,l:r.l}))]}/></div>
+    </div>}
+    {list.length===0?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>{all.length===0?"No nations on record.":"No nations match."}</div>
+    :<div style={{display:"flex",flexDirection:"column",gap:"1rem"}}>
+      {list.map(c=><PolicyDetail key={c.id} country={c} advisories={advisories} restrictions={restrictions}/>)}
     </div>}
   </div>;
 }
@@ -746,25 +743,6 @@ function VisaForm({countries,onSubmit,notify,user,myCitizenship}){
 }
 
 
-function PolicyTab({countries,advisories,restrictions}){
-  const [selected,setSelected]=useState(null);
-  const list=Object.values(countries||{}).sort((a,b)=>{const order={full:0,limited:1,none:2,hostile:3};return(order[a.relation]||2)-(order[b.relation]||2)||(a.name||"").localeCompare(b.name||"");});
-  const sel=selected?countries[selected]:null;
-  return <div className="fadeIn">
-    <STitle>Imperial Foreign Policy</STitle>
-    <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.5rem"}}>Official foreign policy of the Empire of Lech, as set by the Ministry of Foreign Affairs.</div>
-    {list.length===0?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No foreign policy records published.</div>
-    :<div style={{display:"flex",gap:"1.5rem",flexWrap:"wrap"}}>
-      <div style={{flex:"0 0 220px",minWidth:180}}>
-        {list.map(c=>{const rt=getRT(c.relation);return <div key={c.id} onClick={()=>setSelected(selected===c.id?null:c.id)} style={{background:selected===c.id?C.s2:C.s1,border:`1px solid ${selected===c.id?rt.color:C.border}`,borderLeft:`4px solid ${rt.color}`,borderRadius:"0 3px 3px 0",padding:"0.65rem 0.85rem",marginBottom:4,cursor:"pointer",transition:"all .15s"}}><div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.text,marginBottom:2}}>{c.name}</div><span className="mono" style={{fontSize:8,color:rt.color}}>{rt.badge}</span></div>;})}
-      </div>
-      <div style={{flex:1,minWidth:260}}>
-        {sel?<PolicyDetail country={sel} advisories={advisories} restrictions={restrictions}/>:<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>Select a country to view detailed policy.</div>}
-      </div>
-    </div>}
-  </div>;
-}
-
 function PolicyDetail({country,advisories,restrictions}){
   const rt=getRT(country.relation);const adv=getAdvisory(country,advisories);const al=getAL(adv.level||1);
   const cr=Object.values(restrictions||{}).filter(r=>r.country===country.id||r.countryName===country.name);
@@ -1100,7 +1078,7 @@ function CitizenRow({citizen,st,accounts,onAction,notify,setProcessing}){
 }
 
 function App(){
-  const [tab,setTab]=useState("advisories");
+  const [tab,setTab]=useState("relations");
   const [raw,setRaw]=useState({});
   const [loaded,setLoaded]=useState(false);
   // Seeded from the cached session so the page paints signed-in at once; the
@@ -1154,7 +1132,7 @@ function App(){
     else if(type==="deletePassport"){const next={...passports};delete next[payload.id];setRaw(r=>({...r,mfa_passports:next}));await sset("mfa_passports",next);}
   },[raw,countries,advisories,restrictions,visas,citizens,passports]);
 
-  const TABS=[{v:"advisories",l:"Travel Advisories",icon:"+"},{v:"citizenship",l:"Citizenship",icon:"+"},{v:"visa",l:"Visa Applications",icon:"+"},{v:"passports",l:"Passports",icon:"+"},{v:"policy",l:"Foreign Policy",icon:"+"},{v:"restrictions",l:"Restrictions",icon:"+"},{v:"panel",l:"Panel",icon:"+"}];
+  const TABS=[{v:"relations",l:"Foreign Relations",icon:"+"},{v:"citizenship",l:"Citizenship",icon:"+"},{v:"visa",l:"Visa Applications",icon:"+"},{v:"passports",l:"Passports",icon:"+"},{v:"restrictions",l:"Restrictions",icon:"+"},{v:"panel",l:"Panel",icon:"+"}];
 
   function handleTabClick(v){setTab(v);}
   const myCitizenship=user?Object.values(citizens).find(c=>(c.username||"").toLowerCase()===user.username.toLowerCase()):null;
@@ -1189,11 +1167,10 @@ function App(){
     <div style={{maxWidth:1100,margin:"0 auto",padding:"1.75rem 1.25rem"}}>
       {!loaded&&<div style={{textAlign:"center",padding:"4rem",color:C.textDD}}><div className="mono" style={{fontSize:10,letterSpacing:"0.3em",animation:"pulse 1.5s infinite"}}>Loading...</div></div>}
       {authOpen&&<SignIn onClose={()=>setAuthOpen(false)} onAuth={(u,r)=>{setUser(u);setRaw(prev=>({...prev,...r}));setAuthOpen(false);notify("Signed in as "+(u.displayName||u.username)+".",C.gold);}}/>}
-      {loaded&&tab==="advisories"&&<AdvisoriesTab countries={countries} advisories={advisories}/>}
+      {loaded&&tab==="relations"&&<RelationsTab countries={countries} advisories={advisories} restrictions={restrictions}/>}
       {loaded&&tab==="citizenship"&&<CitizenshipTab citizens={citizens} user={user} myCitizenship={myCitizenship} onRequireSignIn={()=>setAuthOpen(true)} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
       {loaded&&tab==="visa"&&<VisaTab countries={countries} onSubmitVisa={data=>onAction("submitVisa",data)} notify={notify} visas={visas} user={user} myCitizenship={myCitizenship}/>}
       {loaded&&tab==="passports"&&<PassportsTab passports={passports} visas={visas}/>}
-      {loaded&&tab==="policy"&&<PolicyTab countries={countries} advisories={advisories} restrictions={restrictions}/>}
       {loaded&&tab==="restrictions"&&<RestrictionsTab restrictions={restrictions}/>}
       {loaded&&tab==="panel"&&canPanel&&<PanelContent user={user} countries={countries} advisories={advisories} restrictions={restrictions} visas={visas} citizens={citizens} passports={passports} accounts={accounts} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
       {loaded&&tab==="panel"&&!canPanel&&<div style={{textAlign:"center",padding:"3rem",color:C.textDD}}>

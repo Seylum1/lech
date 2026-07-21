@@ -175,10 +175,8 @@ const canIntroduce=u=>isRep(u)||canPreside(u);
    (4(2)(f)); the Speaker runs the monthly elections that seat the House
    (6(1)(b)). The server enforces this again on every write. */
 const VX_OFFICES=[
-  {v:"",              l:"No standing",                   short:"NONE",           color:V.textDD,
-   note:"Holds no office in the Republic."},
-  {v:"citizen",       l:"Citizen of Vindex",             short:"CITIZEN",        color:V.textD,
-   note:"Recognised as Vinish, holding no office."},
+  {v:"",              l:"No office",                     short:"NONE",           color:V.textDD,
+   note:"Holds no office in the Republic. Citizenship is recorded in the Department of State."},
   {v:"representative",l:"Representative of the House",   short:"REPRESENTATIVE", color:"#6fa8ff",
    note:"Holds one of the seven seats and votes on every measure before the House."},
   {v:"speaker",       l:"Speaker of the House",          short:"SPEAKER",        color:V.goldL,
@@ -195,7 +193,7 @@ const officeOf=v=>VX_OFFICES.find(o=>o.v===String(v||""))||VX_OFFICES[0];
 function grantableBy(actor){
   if(isEmperor(actor)) return VX_OFFICES.map(o=>o.v);             // including the presidency
   if(isPresident(actor)) return VX_OFFICES.filter(o=>o.v!=="president").map(o=>o.v);
-  if(isSpeaker(actor)) return ["","citizen","representative"];    // the elections they run
+  if(isSpeaker(actor)) return ["","representative"];              // the elections they run
   return [];
 }
 const canAppoint=u=>grantableBy(u).length>0;
@@ -864,7 +862,7 @@ function AppointRow({account,user,grants,citizen,onAction,notify,setProcessing})
   // An actual office (anything past "citizen") may be conferred only on a citizen.
   // A non-citizen who somehow holds one may still be removed, so their current
   // value stays selectable — they just cannot be moved into another office.
-  const needsCit=v=>!!v&&v!=="citizen";
+  const needsCit=v=>!!v;
   const opts=VX_OFFICES.filter(x=>grants.includes(x.v)&&(citizen||!needsCit(x.v)||x.v===cur));
   return <div style={{background:V.panel,border:`1px solid ${V.line}`,borderLeft:`3px solid ${cur?o.color:V.line}`,
     borderRadius:"0 3px 3px 0",padding:"0.6rem 1rem",display:"flex",gap:11,alignItems:"center",flexWrap:"wrap"}}>
