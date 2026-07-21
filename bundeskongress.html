@@ -16,11 +16,6 @@
 
 const { useState, useEffect, useRef, useCallback, useMemo, useContext, createContext } = React;
 const COA_B64 = document.getElementById("coa-data").textContent.trim();
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz37c5Okp9c7PkXv38x2lq7Is3RifkJPee5ASb2KQfA7EJgsN0NwrigmiRr1a_G0E6d4Q/exec";
-// Shared ministry backend: IJ statutes/cases and the MOI account register.
-// The Bundeskongress reads from it but never writes to it.
-const MAIN_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxLu8jQehAZJEvMEeCLoHc9S2C4FM8o9fQh8Pp4gMzDNwwIG0S9qLJ5-1gyGM1c_InUfQ/exec";
-const IJ_SCRIPT_URL = MAIN_SCRIPT_URL;
 
 // The parties as originally hardcoded. These are now seeded into the registry
 // (bk_parties) on first load and are editable from the Throne like any other,
@@ -955,11 +950,10 @@ var _writeTx = null;
 function beginTx() { _writeTx = { keys: [], committed: false }; }
 function commitTx() { if(_writeTx) _writeTx.committed = true; _writeTx = null; }
 
+// Leaving mid-transaction only warns; nothing is rolled back from here. A
+// half-written batch is repaired by finishing the action, not by deleting keys.
 window.addEventListener("beforeunload", function(e) {
   if(_writeTx && !_writeTx.committed) {
-    _writeTx.keys.forEach(function(k) {
-      try { navigator.sendBeacon(SCRIPT_URL, JSON.stringify({action:"del",key:k})); } catch(ex){}
-    });
     e.preventDefault();
     e.returnValue = "Data is still saving. Leaving now may corrupt your data.";
   }

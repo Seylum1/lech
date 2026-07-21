@@ -210,7 +210,13 @@ async function sgetAll(){try{const r=await fetch(API+"/api/data"+(AUTH_TOKEN?"?t
 async function saveRecord(collection,record){try{const r=await fetch(API+"/api/write",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,collection,record})});const d=await r.json();return d&&d.ok?{ok:true}:{ok:false,error:(d&&d.error)||"Refused."};}catch{return {ok:false,error:"Connection error."};}}
 async function deleteRecord(collection,id){try{const r=await fetch(API+"/api/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,collection,id})});const d=await r.json();return d&&d.ok?{ok:true}:{ok:false,error:(d&&d.error)||"Refused."};}catch{return {ok:false,error:"Connection error."};}}
 async function slogin(username,password){try{const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password})});const d=await r.json();if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token,d.account);return {ok:true,account:d.account};}return {ok:false,error:(d&&d.error)||"Sign in was refused"};}catch(e){return {ok:false,error:"Connection error"};}}
-async function registerAccount(username,passwordHash,displayName){try{const r=await fetch(API+"/api/register",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username,passwordHash,displayName})});const d=await r.json();if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token,d.account);return {ok:true,account:d.account};}return {ok:false,error:(d&&d.error)||"Registration was refused"};}catch(e){return {ok:false,error:"Connection error"};}}
+async function registerAccount(username,passwordHash,firstName,lastName){try{const r=await fetch(API+"/api/register",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username,passwordHash,firstName,lastName})});const d=await r.json();if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token,d.account);return {ok:true,account:d.account};}return {ok:false,error:(d&&d.error)||"Registration was refused"};}catch(e){return {ok:false,error:"Connection error"};}}
+async function setRoleplayName(firstName,lastName){try{const r=await fetch(API+"/api/set-name",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,firstName,lastName})});const d=await r.json();if(d&&d.ok){saveSession(AUTH_TOKEN,d.account);return {ok:true,account:d.account};}return {ok:false,error:(d&&d.error)||"Refused."};}catch{return {ok:false,error:"Connection error."};}}
+// An account still needs a roleplay name if it predates the first/last-name
+// rule: no display name, one that restates the username, or a single word.
+// Mirrors the server's needsRoleplayName; the Emperor is exempt at the gate.
+function needsRpName(acc){if(!acc)return false;const dn=String(acc.displayName||"").trim();
+  return !dn||dn.toLowerCase()===String(acc.username||"").toLowerCase()||!/\s/.test(dn);}
 async function verifyMcName(name){try{const r=await fetch(API+"/api/verify-mc?name="+encodeURIComponent(String(name||"").trim()));const d=await r.json();return (d&&d.ok)?{ok:true,name:d.name,uuid:d.uuid}:{ok:false,error:(d&&d.error)||"Could not check that name."};}catch{return {ok:false,error:"Connection error."};}}
 async function resetPfp(username){try{const r=await fetch(API+"/api/profile-picture",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,username:String(username||"").toLowerCase(),clear:true})});const d=await r.json();return !!(d&&d.ok);}catch{return false;}}
 async function sha256(t){const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,"0")).join("");}
@@ -236,15 +242,19 @@ function standingFor(acc,raw){
   const u=String(acc.username||"").toLowerCase();
   const lechCit=Object.values(raw.mfa_citizens||{}).find(c=>String(c.username||"").toLowerCase()===u);
   const vxCit=Object.values(raw.vx_state_citizens||{}).find(c=>String(c.username||"").toLowerCase()===u);
+  const wxCit=Object.values(raw.wx_state_citizens||{}).find(c=>String(c.username||"").toLowerCase()===u);
+  // Citizenship comes from each foreign ministry's register alone; the retired
+  // "citizen" pseudo-office some legacy accounts still carry is not standing.
   const lech=[];
   if(acc.role&&acc.role!=="citizen") lech.push(LECH_ROLE_LABEL[acc.role]||acc.role);
   LECH_HATS.forEach(([k,l])=>{if(acc[k]) lech.push(l);});
   if(lechCit&&lechCit.status) lech.push(CIT_LABEL[lechCit.status]||lechCit.status);
   const vindex=[];
-  if(acc.vxRole) vindex.push(VX_LABEL[acc.vxRole]||acc.vxRole);
+  if(acc.vxRole&&acc.vxRole!=="citizen") vindex.push(VX_LABEL[acc.vxRole]||acc.vxRole);
   if(vxCit&&vxCit.status) vindex.push(CIT_LABEL[vxCit.status]||vxCit.status);
   const wilden=[];
-  if(acc.wxRole) wilden.push(WX_LABEL[acc.wxRole]||acc.wxRole);
+  if(acc.wxRole&&acc.wxRole!=="citizen") wilden.push(WX_LABEL[acc.wxRole]||acc.wxRole);
+  if(wxCit&&wxCit.status) wilden.push(CIT_LABEL[wxCit.status]||wxCit.status);
   return [
     {country:"Empire of Lech",short:"Lech",color:"#b8902f",items:lech},
     {country:"Republic of Vindex Nation",short:"Vindex",color:"#2f6fb5",items:vindex},
@@ -345,23 +355,28 @@ function SignIn({onClose,onDone,switchRegister}){
 
 /* ── register (public, Minecraft-verified, country-neutral) ──────────────── */
 function Register({onClose,onDone,switchSignIn}){
-  const [u,setU]=useState(""),[dn,setDn]=useState(""),[p,setP]=useState(""),[p2,setP2]=useState("");
+  const [u,setU]=useState(""),[fn,setFn]=useState(""),[ln,setLn]=useState(""),[p,setP]=useState(""),[p2,setP2]=useState("");
   const [err,setErr]=useState(""),[busy,setBusy]=useState(false);
   const go=async()=>{if(busy)return;
     if(!u.trim()){setErr("Enter your Minecraft username.");return;}
+    if(!fn.trim()||!ln.trim()){setErr("Enter your roleplay character's first and last name.");return;}
     if(p.length<4){setErr("Choose a password of at least 4 characters.");return;}
     if(p!==p2){setErr("The two passwords do not match.");return;}
     setBusy(true);setErr("");
     const hash=await sha256(p);
-    const r=await registerAccount(u.trim(),hash,dn.trim());
+    const r=await registerAccount(u.trim(),hash,fn.trim(),ln.trim());
     if(!r.ok){setErr(r.error);setBusy(false);return;}onDone(r.account);};
   return <Overlay onClose={onClose}><ModalHead title="Register" onClose={onClose}/>
     <div style={{padding:"18px 24px 24px"}} onKeyDown={e=>{if(e.key==="Enter")go();}}>
-      <Note>Your username must be a real Minecraft account — it is checked against Mojang. A new
+      <Note>Your username must be a real Minecraft account — it is checked against Mojang. Your roleplay
+        name is who you are on the network; it appears on every register and document. A new
         account belongs to no nation; each country grants its own citizenship afterward.</Note>
       {err&&<Note err>{err}</Note>}
       <Field label="Minecraft username"><Inp value={u} onChange={e=>setU(e.target.value)} autoFocus placeholder="Your exact Minecraft name"/></Field>
-      <Field label="Display name" hint="Optional — defaults to your Minecraft name."><Inp value={dn} onChange={e=>setDn(e.target.value)}/></Field>
+      <div style={{display:"flex",gap:12}}>
+        <div style={{flex:1}}><Field label="First name"><Inp value={fn} onChange={e=>setFn(e.target.value)}/></Field></div>
+        <div style={{flex:1}}><Field label="Last name"><Inp value={ln} onChange={e=>setLn(e.target.value)}/></Field></div>
+      </div>
       <Field label="Password"><Inp type="password" value={p} onChange={e=>setP(e.target.value)}/></Field>
       <Field label="Confirm password"><Inp type="password" value={p2} onChange={e=>setP2(e.target.value)}/></Field>
       <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
@@ -609,9 +624,10 @@ function buildProfile(acc,raw){
   if(vxPass&&vxPass.number) vxDocs.push({label:PP_TYPE[vxPass.type]||"Passport",ref:vxPass.number,
     note:vxPass.status==="revoked"?"Revoked":null});
 
-  // ── Wilden ──  (citizenship register not yet established — Constitution s40)
+  // ── Wilden ──
   const wilden=[];
   if(acc.wxRole&&acc.wxRole!=="citizen") wilden.push(WX_LABEL[acc.wxRole]||acc.wxRole);
+  const wxCit=Object.values(raw.wx_state_citizens||{}).find(c=>eq(c.username));
 
   const countries=[
     {key:"lech",name:"Empire of Lech",short:"Lech",color:"#b8902f",href:"lech.html",
@@ -622,8 +638,8 @@ function buildProfile(acc,raw){
      citizenship:vxCit?(CIT_LABEL[vxCit.status]||vxCit.status):null,residency:null,
      offices:vindex,extra:[],documents:vxDocs,note:null},
     {key:"wilden",name:"Wilden",short:"Wilden",color:"#5f9c74",href:"wilden.html",
-     citizenship:null,residency:null,offices:wilden,extra:[],documents:[],
-     note:"Wilden's citizenship register is not yet established."},
+     citizenship:wxCit?(CIT_LABEL[wxCit.status]||wxCit.status):null,residency:null,
+     offices:wilden,extra:[],documents:[],note:null},
   ];
   countries.forEach(c=>{c.active=c.offices.length>0;c.hasStanding=c.active||!!c.citizenship||c.documents.length>0;});
   return {username:acc.username,displayName:dn,mcName:acc.mcName,countries};
@@ -752,6 +768,44 @@ function Directory({raw,onOpen,onClose}){
   </Overlay>;
 }
 
+/* ── the name gate ───────────────────────────────────────────────────────────
+   Accounts that predate the roleplay-name rule were legacied in with their
+   username as their display name. They are stopped here, at the door, until a
+   proper first and last name is on file. There is no way past but through —
+   or out. The Emperor alone is exempt. */
+function NameGate({user,onNamed,onSignOut}){
+  const [fn,setFn]=useState(""),[ln,setLn]=useState(""),[err,setErr]=useState(""),[busy,setBusy]=useState(false);
+  const go=async()=>{if(busy)return;
+    if(!fn.trim()||!ln.trim()){setErr("Enter both a first and a last name.");return;}
+    setBusy(true);setErr("");
+    const r=await setRoleplayName(fn.trim(),ln.trim());
+    if(!r.ok){setErr(r.error);setBusy(false);return;}
+    onNamed(r.account);};
+  return <div style={{position:"fixed",inset:0,zIndex:100,background:"rgba(32,29,24,.72)",display:"flex",
+      alignItems:"flex-start",justifyContent:"center",padding:"8vh 16px",overflowY:"auto"}}>
+    <div style={{background:PAPER,maxWidth:460,width:"100%",boxShadow:"0 20px 60px rgba(32,29,24,.5)",border:`1px solid ${RULED}`}}>
+      <div style={{borderBottom:`3px double ${INK}`,padding:"18px 24px 14px"}}>
+        <div style={{...serif,fontSize:20,fontWeight:700,letterSpacing:".08em",textTransform:"uppercase"}}>State your name</div>
+      </div>
+      <div style={{padding:"18px 24px 24px"}} onKeyDown={e=>{if(e.key==="Enter")go();}}>
+        <Note>Every player on the network carries a roleplay name — a first and a last name. Your
+          account predates this requirement, so it is recorded under your username,
+          <b> {user.username}</b>. Enter your character's name to continue; it will appear on every
+          register and document across all three nations.</Note>
+        {err&&<Note err>{err}</Note>}
+        <div style={{display:"flex",gap:12}}>
+          <div style={{flex:1}}><Field label="First name"><Inp value={fn} onChange={e=>setFn(e.target.value)} autoFocus/></Field></div>
+          <div style={{flex:1}}><Field label="Last name"><Inp value={ln} onChange={e=>setLn(e.target.value)}/></Field></div>
+        </div>
+        <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+          <Btn kind="seal" onClick={go} disabled={busy}>{busy?"Recording…":"Record my name"}</Btn>
+          <Btn kind="ghost" onClick={onSignOut}>Sign out</Btn>
+        </div>
+      </div>
+    </div>
+  </div>;
+}
+
 /* ── root ────────────────────────────────────────────────────────────────── */
 function VintranetApp(){
   const [user,setUser]=useState(()=>cachedAccount());
@@ -782,6 +836,9 @@ function VintranetApp(){
     {view&&view.t==="directory"&&<Directory raw={raw} onOpen={un=>open({t:"profile",username:un})} onClose={()=>setView(null)}/>}
     {view&&view.t==="profile"&&<Profile username={view.username} raw={raw} user={user}
       onOpenAdmin={isAdmin(user)?()=>open({t:"admin"}):null} onClose={()=>setView(null)}/>}
+    {user&&user.role!=="emperor"&&needsRpName(user)&&<NameGate user={user}
+      onNamed={acc=>{setUser(acc);notify("Welcome, "+acc.displayName+". Your name is on record.",true);}}
+      onSignOut={()=>{forgetSession();setUser(null);setView(null);}}/>}
   </>;
 }
 

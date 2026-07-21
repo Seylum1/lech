@@ -28,8 +28,6 @@ input,select,textarea{font-family:'Crimson Text',Georgia,serif;}
 <script type="text/babel">
 const {useState,useEffect,useRef,useCallback,useMemo}=React;
 
-const SCRIPT_URL="https://script.google.com/macros/s/AKfycbxLu8jQehAZJEvMEeCLoHc9S2C4FM8o9fQh8Pp4gMzDNwwIG0S9qLJ5-1gyGM1c_InUfQ/exec";
-const BK_URL="https://script.google.com/macros/s/AKfycbz37c5Okp9c7PkXv38x2lq7Is3RifkJPee5ASb2KQfA7EJgsN0NwrigmiRr1a_G0E6d4Q/exec";
 
 const C={
   bg:"#0e0806",s1:"#180e08",s2:"#201408",s3:"#281a0c",
@@ -937,19 +935,10 @@ function App(){
     setToast({msg,color}); setTimeout(()=>setToast(t=>t.msg===msg?{msg:"",color}:t),4000);
   },[]);
 
+  // One snapshot from the shared backend carries everything, the Bundeskongress's
+  // bk_* records included.
   useEffect(()=>{
-    Promise.all([
-      sgetAll(),
-      fetch(BK_URL+"?action=getall").then(r=>r.json()).then(d=>{
-        if(!d.success) return {};
-        const out={};
-        Object.entries(d.data||{}).forEach(([k,v])=>{if(v){try{out[k]=JSON.parse(v);}catch{}}});
-        return out;
-      }).catch(()=>({}))
-    ]).then(([moiRaw,bkRaw])=>{
-      setRaw({...moiRaw,...bkRaw});
-      setLoaded(true);
-    });
+    sgetAll().then(r=>{setRaw(r);setLoaded(true);});
   },[]);
   // Restore a session signed in on another page. This panel is the Emperor's
   // alone, so only an Imperial account is admitted; anyone else stays signed out

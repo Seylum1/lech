@@ -46,8 +46,6 @@ var useRef=React.useRef;
 var useCallback=React.useCallback;
 var useMemo=React.useMemo;
 
-var SCRIPT_URL="https://script.google.com/macros/s/AKfycbxLu8jQehAZJEvMEeCLoHc9S2C4FM8o9fQh8Pp4gMzDNwwIG0S9qLJ5-1gyGM1c_InUfQ/exec";
-var BK_URL="https://script.google.com/macros/s/AKfycbz37c5Okp9c7PkXv38x2lq7Is3RifkJPee5ASb2KQfA7EJgsN0NwrigmiRr1a_G0E6d4Q/exec";
 
 var SECTIONS=[
   {v:"politics",    l:"Politics & Government",  badge:"POLITICS"},
@@ -1041,29 +1039,16 @@ function App(){
   }
 
   useEffect(function(){
-    sgetAll().then(function(r){setRaw(r);setLoaded(true);});
-    // Fetch side data: MOW alert + BK budget (fire and forget, best effort)
-    Promise.all([
-      fetch(SCRIPT_URL+"?action=getall").then(function(r){return r.json();}).catch(function(){return {success:false};}),
-      fetch(BK_URL+"?action=getall").then(function(r){return r.json();}).catch(function(){return {success:false};})
-    ]).then(function(results){
-      var sharedData=results[0]; var bkData=results[1];
-      var side={};
-      function parseStore(d){
-        if(!d||!d.success)return{};
-        var out={};
-        Object.entries(d.data||{}).forEach(function(e){
-          try{out[e[0]]=JSON.parse(e[1]);}catch(err){}
-        });
-        return out;
-      }
-      var shared=parseStore(sharedData);
-      var bk=parseStore(bkData);
-      side.alertData=shared["mow_alert"]||{level:5};
-      side.wartime=shared["mow_wartime"]||{active:false};
-      side.budget=bk["bk_active_budget"]||null;
-      setSideRaw(side);
-    }).catch(function(){});
+    // One snapshot carries everything: the newsroom's own records plus the side
+    // data (MOW alert, wartime state, Bundeskongress budget) other offices keep.
+    sgetAll().then(function(r){
+      setRaw(r);setLoaded(true);
+      setSideRaw({
+        alertData:r["mow_alert"]||{level:5},
+        wartime:r["mow_wartime"]||{active:false},
+        budget:r["bk_active_budget"]||null
+      });
+    });
   },[]);
 
   // Restore a session signed in on another page. The newsroom admits only

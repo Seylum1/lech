@@ -44,10 +44,8 @@ a{color:#4a9acc;text-decoration:none;}
 const {useState,useEffect,useRef,useCallback,useMemo}=React;
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────
-const SCRIPT_URL="https://script.google.com/macros/s/AKfycbxLu8jQehAZJEvMEeCLoHc9S2C4FM8o9fQh8Pp4gMzDNwwIG0S9qLJ5-1gyGM1c_InUfQ/exec";
-// The Bundeskongress keeps its own store. Its seating chart and officials list
-// are the source of truth for legislative standing; the Interior only reads them.
-const BK_SCRIPT_URL="https://script.google.com/macros/s/AKfycbz37c5Okp9c7PkXv38x2lq7Is3RifkJPee5ASb2KQfA7EJgsN0NwrigmiRr1a_G0E6d4Q/exec";
+// The Bundeskongress's seating chart and officials list are the source of truth
+// for legislative standing; the Interior only reads them, from the shared backend.
 
 // Mirrors the Bundeskongress's own derivation: standing follows the seating
 // chart and the officials list, so there is no separate flag to fall out of date.
@@ -2062,17 +2060,18 @@ function AccountManager({currentUser,accounts,pfps,onUpdate,notify,setProcessing
   const [search,setSearch]=useState("");
   const [bk,setBk]=useState(null);
 
-  // Read the Bundeskongress store so each account's legislative standing can be
+  // Read the Bundeskongress records so each account's legislative standing can be
   // shown here. Read-only: standing is set over there by seating and appointment.
+  // The bk_* keys live in the shared backend snapshot with everything else.
   useEffect(()=>{
     let alive=true;
     (async()=>{
       try{
-        const r=await fetch(BK_SCRIPT_URL+"?action=getall");
+        const r=await fetch(API+"/api/data");
         const d=await r.json();
-        if(!d.success||!alive) return;
-        const parse=(k)=>{try{return d.data[k]?JSON.parse(d.data[k]):{};}catch{return{};}};
-        setBk({members:parse("bk_members"),bundesherren:parse("bk_bh"),officials:parse("bk_officials")});
+        if(!d||!d.ok||!alive) return;
+        const data=d.data||{};
+        setBk({members:data.bk_members||{},bundesherren:data.bk_bh||{},officials:data.bk_officials||{}});
       }catch{ /* standing simply goes unshown if the chamber is unreachable */ }
     })();
     return()=>{alive=false;};
