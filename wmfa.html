@@ -275,7 +275,6 @@ function AccountSelect({accounts,value,onChange,placeholder}){
 function HomeTab({citizens,passports,me,onGo}){
   const cits=Object.values(citizens||{});
   const nCit=cits.filter(c=>statusOf(c.status).cit).length;
-  const nPass=Object.values(passports||{}).length;
   return <div>
     <h1>Ministry of Foreign Affairs</h1>
     <p className="lede">Citizenship and travel documents of Wilden. Your citizenship is what entitles
@@ -288,10 +287,10 @@ function HomeTab({citizens,passports,me,onGo}){
           :"Contact the Ministry to have your status reviewed."}</p>
     </Notif>}
 
-    <div className="grid g3" style={{marginBottom:26}}>
+    {/* Passport counts stay off the public page — the register is personal now. */}
+    <div className="grid g2" style={{marginBottom:26}}>
       <Stat n={nCit} l="Citizens on the register"/>
       <Stat n={cits.length} l="People on the register"/>
-      <Stat n={nPass} l="Passports issued"/>
     </div>
 
     <div className="grid g2">
@@ -521,10 +520,11 @@ function PassportsTab({passports,citizens,accounts,user,gov,onAction,notify,setB
     {viewing&&<PassportViewer passport={viewing} onClose={()=>setViewing(null)}/>}
     <h1>Passports</h1>
     <p className="lede">The passport of a citizen of Wilden. Every citizen is entitled, on application,
-      to be issued one. Open one to leaf through it.</p>
+      to be issued one. A passport is a personal document — you see your own here; the Ministry
+      holds the register.</p>
     {manage&&<IssuePassport citizenAccounts={citizenAccounts} passports={passports} onAction={onAction} notify={notify} setBusy={setBusy}/>}
-    <h2>Issued passports</h2>
-    {list.length===0?<p className="hint">No passports issued.</p>
+    <h2>{manage?"Issued passports":"Your documents"}</h2>
+    {list.length===0?<p className="hint">{user?"No travel documents are issued to you. Apply to the Ministry of Foreign Affairs.":"Sign in to view your travel documents."}</p>
       :<table>
         <caption>{list.length} issued</caption>
         <thead><tr><th>Bearer</th><th>Number</th><th>Type</th><th>Expires</th><th className="num">Document</th></tr></thead>

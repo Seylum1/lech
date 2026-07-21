@@ -584,11 +584,15 @@ const PEER_LABEL={crown_prince:"Crown Prince",prince:"Prince",princess:"Princess
   marquess:"Marquess",count:"Count",viscount:"Viscount",baron:"Baron",baronet:"Baronet"};
 const PP_TYPE={regular:"Regular passport",official:"Official passport",diplomatic:"Diplomatic passport",service:"Service passport"};
 
-function buildProfile(acc,raw){
+function buildProfile(acc,raw,viewer){
   const u=String(acc.username||"").toLowerCase();
   const dn=acc.displayName||acc.username;
   const eq=v=>String(v||"").toLowerCase()===u;
   const nm=v=>{const s=String(v||"").toLowerCase();return !!s&&(s===u||s===String(acc.displayName||"").toLowerCase());};
+  // Document numbers are personal: passports arrive from the server already
+  // filtered to what the viewer may see, and the derived identity-card number
+  // is likewise shown only to the holder and to administrators.
+  const seesDocs=!!viewer&&(String(viewer.username||"").toLowerCase()===u||isAdmin(viewer));
 
   // ── Empire of Lech ──
   const off=raw.bk_officials||{};
@@ -609,7 +613,7 @@ function buildProfile(acc,raw){
   const lechHon=Object.values(raw.ih_honours||{}).filter(h=>h&&nm(h.recipient)).map(h=>h.medal).filter(Boolean);
   const lechCit=Object.values(raw.mfa_citizens||{}).find(c=>eq(c.username));
   const lechDocs=[];
-  if(acc.stateOfResidency&&LECH_PROV[acc.stateOfResidency]){const [pn,code]=LECH_PROV[acc.stateOfResidency];
+  if(seesDocs&&acc.stateOfResidency&&LECH_PROV[acc.stateOfResidency]){const [pn,code]=LECH_PROV[acc.stateOfResidency];
     lechDocs.push({label:"Provincial identity card",ref:lechIdNo(u,code),note:pn+" Province"});}
   const lechExtra=[];
   if(peerage) lechExtra.push("Peerage — "+peerage);
@@ -661,7 +665,7 @@ function summaryOf(countries){
 
 function Profile({username,raw,user,onOpenAdmin,onClose}){
   const acc=raw?Object.values(raw.mi_accounts||{}).find(a=>a&&String(a.username||"").toLowerCase()===String(username||"").toLowerCase()):null;
-  const p=acc?buildProfile(acc,raw):null;
+  const p=acc?buildProfile(acc,raw,user):null;
   const isMe=user&&String(user.username||"").toLowerCase()===String(username||"").toLowerCase();
   return <Overlay onClose={onClose} wide>
     <ModalHead title={isMe?"My record":"Player record"} onClose={onClose}/>

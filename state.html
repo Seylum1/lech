@@ -434,16 +434,19 @@ function PassportViewer({passport:p,visas,onClose}){
   </div>;
 }
 
-function PassportsTab({passports,visas}){
+function PassportsTab({passports,visas,user}){
   const [search,setSearch]=useState("");const [viewing,setViewing]=useState(null);
+  // Passports are personal documents: the server sends each viewer only what
+  // they may see — their own documents, or the register for the Department.
   const list=Object.values(passports||{}).filter(p=>{const q=search.toLowerCase();return !q||(p.name||"").toLowerCase().includes(q)||(p.username||"").toLowerCase().includes(q)||(p.number||"").toLowerCase().includes(q);})
     .sort((a,b)=>((a.username||a.name)||"").localeCompare((b.username||b.name)||""));
   return <div className="fadeIn">
     {viewing&&<PassportViewer passport={viewing} visas={visas} onClose={()=>setViewing(null)}/>}
-    <STitle>Passport Register</STitle>
-    <div style={{fontSize:14,color:V.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.1rem"}}>Travel documents issued under the authority of the Government of the Republic. Select a passport to inspect the document.</div>
-    <div style={{maxWidth:420,marginBottom:"1.1rem"}}><Inp value={search} onChange={setSearch} placeholder="Search bearer or passport number…"/></div>
-    {list.length===0?<div style={{textAlign:"center",padding:"3rem",color:V.textDD,fontStyle:"italic"}}>No passports issued.</div>
+    <STitle>My Travel Documents</STitle>
+    <div style={{fontSize:14,color:V.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.1rem"}}>Travel documents issued under the authority of the Government of the Republic. A passport is a personal document — you see your own here; the Department of State holds the register.</div>
+    {list.length>1&&<div style={{maxWidth:420,marginBottom:"1.1rem"}}><Inp value={search} onChange={setSearch} placeholder="Search bearer or passport number…"/></div>}
+    {list.length===0?<div style={{textAlign:"center",padding:"3rem",color:V.textDD,fontStyle:"italic"}}>
+      {user?"No travel documents are issued to you. Apply to the Department of State.":"Sign in to view your travel documents."}</div>
     :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:"0.8rem"}}>
       {list.map(p=>{const t=ppType(p.type);return(
         <div key={p.id} onClick={()=>setViewing(p)} style={{cursor:"pointer",background:V.panel,border:`1px solid ${V.line}`,borderRadius:4,overflow:"hidden",transition:"all .15s"}}
@@ -1022,7 +1025,7 @@ function App(){
       {loaded&&tab==="relations"&&<RelationsTab countries={countries} restrictions={restrictions}/>}
       {loaded&&tab==="citizenship"&&<CitizenshipTab citizens={citizens} user={user} myCitizenship={myCitizenship} onRequireSignIn={()=>setAuthOpen(true)} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
       {loaded&&tab==="visa"&&<VisaTab countries={countries} visas={visas} user={user} myCitizenship={myCitizenship} onAction={onAction} notify={notify}/>}
-      {loaded&&tab==="passports"&&<PassportsTab passports={passports} visas={visas}/>}
+      {loaded&&tab==="passports"&&<PassportsTab passports={passports} visas={visas} user={user}/>}
       {loaded&&tab==="panel"&&iCanPanel&&<Panel user={user} countries={countries} restrictions={restrictions} visas={visas} citizens={citizens} passports={passports} accounts={accounts} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
     </div>
 

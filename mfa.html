@@ -599,20 +599,24 @@ function PassportViewer({passport:p,visas,onClose}){
   </div>;
 }
 
-function PassportsTab({passports,visas}){
+function PassportsTab({passports,visas,user}){
   const [search,setSearch]=useState("");const [viewing,setViewing]=useState(null);
+  // Passports are personal documents: the server sends each viewer only what
+  // they may see — their own documents, or the register for the Ministry.
   const list=Object.values(passports||{}).filter(p=>{
     const q=search.toLowerCase();
     return !q||(p.name||"").toLowerCase().includes(q)||(p.username||"").toLowerCase().includes(q)||(p.number||"").toLowerCase().includes(q);
   }).sort((a,b)=>((a.username||a.name)||"").localeCompare((b.username||b.name)||""));
   return <div className="fadeIn">
     {viewing&&<PassportViewer passport={viewing} visas={visas} onClose={()=>setViewing(null)}/>}
-    <STitle>Imperial Passport Register</STitle>
+    <STitle>My Travel Documents</STitle>
     <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.25rem"}}>
-      Travel documents issued under the authority of His Imperial Majesty. Select a passport to inspect the document.
+      Travel documents issued under the authority of His Imperial Majesty. A passport is a personal
+      document — you see your own here; the Ministry holds the register.
     </div>
-    <div style={{maxWidth:420,marginBottom:"1.25rem"}}><Inp value={search} onChange={setSearch} placeholder="Search holder or passport number..."/></div>
-    {list.length===0?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No passports issued.</div>
+    {list.length>1&&<div style={{maxWidth:420,marginBottom:"1.25rem"}}><Inp value={search} onChange={setSearch} placeholder="Search holder or passport number..."/></div>}
+    {list.length===0?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>
+      {user?"No travel documents are issued to you. Apply to the Ministry of Foreign Affairs.":"Sign in to view your travel documents."}</div>
     :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:"0.85rem"}}>
       {list.map(p=>{
         const t=ppType(p.type);const pv=passportValidity(p)||{};
@@ -757,19 +761,6 @@ function PolicyDetail({country,advisories,restrictions}){
   </div>;
 }
 
-function RestrictionsTab({restrictions}){
-  const [search,setSearch]=useState("");
-  const list=Object.values(restrictions||{}).filter(r=>!search||(r.name||"").toLowerCase().includes(search.toLowerCase())).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
-  return <div className="fadeIn">
-    <STitle>Individual Travel Restrictions</STitle>
-    <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.25rem"}}>Individuals subject to Imperial travel restrictions or entry bans.</div>
-    <div style={{marginBottom:"1.25rem",maxWidth:360}}><Inp value={search} onChange={setSearch} placeholder="Search by name..."/></div>
-    {list.length===0?<div style={{textAlign:"center",padding:"2rem",color:C.textDD,fontStyle:"italic"}}>No restrictions on record.</div>
-    :<div style={{display:"flex",flexDirection:"column",gap:4}}>
-      {list.map((r,i)=>{const rt=RESTRICTION_TYPES.find(t=>t.v===r.type)||RESTRICTION_TYPES[0];return <div key={r.id||i} style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${C.redD}`,borderRadius:"0 3px 3px 0",padding:"0.65rem 1.1rem",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}><span className="mono" style={{fontSize:9,padding:"2px 8px",background:"#1a0808",border:`1px solid ${C.redD}44`,color:C.redL}}>{rt.l.toUpperCase()}</span><span style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text,flex:1}}>{r.name}</span>{r.countryName&&<span style={{fontSize:12,color:C.textD,fontStyle:"italic"}}>{r.countryName}</span>}{r.reason&&<span style={{fontSize:12,color:C.textDD,fontStyle:"italic",flex:"0 0 100%",marginTop:2}}>{r.reason}</span>}</div>;})}
-    </div>}
-  </div>;
-}
 
 function PanelContent({user,countries,advisories,restrictions,visas,citizens,passports,accounts,onAction,notify,setProcessing}){
   const [sec,setSec]=useState("countries");
@@ -1135,7 +1126,7 @@ function App(){
     else if(type==="deletePassport"){const next={...passports};delete next[payload.id];setRaw(r=>({...r,mfa_passports:next}));await sset("mfa_passports",next);}
   },[raw,countries,advisories,restrictions,visas,citizens,passports]);
 
-  const TABS=[{v:"relations",l:"Foreign Relations",icon:"+"},{v:"citizenship",l:"Citizenship",icon:"+"},{v:"visa",l:"Visa Applications",icon:"+"},{v:"passports",l:"Passports",icon:"+"},{v:"restrictions",l:"Restrictions",icon:"+"},{v:"panel",l:"Panel",icon:"+"}];
+  const TABS=[{v:"relations",l:"Foreign Relations",icon:"+"},{v:"citizenship",l:"Citizenship",icon:"+"},{v:"visa",l:"Visa Applications",icon:"+"},{v:"passports",l:"Passports",icon:"+"},{v:"panel",l:"Panel",icon:"+"}];
 
   function handleTabClick(v){setTab(v);}
   const myCitizenship=user?Object.values(citizens).find(c=>(c.username||"").toLowerCase()===user.username.toLowerCase()):null;
@@ -1173,8 +1164,7 @@ function App(){
       {loaded&&tab==="relations"&&<RelationsTab countries={countries} advisories={advisories} restrictions={restrictions}/>}
       {loaded&&tab==="citizenship"&&<CitizenshipTab citizens={citizens} user={user} myCitizenship={myCitizenship} onRequireSignIn={()=>setAuthOpen(true)} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
       {loaded&&tab==="visa"&&<VisaTab countries={countries} onSubmitVisa={data=>onAction("submitVisa",data)} notify={notify} visas={visas} user={user} myCitizenship={myCitizenship}/>}
-      {loaded&&tab==="passports"&&<PassportsTab passports={passports} visas={visas}/>}
-      {loaded&&tab==="restrictions"&&<RestrictionsTab restrictions={restrictions}/>}
+      {loaded&&tab==="passports"&&<PassportsTab passports={passports} visas={visas} user={user}/>}
       {loaded&&tab==="panel"&&canPanel&&<PanelContent user={user} countries={countries} advisories={advisories} restrictions={restrictions} visas={visas} citizens={citizens} passports={passports} accounts={accounts} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
       {loaded&&tab==="panel"&&!canPanel&&<div style={{textAlign:"center",padding:"3rem",color:C.textDD}}>
         <div style={{fontStyle:"italic",marginBottom:"1rem"}}>{user?"Your account does not have Foreign Affairs panel access.":"Sign in with your Imperial Intranet account to access the Ministry panel."}</div>

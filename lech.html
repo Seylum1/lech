@@ -466,55 +466,25 @@ function loadForeignPolicy(){
 
   // Escape anything author-supplied before it goes into innerHTML on this public page.
   function fpEsc(s){return (s==null?"":(""+s)).replace(/[&<>"]/g,function(ch){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[ch];});}
-  function pill(label,value,labelColor,valueColor,bg,border){
-    return '<div class="fp-pill" style="background:'+bg+';border:1px solid '+border+';">'+
-      '<div style="font-family:\'Share Tech Mono\',monospace;font-size:0.55rem;color:'+labelColor+';margin-bottom:3px;">'+label+'</div>'+
-      '<div style="font-family:\'Cinzel\',serif;font-size:0.75rem;color:'+valueColor+';">'+value+'</div>'+
-    '</div>';
-  }
 
+  // One line per nation. The landing page carries a digest only — the Ministry
+  // of Foreign Affairs portal is the single full view of relations, policy,
+  // advisories and restrictions.
   function renderCountry(c,adv,restrictions){
     var rc=RELATION_CONFIG[c.relation]||RELATION_CONFIG.none;
     var al=ADVISORY_COLORS[adv.level||1]||ADVISORY_COLORS[1];
     var isHostile=c.relation==="hostile";
-    var bgBase=isHostile?"#120808":"#14100e";
-    var borderBase=isHostile?"#6a1010":"#3a1a1a";
-
-    var pillsBg=isHostile?"#1a0808":"#0e140a";
-    var pillsBorder=isHostile?"#6a101044":"#2a3a1a";
-    var pillsLabelColor=isHostile?"#6a3030":"#4a5a40";
-
-    // Count restrictions for this country
     var rCount=restrictions.filter(function(r){return r.country===c.id||r.countryName===c.name;}).length;
-
-    var entityLine='';
-    if(c.entityType==="state") entityLine="SOVEREIGN STATE &middot; RECOGNISED";
-    else if(c.entityType==="territory") entityLine="TERRITORY &middot; RECOGNISED";
-    else if(c.entityType==="organisation") entityLine="INTERNATIONAL ORGANISATION";
-    else if(c.entityType==="militant") entityLine="NON-STATE ARMED GROUP &middot; NOT RECOGNISED AS A STATE";
-
-    var html='<div class="fp-country'+(isHostile?" hostile":"")+'" style="border-color:'+borderBase+';background:'+bgBase+';">';
-    html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.85rem;flex-wrap:wrap;gap:8px;">';
-    html+='<div>';
-    html+='<div style="font-family:\'Cinzel\',serif;font-size:1rem;font-weight:700;color:#e8d8c8;margin-bottom:3px;">'+fpEsc(c.name)+'</div>';
-    if(entityLine) html+='<div style="font-family:\'Share Tech Mono\',monospace;font-size:0.6rem;color:#5a3a30;">'+entityLine+'</div>';
-    html+='</div>';
+    var html='<a href="mfa.html" style="text-decoration:none;display:flex;align-items:center;gap:10px;flex-wrap:wrap;'
+      +'padding:0.55rem 0.9rem;margin-bottom:4px;border:1px solid '+(isHostile?"#6a1010":"#3a1a1a")+';'
+      +'background:'+(isHostile?"#120808":"#14100e")+';border-left:4px solid '+rc.color+';border-radius:0 3px 3px 0;">';
+    html+='<span style="font-family:\'Cinzel\',serif;font-size:0.85rem;font-weight:700;color:#e8d8c8;flex:1;min-width:140px;">'+fpEsc(c.name)+'</span>';
     html+='<span class="fp-tag" style="color:'+rc.color+';border-color:'+rc.border+';background:'+rc.bg+';">'+rc.badge+'</span>';
-    html+='</div>';
-
-    if(c.policyStatement){
-      html+='<div style="font-size:0.9rem;color:#9a8070;font-style:italic;line-height:1.7;margin-bottom:0.85rem;">'+fpEsc(c.policyStatement)+'</div>';
-    }
-
-    html+='<div style="display:flex;gap:0.75rem;flex-wrap:wrap;">';
-    html+=pill("TRAVEL ADVISORY",al.label,pillsLabelColor,al.color,pillsBg,al.border||pillsBorder);
-    if(c.visaOnArrival!==undefined&&!isHostile) html+=pill("ENTRY (LECH CITIZENS)",c.visaOnArrival?"Visa on Arrival":"Visa Not Required",pillsLabelColor,"#6aaa4a",pillsBg,pillsBorder);
-    if(c.visaPolicy) html+=pill("VISA POLICY",fpEsc(c.visaPolicy),pillsLabelColor,"#e8d8c8",pillsBg,pillsBorder);
-    if(isHostile) html+=pill("INDIVIDUAL RESTRICTIONS","Members proscribed under Imperial law",pillsLabelColor,"#e07070",pillsBg,pillsBorder);
-    else if(rCount>0) html+=pill("RESTRICTIONS",rCount+" individual restriction"+(rCount!==1?"s":"")+" in effect",pillsLabelColor,"#cc6a10",pillsBg,pillsBorder);
-    else html+=pill("RESTRICTIONS","None",pillsLabelColor,"#e8d8c8",pillsBg,pillsBorder);
-    html+='</div>';
-    html+='</div>';
+    html+='<span style="display:inline-flex;align-items:center;gap:6px;font-family:\'Share Tech Mono\',monospace;font-size:0.58rem;color:'+al.color+';">'
+      +'<span style="width:7px;height:7px;border-radius:50%;background:'+al.color+';"></span>'+al.label+'</span>';
+    if(isHostile) html+='<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.58rem;color:#e07070;">PROSCRIBED</span>';
+    else if(rCount>0) html+='<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.58rem;color:#cc6a10;">'+rCount+' RESTRICTION'+(rCount!==1?"S":"")+'</span>';
+    html+='</a>';
     return html;
   }
 
@@ -578,7 +548,7 @@ function loadForeignPolicy(){
 
     html+='<div style="background:#0e1a0a;border:1px solid #C9A84C33;border-left:3px solid #C9A84C;border-radius:0 3px 3px 0;padding:0.75rem 1rem;margin-top:1.25rem;">';
     html+='<div style="font-family:\'Cinzel\',serif;font-size:0.6rem;letter-spacing:0.2em;color:#C9A84C;margin-bottom:4px;">⚜ FOREIGN AFFAIRS PORTAL</div>';
-    html+='<div style="font-size:0.85rem;color:#9a8070;font-style:italic;line-height:1.6;">Visit the full portal for visa applications, citizenship records, detailed bilateral policy, and individual travel restrictions.</div>';
+    html+='<div style="font-size:0.85rem;color:#9a8070;font-style:italic;line-height:1.6;">This is a digest. Full bilateral policy, travel advisories, visa applications, citizenship and restrictions live on the <a href="mfa.html" style="color:#C9A84C;">Ministry of Foreign Affairs portal</a>.</div>';
     html+='</div>';
 
     document.getElementById("fp-content").innerHTML=html;
