@@ -313,7 +313,7 @@ function Header({view,setView,admin,onAdmin,onLogout}){
   return(
     <header style={{position:"relative",zIndex:3,borderBottom:`1px solid ${E.inkLine}`,background:`linear-gradient(180deg,${E.ink2},${E.ink})`}}>
       <div style={{maxWidth:1120,margin:"0 auto",padding:"1.1rem 1.1rem",display:"flex",alignItems:"center",gap:"1rem",flexWrap:"wrap"}}>
-        <a href="index.html" className="arch" style={{fontSize:10,fontWeight:700,letterSpacing:"1.5px",color:E.onInkMute,textDecoration:"none",border:`1px solid ${E.inkLine}`,borderRadius:3,padding:"5px 11px"}}>← NETWORK</a>
+        <a href="lech.html" className="arch" style={{fontSize:10,fontWeight:700,letterSpacing:"1.5px",color:E.onInkMute,textDecoration:"none",border:`1px solid ${E.inkLine}`,borderRadius:3,padding:"5px 11px"}}>← NETWORK</a>
         <div style={{display:"flex",alignItems:"center",gap:"0.85rem",flex:1,minWidth:230,cursor:"pointer"}} onClick={()=>setView("hall")}>
           <Stamp size={52} style={{transform:"rotate(-10deg)",flexShrink:0}}/>
           <div>
@@ -590,7 +590,7 @@ function ElectionNightBroadcast({el,elList,ballotsByEl,citizens,loading,onVote,o
         <div style={{display:"flex",alignItems:"center",gap:"0.9rem",flexWrap:"wrap",
           padding:"0.75rem 0",borderBottom:`1px solid ${E.inkLine}`,position:"sticky",top:0,zIndex:5,
           background:"linear-gradient(180deg,#070912f2,#070912cc)",backdropFilter:"blur(6px)"}}>
-          <a href="index.html" className="arch" style={{fontSize:10,fontWeight:700,letterSpacing:"1.2px",color:E.onInkMute,textDecoration:"none",border:`1px solid ${E.inkLine}`,borderRadius:5,padding:"7px 10px"}}>← Network</a>
+          <a href="lech.html" className="arch" style={{fontSize:10,fontWeight:700,letterSpacing:"1.2px",color:E.onInkMute,textDecoration:"none",border:`1px solid ${E.inkLine}`,borderRadius:5,padding:"7px 10px"}}>← Network</a>
           <span style={{display:"inline-flex",alignItems:"center",gap:8,padding:"5px 12px",borderRadius:4,
             border:`1px solid ${sb.c}`,background:sb.c+"1a"}}>
             <span style={{width:9,height:9,borderRadius:"50%",background:sb.c,animation:sb.pulse?"en-live 1.4s infinite":"none"}}/>

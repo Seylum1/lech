@@ -466,7 +466,7 @@ function Masthead(props){
     <div style={{background:"var(--ink)",padding:"4px 2rem",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
       <span style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.2em",color:"var(--paper2)",opacity:.8}}>EMPIRE OF LECH &middot; OFFICIAL PRESS</span>
       <div style={{display:"flex",gap:16,alignItems:"center"}}>
-        <a href="index.html" style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",color:"var(--ruleF)",textDecoration:"none",opacity:.8}}>{"<- Network"}</a>
+        <a href="lech.html" style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.15em",color:"var(--ruleF)",textDecoration:"none",opacity:.8}}>{"<- Network"}</a>
         {pressUser
           ?<><span style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.1em",color:"var(--goldL)"}}>{pressUser.displayName||pressUser.username}</span>
             <button onClick={onLogout} style={{fontFamily:"'Playfair Display SC',serif",fontSize:9,letterSpacing:"0.12em",background:"transparent",border:"1px solid var(--rule)",color:"var(--ruleF)",padding:"2px 10px",cursor:"pointer"}}>Sign Out</button></>

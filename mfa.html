@@ -137,10 +137,25 @@ let AUTH_TOKEN=null;
 // against the server on every page load and dropped at once if the server
 // rejects it; signing out clears it everywhere.
 const SESSION_KEY="lech_session";
-function saveSession(t){try{if(t)localStorage.setItem(SESSION_KEY,t);}catch(e){}}
+// The account the token belongs to, cached beside it so a page paints its
+// signed-in state on the first frame instead of waiting on the /api/me round
+// trip. A display cache only — the server still authorises every read and write
+// against the token itself — and it is reconciled the moment /api/me answers, so
+// a session ended elsewhere is corrected within one page load.
+const SESSION_ACC_KEY="lech_session_acc";
+function saveSession(t,acc){try{if(t)localStorage.setItem(SESSION_KEY,t);if(acc)localStorage.setItem(SESSION_ACC_KEY,JSON.stringify(acc));}catch(e){}}
+// The cached account, for that optimistic first paint. Adopts the stored token
+// too, so the snapshot fetched on the same frame is made as the signed-in account.
+function cachedAccount(){
+  try{
+    var t=localStorage.getItem(SESSION_KEY); if(!t) return null;
+    var a=localStorage.getItem(SESSION_ACC_KEY); if(!a) return null;
+    AUTH_TOKEN=t; return JSON.parse(a);
+  }catch(e){ return null; }
+}
 // Drop the stored token locally. Never talks to the server, so a network hiccup
 // can never destroy a session that is still perfectly good.
-function clearSession(){try{localStorage.removeItem(SESSION_KEY);}catch(e){}AUTH_TOKEN=null;}
+function clearSession(){try{localStorage.removeItem(SESSION_KEY);localStorage.removeItem(SESSION_ACC_KEY);}catch(e){}AUTH_TOKEN=null;}
 // A deliberate sign-out: end the session on the server too. Only ever called
 // from a real "Sign Out" control — never from a failed restore.
 function forgetSession(){const t=AUTH_TOKEN;clearSession();try{if(t)fetch(API+"/api/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:t})});}catch(e){}}
@@ -152,14 +167,14 @@ async function srestore(){
     // simple request with no CORS preflight.
     const r=await fetch(API+"/api/me?token="+encodeURIComponent(t));
     const d=await r.json();
-    if(d&&d.ok&&d.account)return d.account;
+    if(d&&d.ok&&d.account){saveSession(t,d.account);return d.account;}   // refresh the cache
     clearSession();return null;      // the server rejected it — genuinely stale
   }catch(e){ return null; }          // offline/blocked — keep the token, retry next page
 }
 async function sgetAll(){try{const r=await fetch(API+"/api/data"+(AUTH_TOKEN?"?token="+encodeURIComponent(AUTH_TOKEN):""));const d=await r.json();return (d&&d.ok)?(d.data||{}):{};}catch{return{};}}
 async function sset(k,v){try{const r=await fetch(API+"/api/set",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,key:k,value:v})});const d=await r.json();return !!(d&&d.ok);}catch{return false;}}
 async function sdel(k){try{await fetch(API+"/api/unset",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,key:k})});}catch{}}
-async function slogin(username,password){try{const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password})});const d=await r.json();if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token);return {ok:true,account:d.account};}return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};}catch(e){return {ok:false,error:"Connection error"};}}
+async function slogin(username,password){try{const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password})});const d=await r.json();if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token,d.account);return {ok:true,account:d.account};}return {ok:false,error:(d&&d.error)||"ACCESS DENIED"};}catch(e){return {ok:false,error:"Connection error"};}}
 
 function Btn({children,onClick,variant="primary",disabled,small,full,style:ex={}}){
   const base={fontFamily:"'Cinzel',serif",letterSpacing:"0.1em",fontWeight:700,textTransform:"uppercase",fontSize:small?10:11,padding:small?"4px 12px":"7px 18px",border:"1px solid",borderRadius:2,cursor:disabled?"not-allowed":"pointer",opacity:disabled?.4:1,transition:"all .15s",width:full?"100%":"auto"};
@@ -1088,7 +1103,9 @@ function App(){
   const [tab,setTab]=useState("advisories");
   const [raw,setRaw]=useState({});
   const [loaded,setLoaded]=useState(false);
-  const [user,setUser]=useState(null);
+  // Seeded from the cached session so the page paints signed-in at once; the
+  // effect below reconciles it against the server.
+  const [user,setUser]=useState(()=>cachedAccount());
   const [authOpen,setAuthOpen]=useState(false);
   const [toast,setToast]=useState({msg:"",color:""});
   const [processing,setProcessing]=useState(null);
@@ -1100,7 +1117,10 @@ function App(){
   useEffect(()=>{sgetAll().then(r=>{setRaw(r);setLoaded(true);});},[]);
   // Restore a session signed in on another page (validated server-side), then
   // pull the snapshot again with the token so protected records load too.
-  useEffect(()=>{srestore().then(acc=>{if(acc){setUser(acc);sgetAll().then(r=>setRaw(prev=>({...prev,...r})));}});},[]);
+  // clearSession() drops AUTH_TOKEN, so a null account with no token left means the
+  // server genuinely rejected it — sign the optimistic user back out. A null with
+  // the token still held is just an unreachable server; keep showing them signed in.
+  useEffect(()=>{srestore().then(acc=>{if(acc){setUser(acc);sgetAll().then(r=>setRaw(prev=>({...prev,...r})));}else if(!AUTH_TOKEN)setUser(null);});},[]);
 
   const accounts=useMemo(()=>{
     const out=[];const seen={};
@@ -1159,7 +1179,7 @@ function App(){
             </div>
             <Btn small variant="ghost" onClick={()=>{forgetSession();setUser(null);if(tab==="panel")setTab("advisories");notify("Signed out.",C.textD);}}>Sign Out</Btn>
           </div>:<Btn small onClick={()=>setAuthOpen(true)}>Sign In</Btn>}
-          <a href="index.html" style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",color:C.textD,textDecoration:"none",border:`1px solid ${C.border}`,borderRadius:2,padding:"3px 10px"}}>Back</a>
+          <a href="lech.html" style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",color:C.textD,textDecoration:"none",border:`1px solid ${C.border}`,borderRadius:2,padding:"3px 10px"}}>Back</a>
         </div>
         <div style={{display:"flex",overflowX:"auto"}}>
           {TABS.map(t=><button key={t.v} onClick={()=>handleTabClick(t.v)} style={{fontFamily:"'Cinzel',serif",fontSize:10,fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",padding:"0.65rem 1rem",background:"transparent",border:"none",whiteSpace:"nowrap",cursor:"pointer",flexShrink:0,borderBottom:`2px solid ${tab===t.v?C.accent:"transparent"}`,color:tab===t.v?C.accent:C.textD}}>{t.l}{t.v==="panel"&&pendingVisas>0&&canPanel&&<span style={{marginLeft:4,background:C.redD,color:"#fff",fontSize:9,padding:"1px 5px",borderRadius:8}}>{pendingVisas}</span>}</button>)}

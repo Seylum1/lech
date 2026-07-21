@@ -2060,7 +2060,6 @@ function EmperorPanel({currentUser,accounts,pfps,onUpdate,notify,setProcessing})
 // ── ACCOUNT MANAGER ───────────────────────────────────────────────────────────
 function AccountManager({currentUser,accounts,pfps,onUpdate,notify,setProcessing,canSetMinister}){
   const [search,setSearch]=useState("");
-  const [creating,setCreating]=useState(false);
   const [bk,setBk]=useState(null);
 
   // Read the Bundeskongress store so each account's legislative standing can be
@@ -2084,11 +2083,15 @@ function AccountManager({currentUser,accounts,pfps,onUpdate,notify,setProcessing
     .sort((a,b)=>(a.displayName||a.username).localeCompare(b.displayName||b.username));
   return(
     <div>
+      <div style={{fontSize:12,color:C.textD,fontStyle:"italic",lineHeight:1.6,marginBottom:"0.75rem",
+        background:C.s1,border:`1px solid ${C.border}`,borderLeft:`3px solid ${C.accentD}`,borderRadius:3,padding:"0.6rem 0.9rem"}}>
+        Accounts are created and registered on the {" "}
+        <a href="index.html" style={{color:C.accent}}>Vintranet administration panel</a>, which the whole
+        network shares. Here you set each person's standing in the Empire.
+      </div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1rem",gap:8}}>
         <Inp value={search} onChange={setSearch} placeholder="Search accounts…" style={{flex:1}}/>
-        {!creating&&<Btn small onClick={()=>setCreating(true)}>+ Create Account</Btn>}
       </div>
-      {creating&&<CreateAccountForm onUpdate={onUpdate} notify={notify} setProcessing={setProcessing} onClose={()=>setCreating(false)} canSetMinister={canSetMinister}/>}
       <div style={{display:"flex",flexDirection:"column",gap:4}}>
         {list.map(acc=>(
           <AccountRow key={acc.username} acc={acc} bk={bk} pfp={(pfps||{})[(acc.username||"").toLowerCase()]} currentUser={currentUser} onUpdate={onUpdate} notify={notify} setProcessing={setProcessing} canSetMinister={canSetMinister}/>
@@ -2330,87 +2333,39 @@ function AccountRow({acc,bk,pfp,currentUser,onUpdate,notify,setProcessing,canSet
               not by this ministry.
             </div>
           </div>
-          {/* Profile picture — reset the holder's image, or lock them out of changing it. */}
-          <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",background:C.s1,border:`1px solid ${C.border}`,borderRadius:3,padding:"0.75rem 1rem"}}>
+          {/* Identity and possession — the picture, the Minecraft link, the
+              password, and the account itself — moved to the Vintranet
+              administration panel. This panel sets a person's LECH standing only;
+              the account it sits on is shared across all three networks. */}
+          <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",background:C.s1,
+            border:`1px solid ${C.border}`,borderLeft:`3px solid ${C.accentD}`,borderRadius:3,padding:"0.75rem 1rem"}}>
             <img src={pfpSrc} alt="" onError={e=>{e.currentTarget.style.visibility="hidden";}}
-              style={{width:52,height:52,borderRadius:4,objectFit:"cover",border:`1px solid ${C.border}`,background:C.s3}}/>
-            <div style={{flex:1,minWidth:160}}>
-              <FL>PROFILE PICTURE</FL>
-              <div style={{fontSize:12,color:C.textD,fontStyle:"italic"}}>
-                {hasCustomPfp?"Custom image set by the holder.":"Using their Minecraft face (no custom image)."}
-              </div>
+              style={{width:44,height:44,borderRadius:4,objectFit:"cover",border:`1px solid ${C.border}`,background:C.s3}}/>
+            <div style={{flex:1,minWidth:220,fontSize:12,color:C.textD,fontStyle:"italic",lineHeight:1.6}}>
+              This account belongs to the whole network. Its picture, Minecraft link, password, and the
+              account itself are now managed on the {" "}
+              <a href="index.html" style={{color:C.accent}}>Vintranet administration panel</a>.
+              Here you set only their standing in the Empire.
             </div>
-            <div style={{flex:1,minWidth:260}}>
-              <FL>MINECRAFT ACCOUNT</FL>
-              <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                <Inp value={mcName} onChange={v=>{setMcName(v);setMcCheck(null);}}
-                  placeholder={acc.username+" (same as username)"}/>
-                <Btn small variant="ghost" disabled={mcBusy||!mcName.trim()} onClick={async()=>{
-                  setMcBusy(true);
-                  const res=await verifyMcName(mcName);
-                  // Store Mojang's own spelling, so the saved override is exact.
-                  if(res.ok) setMcName(res.name);
-                  setMcCheck(res); setMcBusy(false);
-                }}>{mcBusy?"…":"Check"}</Btn>
-              </div>
-              <div style={{fontSize:11,fontStyle:"italic",marginTop:4,lineHeight:1.5,
-                color:mcCheck?(mcCheck.ok?"#7ad47a":C.redL):C.textD}}>
-                {mcCheck
-                  ?(mcCheck.ok?"✓ "+mcCheck.name+" is a real Minecraft account.":mcCheck.error)
-                  :(mcName.trim()
-                    ?"Their face comes from "+mcName.trim()+" instead of their username."
-                    :"Blank — their face comes from the username itself.")}
-              </div>
-            </div>
-            {hasCustomPfp&&<ArmBtn small label="Reset Picture" confirmLabel="Reset to MC face?" onConfirm={async()=>{
-              setProcessing("Resetting picture…");
-              const ok=await resetProfilePicture(acc.username);
-              setProcessing(null);
-              if(ok){setPfpCleared(true);notify("Profile picture reset.",C.gold);}else notify("Reset failed.",C.redL);
-            }}/>}
-            <button onClick={()=>setPfpLocked(v=>!v)}
-              style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",
-                padding:"6px 12px",borderRadius:2,cursor:"pointer",
-                border:`1px solid ${pfpLocked?C.redL:C.border}`,
-                background:pfpLocked?"#2a0f0f":"transparent",color:pfpLocked?C.redL:C.textD}}>
-              {pfpLocked?"🔒 Changes Locked":"🔓 Lock Changes"}
-            </button>
           </div>
-          {pfpLocked!==!!acc.pfpLocked&&<div className="mono" style={{fontSize:10,color:C.gold}}>
-            Picture lock {pfpLocked?"will be applied":"will be lifted"} when you Save Changes.
-          </div>}
           <div style={{display:"flex",gap:8,alignItems:"flex-end",flexWrap:"wrap"}}>
-            <div style={{flex:1,minWidth:180}}>
-              <FL>RESET PASSWORD (optional)</FL>
-              <Inp value={newPw} onChange={setNewPw} type="password" placeholder="New password…"/>
-            </div>
             <Btn small variant="gold" disabled={saving} onClick={async()=>{
               if(treadsOnEmperor(acc,currentUser)){ setTread(true); return; }
-              setSaving(true); setProcessing("Saving account…");
-              // Saving writes agency standing to its own field and clears the
-              // legacy role/flags, so an account is migrated off them for good.
+              setSaving(true); setProcessing("Saving Lech standing…");
+              // Lech permission fields only — identity and possession live on Vintranet.
+              // Saving writes agency standing to its own field and clears the legacy
+              // role/flags, so an account is migrated off them for good.
               const legacyRole=LEGACY_ROLES[role]?"citizen":role;
               const patch={role:legacyRole,ministry,isContractor,
                 lssRole:lssRoleV,lfpRole:lfpRoleV,agentAssigned:false,officerAssigned:false,
                 mdtRestricted,mdtClearance:mdtRestricted?mdtClearance:0,
                 mowAccess:!!mowRole,mowRole,canSetAlert:canSetAlert&&!!mowRole,mfaAccess,ijAccess,
                 mofRole,mofAccess:!!mofRole,pressRole,pressAccess:!!pressRole,imcRole,
-                clearance:parseInt(clearance),stateOfResidency:residency,pfpLocked,
-                mcName:mcName.trim()};
-              // Hashed here; the backend salts it on the account's next login
-              // (see the legacy-upgrade path in moi-backend.gs).
-              if(newPw.trim()) patch.passwordHash=await sha256(newPw.trim());
+                clearance:parseInt(clearance),stateOfResidency:residency};
               await onUpdate(acc.username,patch);
-              setProcessing(null); setSaving(false); setNewPw("");
-              notify("Account updated: "+acc.username,C.gold);
+              setProcessing(null); setSaving(false);
+              notify("Lech standing updated: "+acc.username,C.gold);
             }}>{saving?"Saving…":"Save Changes"}</Btn>
-            {acc.username!==currentUser.username&&<ArmBtn small label="Delete Account" confirmLabel="Delete permanently?" onConfirm={async()=>{
-              // Deleting the Throne is the loudest way of altering it.
-              if(treadsOnEmperor(acc,currentUser)){ setTread(true); return; }
-              setProcessing("Deleting account…");
-              await onUpdate(acc.username,null); // null = delete
-              setProcessing(null); notify("Account deleted.",C.textD);
-            }}/>}
           </div>
         </div>
       )}
@@ -2751,7 +2706,7 @@ function App(){
       {/* Header */}
       <div style={{background:C.s1,borderBottom:`1px solid ${C.border}`,padding:"0.85rem 1.25rem"}}>
         <div style={{maxWidth:1100,margin:"0 auto",display:"flex",alignItems:"center",gap:"1.5rem",flexWrap:"wrap"}}>
-          <a href="index.html" style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",
+          <a href="lech.html" style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",
             color:C.textD,textDecoration:"none",border:`1px solid ${C.border}`,borderRadius:2,
             padding:"3px 10px",flexShrink:0}}>{"← Network"}</a>
           <div onClick={()=>setSection(null)} style={{cursor:"pointer"}} title="Return to main menu">
