@@ -143,6 +143,28 @@ input[type=text],input[type=password],input[type=date],textarea,select{
 .powered img{height:28px;width:auto;object-fit:contain;}
 .powered .fb{display:none;font-weight:700;font-size:13px;color:var(--grey4);}
 @media(max-width:640px){h1{font-size:28px;}h2{font-size:21px;}.lede{font-size:17px;}.sl .k{width:100%;}}
+
+/* ── passport booklet (leaf-through) ─────────────────────────────────────── */
+@keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+.sp-overlay{position:fixed;inset:0;z-index:9990;background:rgba(6,14,16,.94);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1rem;animation:fadeIn .25s ease;}
+.sp-stage{--ppw:300px;--pph:420px;perspective:2200px;position:relative;width:calc(var(--ppw)*2);height:var(--pph);transition:transform .8s cubic-bezier(.45,.05,.2,1);}
+@media(max-width:700px){.sp-stage{--ppw:210px;--pph:294px;}}
+.sp-stage.closed{transform:translateX(calc(var(--ppw)/-2));}
+.sp-stage.closed-end{transform:translateX(calc(var(--ppw)/2));}
+.sp-sheet{position:absolute;top:0;right:0;width:var(--ppw);height:var(--pph);transform-origin:left center;transform-style:preserve-3d;transition:transform .85s cubic-bezier(.45,.05,.2,1);cursor:pointer;}
+.sp-sheet.flipped{transform:rotateY(-180deg);}
+.sp-face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;overflow:hidden;border-radius:5px 14px 14px 5px;box-shadow:0 16px 44px rgba(0,0,0,.5);}
+.sp-face.back{transform:rotateY(180deg);border-radius:14px 5px 5px 14px;}
+.sp-paper{background:
+  radial-gradient(ellipse 120% 90% at 50% -20%, rgba(60,90,90,.06), transparent 60%),
+  radial-gradient(ellipse 120% 90% at 50% 120%, rgba(120,100,60,.06), transparent 60%),
+  repeating-radial-gradient(circle at 50% 50%, transparent 0px, transparent 9px, rgba(80,90,90,.03) 10px),
+  linear-gradient(160deg,#f3efe4 0%,#e9e4d4 55%,#ded6c0 100%);
+  box-shadow:inset 0 0 34px rgba(70,80,60,.2);}
+.sp-frame{position:absolute;inset:10px;border:2px solid rgba(150,130,80,.8);border-radius:8px;pointer-events:none;}
+.sp-frame::after{content:'';position:absolute;inset:4px;border:1px solid rgba(150,130,80,.5);border-radius:5px;}
+@keyframes spStamp{0%{opacity:0;transform:rotate(-13deg) scale(1.6);}60%{opacity:1;transform:rotate(-13deg) scale(.94);}100%{opacity:1;transform:rotate(-13deg) scale(1);}}
+.sp-revoked{animation:spStamp .5s ease .45s both;}
 </style>
 </head>
 <body>
@@ -185,11 +207,37 @@ const CIT_STATUS=[
 ];
 const statusOf=v=>CIT_STATUS.find(s=>s.v===v)||CIT_STATUS[3];
 const PP_TYPES=[
-  {v:"ordinary",l:"Ordinary passport",short:"P"},
-  {v:"official",l:"Official passport",short:"PS"},
-  {v:"diplomatic",l:"Diplomatic passport",short:"PD"},
+  {v:"ordinary",  l:"Ordinary passport",  short:"ORDINARY",  code:"P",  cover:"#5a1a2a",coverDeep:"#360f1a",trim:"#d8b878"},
+  {v:"official",  l:"Official passport",  short:"OFFICIAL",  code:"PS", cover:"#14343a",coverDeep:"#0a2124",trim:"#a9c8cc"},
+  {v:"diplomatic",l:"Diplomatic passport",short:"DIPLOMATIC",code:"PD", cover:"#16233f",coverDeep:"#0b142a",trim:"#dcc488"},
 ];
 const ppOf=v=>PP_TYPES.find(t=>t.v===v)||PP_TYPES[0];
+// Machine-readable zone, in the two 44-character lines a passport carries.
+function mrzClean(s){return (s||"").toUpperCase().replace(/[^A-Z0-9 ]/g,"").trim().replace(/ +/g,"<");}
+function mrzPad(s,n){return (s+"<".repeat(n)).slice(0,n);}
+function mrzDate(d){if(!d)return "<<<<<<";const t=new Date(d);if(isNaN(t.getTime()))return "<<<<<<";const p=x=>String(x).padStart(2,"0");return String(t.getFullYear()).slice(2)+p(t.getMonth()+1)+p(t.getDate());}
+function ppMRZ(p){
+  const t=ppOf(p.type);
+  const l1=mrzPad(t.code.replace("<","")+"<"+"WLD"+mrzClean(p.name)+"<<"+mrzClean(p.username||""),44);
+  const l2=mrzPad(mrzPad(mrzClean(p.number),9)+"6WLD"+mrzDate(p.issued)+"3<"+mrzDate(p.expires)+"1",44);
+  return[l1.slice(0,44),l2.slice(0,44)];
+}
+function passportValidity(p){
+  if(!p)return null;
+  if(p.status==="revoked")return{label:"Revoked",color:"#d4351c",state:"revoked"};
+  if(!p.expires)return{label:"Valid",color:"#00703c",state:"valid"};
+  const end=new Date(p.expires+"T23:59:59").getTime();
+  if(isNaN(end))return{label:"Valid",color:"#00703c",state:"valid"};
+  const days=Math.ceil((end-Date.now())/86400000);
+  if(days<0)return{label:"Expired",color:"#d4351c",state:"expired"};
+  if(days<=90)return{label:"Expires soon",color:"#f47738",state:"soon"};
+  return{label:"Valid",color:"#00703c",state:"valid"};
+}
+// The royal arms, falling back to a crown until wildencoa.png is on disk.
+function Arms({size,color}){const [ok,setOk]=useState(true);
+  if(!ok)return <div style={{width:size,height:size,borderRadius:"50%",border:`2px solid ${color||"#c9a86a"}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:size*0.42,color:color||"#c9a86a",lineHeight:1}}>&#9819;</span></div>;
+  return <img src="wildencoa.png" alt="" width={size} height={size} draggable={false} onError={()=>setOk(false)} style={{width:size,height:size,objectFit:"contain",flexShrink:0}}/>;
+}
 function genPassportNo(passports){
   const seen=new Set(Object.values(passports||{}).map(p=>p.number));
   let n,t=0;do{n="W"+String(Math.floor(10000000+Math.random()*90000000));t++;}while(seen.has(n)&&t<60);return n;
@@ -337,60 +385,191 @@ function CitizenRow({citizen,st,account,manage,onAction,notify,setBusy}){
   </>;
 }
 
+/* ═══════════ PASSPORT BOOKLET ════════════════════════════════════════════ */
+function PassportViewer({passport:p,onClose}){
+  const [flip,setFlip]=useState(0);
+  const t=ppOf(p.type);const [l1,l2]=ppMRZ(p);
+  const fs=f=>`calc(var(--ppw) * ${f})`;
+  const sans={fontFamily:"Inter,sans-serif"},mono={fontFamily:"'Courier New',monospace"};
+  const ink="#2c2417",label="#7a6b4c",red="#7a1f1f";
+  const revoked=p.status==="revoked";
+  const LabelVal=({k,v,color,big})=>(<div style={{minWidth:0}}>
+    <div style={{...mono,fontSize:fs(.024),color:label,letterSpacing:"0.1em",marginBottom:1}}>{k}</div>
+    <div style={{...sans,fontSize:big?fs(.046):fs(.04),color:color||ink,fontWeight:big?800:600,lineHeight:1.15,overflowWrap:"anywhere"}}>{v}</div></div>);
+  const PageNo=({n,side})=>(<div style={{...mono,position:"absolute",bottom:8,[side]:14,fontSize:fs(.026),color:"#a89678"}}>{n}</div>);
+  const Watermark=()=>(<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none",opacity:.06}}><Arms size={150} color="#5a4a2a"/></div>);
+
+  const Cover=({backCover})=>(
+    <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",
+      background:`radial-gradient(ellipse 130% 70% at 50% -10%, rgba(255,255,255,.08), transparent 55%), repeating-linear-gradient(48deg, rgba(0,0,0,.10) 0 2px, transparent 2px 5px), linear-gradient(165deg, ${t.cover} 0%, ${t.coverDeep} 100%)`,
+      boxShadow:"inset 0 0 40px rgba(0,0,0,.5)"}}>
+      <div style={{position:"absolute",inset:10,border:`2px solid ${t.trim}cc`,borderRadius:8}}/>
+      <div style={{position:"absolute",inset:16,border:`1px solid ${t.trim}66`,borderRadius:5}}/>
+      {!backCover?<>
+        <div style={{marginTop:"15%",textAlign:"center",padding:"0 8%"}}>
+          <div style={{...sans,fontWeight:800,fontSize:fs(.078),letterSpacing:"0.3em",color:t.trim,textShadow:"0 1px 1px rgba(0,0,0,.6)"}}>WILDEN</div>
+        </div>
+        <div style={{flex:1,display:"flex",alignItems:"center"}}><Arms size={110} color={t.trim}/></div>
+        <div style={{marginBottom:"13%",textAlign:"center"}}>
+          <div style={{...sans,fontWeight:800,fontSize:fs(.056),letterSpacing:"0.34em",color:t.trim,textShadow:"0 1px 1px rgba(0,0,0,.6)"}}>PASSPORT</div>
+          {p.type!=="ordinary"&&<div style={{marginTop:8,paddingTop:6,borderTop:`1px solid ${t.trim}55`}}><span style={{...sans,fontSize:fs(.03),letterSpacing:"0.28em",color:t.trim}}>{t.short}</span></div>}
+          <svg width="26" height="18" viewBox="0 0 26 18" style={{marginTop:10,opacity:.8}}><rect x="1" y="1" width="24" height="16" rx="3" stroke={t.trim} strokeWidth="1.4" fill="none"/><circle cx="13" cy="9" r="4.2" stroke={t.trim} strokeWidth="1.4" fill="none"/><path d="M4 9 h4 M18 9 h4" stroke={t.trim} strokeWidth="1.4"/></svg>
+        </div>
+      </>:<div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14}}>
+        <Arms size={62} color={t.trim}/>
+        <div style={{...mono,fontSize:fs(.024),letterSpacing:"0.32em",color:t.trim,opacity:.7}}>DIEU ET MON DROIT</div>
+      </div>}
+    </div>);
+
+  const InsideCover=()=>(
+    <div className="sp-paper" style={{position:"absolute",inset:0}}>
+      <div className="sp-frame"/><Watermark/>
+      <div style={{position:"absolute",inset:"26px 24px",display:"flex",flexDirection:"column",alignItems:"center",textAlign:"center",justifyContent:"center"}}>
+        <Arms size={54} color="#6a5a34"/>
+        <div style={{...sans,fontWeight:700,fontSize:fs(.031),letterSpacing:"0.06em",color:"#4a3c20",margin:"14px 0 10px",lineHeight:1.5}}>HIS MAJESTY'S PRINCIPAL SECRETARY OF STATE FOR FOREIGN AFFAIRS OF WILDEN</div>
+        <div style={{width:"46%",height:1,background:"#b09a68",marginBottom:10}}/>
+        <div style={{...sans,fontSize:fs(.036),color:"#4a3c24",fontStyle:"italic",lineHeight:1.7}}>
+          requests and requires in the Name of His Majesty all those whom it may concern to allow the bearer to pass freely without let or hindrance, and to afford the bearer such assistance and protection as may be necessary.
+        </div>
+      </div>
+    </div>);
+
+  const DataPage=()=>(
+    <div className="sp-paper" style={{position:"absolute",inset:0}}>
+      <Watermark/>
+      <div style={{position:"absolute",inset:"14px 16px",display:"flex",flexDirection:"column"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",borderBottom:"1.5px solid #b09a68",paddingBottom:6,marginBottom:10}}>
+          <div><div style={{...sans,fontWeight:800,fontSize:fs(.04),letterSpacing:"0.08em",color:"#4a3c20"}}>WILDEN</div>
+            <div style={{...mono,fontSize:fs(.022),letterSpacing:"0.14em",color:label}}>PASSPORT · FOREIGN AFFAIRS</div></div>
+          <div style={{textAlign:"right"}}>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><LabelVal k="TYPE" v={t.code}/><LabelVal k="CODE" v="WLD"/></div>
+            <div style={{...mono,fontSize:fs(.04),color:red,letterSpacing:"0.12em",marginTop:2,fontWeight:700}}>{p.number}</div></div>
+        </div>
+        <div style={{display:"flex",gap:12,flex:1,minHeight:0}}>
+          <div style={{width:"27%",flexShrink:0}}>
+            <div style={{width:"100%",aspectRatio:"3.4/4.4",border:"1px solid #b0a481",borderRadius:2,background:"radial-gradient(circle at 50% 30%, #6b5a42 0 24%, transparent 25%), radial-gradient(ellipse 46% 32% at 50% 96%, #6b5a42 0 58%, transparent 59%), linear-gradient(160deg,#d9cfb2,#c6ba9a)",boxShadow:"inset 0 0 8px rgba(90,70,40,.3)"}}/>
+            <div style={{marginTop:12,borderTop:"1px solid #b09a68",paddingTop:3}}>
+              <div style={{...sans,fontStyle:"italic",fontSize:fs(.042),color:"#3a3226",transform:"rotate(-2deg)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.name}</div>
+              <div style={{...mono,fontSize:fs(.02),color:label,letterSpacing:"0.08em"}}>SIGNATURE OF BEARER</div></div>
+          </div>
+          <div style={{flex:1,display:"flex",flexDirection:"column",gap:7,minWidth:0}}>
+            <LabelVal k="SURNAME / GIVEN NAMES" v={p.name} big/>
+            <LabelVal k="REGISTERED ACCOUNT" v={p.username||"—"}/>
+            <LabelVal k="NATIONALITY" v="WILDEN"/>
+            <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+              <LabelVal k="DATE OF ISSUE" v={fmtDate(p.issued)}/>
+              <LabelVal k="DATE OF EXPIRY" v={p.expires?fmtDate(p.expires):"—"} color={passportValidity(p)?.state==="expired"?red:undefined}/></div>
+            <LabelVal k="AUTHORITY" v="MINISTRY OF FOREIGN AFFAIRS"/>
+          </div>
+        </div>
+        {revoked&&<div className="sp-revoked" style={{...sans,position:"absolute",top:"36%",left:"12%",padding:"6px 18px",border:"3px double #a01818",color:"#a01818",fontWeight:800,fontSize:fs(.07),letterSpacing:"0.3em",background:"rgba(230,215,190,.5)"}}>REVOKED</div>}
+        <div style={{marginTop:8,paddingTop:6,background:"linear-gradient(#f2ecd9,#ece4cc)",margin:"8px -6px -4px",padding:"7px 6px 4px",borderTop:"2px solid #b09a68"}}>
+          <div style={{...mono,fontSize:fs(.031),color:"#2c2c2c",whiteSpace:"nowrap"}}>{l1}</div>
+          <div style={{...mono,fontSize:fs(.031),color:"#2c2c2c",whiteSpace:"nowrap"}}>{l2}</div></div>
+      </div>
+      <PageNo n="2" side="right"/>
+    </div>);
+
+  const EndorsePage=()=>(
+    <div className="sp-paper" style={{position:"absolute",inset:0}}>
+      <Watermark/>
+      <div style={{position:"absolute",inset:"18px 20px",display:"flex",flexDirection:"column"}}>
+        <div style={{textAlign:"center",borderBottom:"1px solid #b09a68",paddingBottom:6,marginBottom:12}}>
+          <div style={{...sans,fontWeight:700,fontSize:fs(.036),letterSpacing:"0.2em",color:"#4a3c20"}}>VISAS &amp; ENDORSEMENTS</div></div>
+        <div style={{...sans,flex:1,display:"flex",alignItems:"center",justifyContent:"center",textAlign:"center",fontStyle:"italic",color:"#8a7550",fontSize:fs(.038),lineHeight:1.7,padding:"0 10%"}}>This page is reserved for visas and official endorsements.</div>
+      </div>
+      <PageNo n="3" side="left"/>
+    </div>);
+
+  const ObsPage=()=>(
+    <div className="sp-paper" style={{position:"absolute",inset:0}}>
+      <Watermark/>
+      <div style={{position:"absolute",inset:"18px 22px",display:"flex",flexDirection:"column"}}>
+        <div style={{textAlign:"center",borderBottom:"1px solid #b09a68",paddingBottom:6,marginBottom:14}}><div style={{...sans,fontWeight:700,fontSize:fs(.036),letterSpacing:"0.22em",color:"#4a3c20"}}>OBSERVATIONS</div></div>
+        <div style={{...sans,fontSize:fs(.037),color:"#4a3c24",fontStyle:"italic",lineHeight:1.75}}>This passport remains the property of the Government of Wilden and must be surrendered on demand. The bearer travels under the protection, and subject to the obligations, of the laws of Wilden.</div>
+        <div style={{marginTop:"auto",borderTop:"1px solid #b09a68",paddingTop:8}}>
+          <div style={{...mono,fontSize:fs(.024),color:label,lineHeight:1.9,letterSpacing:"0.06em"}}>DOCUMENT NO — {p.number}<br/>ISSUED BY THE MINISTRY OF FOREIGN AFFAIRS<br/>{p.issued?"DATE OF ISSUE — "+fmtDate(p.issued).toUpperCase():""}</div></div>
+      </div>
+      <PageNo n="4" side="right"/>
+    </div>);
+
+  const sheets=[{front:<Cover/>,back:<InsideCover/>},{front:<DataPage/>,back:<EndorsePage/>},{front:<ObsPage/>,back:<Cover backCover/>}];
+  return <div className="sp-overlay" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+    <button onClick={onClose} style={{position:"absolute",top:16,right:20,background:"transparent",border:"1px solid #6a7a7a",color:"#fff",width:34,height:34,borderRadius:2,cursor:"pointer",fontSize:15}}>✕</button>
+    <div className={"sp-stage"+(flip===0?" closed":flip===3?" closed-end":"")}>
+      {sheets.map((s,i)=>(<div key={i} className={"sp-sheet"+(i<flip?" flipped":"")} style={{zIndex:i<flip?i+1:20-i}} onClick={()=>setFlip(i<flip?i:i+1)}>
+        <div className="sp-face">{s.front}</div><div className="sp-face back">{s.back}</div></div>))}
+    </div>
+    <div style={{marginTop:24,display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",justifyContent:"center"}}>
+      <Btn kind="sec" small disabled={flip===0} onClick={()=>setFlip(f=>Math.max(0,f-1))}>&lsaquo; Previous</Btn>
+      <div style={{textAlign:"center",color:"#e8ebf0"}}><div style={{...sans,fontWeight:700,fontSize:13}}>{p.username||p.name}</div><div style={{...mono,fontSize:9,color:"#9aa8a8",letterSpacing:"0.15em"}}>{t.short} · {p.number}</div></div>
+      <Btn kind="sec" small disabled={flip===3} onClick={()=>setFlip(f=>Math.min(3,f+1))}>Next &rsaquo;</Btn>
+    </div>
+    <div style={{...mono,fontSize:9,color:"#9aa8a8",marginTop:10,letterSpacing:"0.12em"}}>CLICK THE PAGES TO LEAF THROUGH</div>
+  </div>;
+}
+
 /* ═══════════ PASSPORTS ═══════════════════════════════════════════════════ */
 function PassportsTab({passports,citizens,accounts,user,gov,onAction,notify,setBusy}){
   const manage=canManage(user,gov);
+  const [viewing,setViewing]=useState(null);
   const list=Object.values(passports||{}).sort((a,b)=>(b.issued||0)-(a.issued||0));
   const acctOf=u=>accounts.find(a=>String(a.username||"").toLowerCase()===String(u||"").toLowerCase());
   const citizenSet=useMemo(()=>{const s=new Set();Object.values(citizens||{}).forEach(c=>{if(statusOf(c.status).cit)s.add(String(c.username||"").toLowerCase());});return s;},[citizens]);
+  const citizenAccounts=useMemo(()=>accounts.filter(a=>citizenSet.has(String(a.username||"").toLowerCase())),[accounts,citizenSet]);
   return <div>
+    {viewing&&<PassportViewer passport={viewing} onClose={()=>setViewing(null)}/>}
     <h1>Passports</h1>
     <p className="lede">The passport of a citizen of Wilden. Every citizen is entitled, on application,
-      to be issued one.</p>
-    {manage&&<IssuePassport accounts={accounts} passports={passports} citizenSet={citizenSet} onAction={onAction} notify={notify} setBusy={setBusy}/>}
+      to be issued one. Open one to leaf through it.</p>
+    {manage&&<IssuePassport citizenAccounts={citizenAccounts} passports={passports} onAction={onAction} notify={notify} setBusy={setBusy}/>}
     <h2>Issued passports</h2>
     {list.length===0?<p className="hint">No passports issued.</p>
       :<table>
         <caption>{list.length} issued</caption>
-        <thead><tr><th>Bearer</th><th>Number</th><th>Type</th><th>Expires</th>{manage&&<th className="num">Manage</th>}</tr></thead>
+        <thead><tr><th>Bearer</th><th>Number</th><th>Type</th><th>Expires</th><th className="num">Document</th></tr></thead>
         <tbody>{list.map(p=>{const t=ppOf(p.type);const a=acctOf(p.username);const revoked=p.status==="revoked";
           return <tr key={p.id} style={{opacity:revoked?.6:1}}>
             <td>{a?<Person account={a} size={30}/>:<span className="nm">{p.name||p.username}</span>}</td>
             <td className="mono">{p.number}</td>
             <td><Tag t="teal">{t.l}</Tag>{revoked&&<span style={{marginLeft:6}}><Tag t="red">Revoked</Tag></span>}</td>
             <td>{p.expires?fmtDate(p.expires):"—"}</td>
-            {manage&&<td className="num">
-              {revoked?<Btn small kind="sec" onClick={async()=>{setBusy("Reinstating");const res=await onAction("ppUpdate",{id:p.id,status:"active"});setBusy(null);notify(res.ok?(p.number+" reinstated."):res.error,res.ok);}}>Reinstate</Btn>
-                :<ArmBtn small label="Revoke" confirmLabel="Revoke" onConfirm={async()=>{setBusy("Revoking");const res=await onAction("ppUpdate",{id:p.id,status:"revoked"});setBusy(null);notify(res.ok?(p.number+" revoked."):res.error,res.ok);}}/>}
-            </td>}
+            <td className="num"><span style={{display:"inline-flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>
+              <Btn small kind="sec" onClick={()=>setViewing(p)}>View</Btn>
+              {manage&&(revoked
+                ?<Btn small kind="sec" onClick={async()=>{setBusy("Reinstating");const res=await onAction("ppUpdate",{id:p.id,status:"active"});setBusy(null);notify(res.ok?(p.number+" reinstated."):res.error,res.ok);}}>Reinstate</Btn>
+                :<ArmBtn small label="Revoke" confirmLabel="Revoke" onConfirm={async()=>{setBusy("Revoking");const res=await onAction("ppUpdate",{id:p.id,status:"revoked"});setBusy(null);notify(res.ok?(p.number+" revoked."):res.error,res.ok);}}/>)}
+            </span></td>
           </tr>;})}</tbody>
       </table>}
   </div>;
 }
-function IssuePassport({accounts,passports,citizenSet,onAction,notify,setBusy}){
+function IssuePassport({citizenAccounts,passports,onAction,notify,setBusy}){
   const [acct,setAcct]=useState(""),[type,setType]=useState("ordinary");
   const today=new Date().toISOString().slice(0,10);
   const plus10=new Date(Date.now()+10*365.25*86400000).toISOString().slice(0,10);
   const [issued,setIssued]=useState(today),[expires,setExpires]=useState(plus10),[saving,setSaving]=useState(false);
-  const a=accounts.find(x=>x.username===acct);
-  const isCit=a&&citizenSet.has(String(a.username||"").toLowerCase());
+  const a=citizenAccounts.find(x=>x.username===acct);
   return <div style={{border:"1px solid var(--grey3)",background:"#fafafa",padding:"16px 18px",marginBottom:20}}>
     <h3 style={{marginTop:0}}>Issue a passport</h3>
-    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"0 16px"}}>
-      <Field label="Bearer"><AccountSelect accounts={accounts} value={acct} onChange={setAcct}/></Field>
-      <Field label="Type"><select value={type} onChange={e=>setType(e.target.value)}>{PP_TYPES.map(t=><option key={t.v} value={t.v}>{t.l}</option>)}</select></Field>
-      <Field label="Date of issue"><input type="date" value={issued} onChange={e=>setIssued(e.target.value)}/></Field>
-      <Field label="Date of expiry"><input type="date" value={expires} onChange={e=>setExpires(e.target.value)}/></Field>
-    </div>
-    {a&&!isCit&&<div className="err"><div className="t">Not a citizen</div>
-      <p style={{marginBottom:0}}>Only a citizen of Wilden may be issued a passport. Grant citizenship first.</p></div>}
-    <Btn disabled={!acct||!isCit||saving} onClick={async()=>{
+    {citizenAccounts.length===0
+      ?<p className="hint">No citizens to issue to yet. Grant citizenship in the register first.</p>
+      :<>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"0 16px"}}>
+          <Field label="Bearer" hint="Only citizens of Wilden appear here.">
+            <AccountSelect accounts={citizenAccounts} value={acct} onChange={setAcct} placeholder="— Select a citizen —"/></Field>
+          <Field label="Type"><select value={type} onChange={e=>setType(e.target.value)}>{PP_TYPES.map(t=><option key={t.v} value={t.v}>{t.l}</option>)}</select></Field>
+          <Field label="Date of issue"><input type="date" value={issued} onChange={e=>setIssued(e.target.value)}/></Field>
+          <Field label="Date of expiry"><input type="date" value={expires} onChange={e=>setExpires(e.target.value)}/></Field>
+        </div>
+        <Btn disabled={!acct||saving} onClick={async()=>{
       setSaving(true);setBusy("Issuing");const number=genPassportNo(passports);
       const res=await onAction("issue",{number,username:a.username,name:(a.displayName||a.username),type,issued,expires,status:"active"});
       setBusy(null);setSaving(false);
       if(res.ok){setAcct("");notify("Passport "+number+" issued to "+(a.displayName||a.username)+".",true);}
       else notify(res.error,false);
     }}>{saving?"Issuing…":"Issue passport"}</Btn>
+      </>}
   </div>;
 }
 
