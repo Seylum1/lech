@@ -374,8 +374,8 @@ function Register({onClose,onDone,switchSignIn}){
       {err&&<Note err>{err}</Note>}
       <Field label="Minecraft username"><Inp value={u} onChange={e=>setU(e.target.value)} autoFocus placeholder="Your exact Minecraft name"/></Field>
       <div style={{display:"flex",gap:12}}>
-        <div style={{flex:1}}><Field label="Characters First name"><Inp value={fn} onChange={e=>setFn(e.target.value)}/></Field></div>
-        <div style={{flex:1}}><Field label="Characters Last name"><Inp value={ln} onChange={e=>setLn(e.target.value)}/></Field></div>
+        <div style={{flex:1}}><Field label="First name"><Inp value={fn} onChange={e=>setFn(e.target.value)}/></Field></div>
+        <div style={{flex:1}}><Field label="Last name"><Inp value={ln} onChange={e=>setLn(e.target.value)}/></Field></div>
       </div>
       <Field label="Password"><Inp type="password" value={p} onChange={e=>setP(e.target.value)}/></Field>
       <Field label="Confirm password"><Inp type="password" value={p2} onChange={e=>setP2(e.target.value)}/></Field>

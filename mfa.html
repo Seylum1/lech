@@ -334,47 +334,48 @@ function CitizenshipTab({citizens,user,myCitizenship,onRequireSignIn,onAction,no
   </div>;
 }
 
-function IssuedVisas({visas}){
-  const [search,setSearch]=useState("");const [showExpired,setShowExpired]=useState(false);
-  const all=Object.values(visas||{}).filter(v=>v.status==="approved");
-  const activeCount=all.filter(v=>(visaValidity(v)||{}).state!=="expired").length;
-  const rank=v=>(visaValidity(v)||{}).state==="expired"?2:1;
-  const list=all.filter(v=>{
-    const q=search.toLowerCase();
-    const matchQ=!q||(v.name||"").toLowerCase().includes(q)||(v.nationality||"").toLowerCase().includes(q);
-    const matchExp=showExpired||(visaValidity(v)||{}).state!=="expired";
-    return matchQ&&matchExp;
-  }).sort((a,b)=>rank(a)-rank(b)||(a.name||"").localeCompare(b.name||""));
-  return <div className="fadeIn">
-    <STitle>Issued Visas</STitle>
-    <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.25rem"}}>Public register of visas issued by the Ministry of Foreign Affairs {"—"} {activeCount} currently active.</div>
-    <div style={{display:"flex",gap:"1rem",marginBottom:"1.25rem",flexWrap:"wrap",alignItems:"center"}}>
-      <div style={{flex:2,minWidth:200}}><Inp value={search} onChange={setSearch} placeholder="Search holder or nationality..."/></div>
-      <CheckBox checked={showExpired} onChange={setShowExpired} label="Show expired"/>
-    </div>
-    {list.length===0?<div style={{textAlign:"center",padding:"3rem",color:C.textDD,fontStyle:"italic"}}>No issued visas to display.</div>
-    :<div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>
-      {list.map(v=>{
-        const vt=VISA_TYPES.find(t=>t.v===v.type)||VISA_TYPES[0];const vv=visaValidity(v)||{};const expired=vv.state==="expired";
-        return <div key={v.id} style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${vv.color||C.border}`,borderRadius:"0 3px 3px 0",padding:"0.75rem 1.1rem",opacity:expired?0.62:1}}>
-          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:6}}>
-            <div style={{lineHeight:1.2}}>
-              <div style={{fontFamily:"'Cinzel',serif",fontSize:15,color:C.text}}>{v.username||v.name}</div>
-              {v.username&&v.name&&<div className="mono" style={{fontSize:10,color:C.textDD,fontStyle:"italic"}}>{v.name}</div>}
-            </div>
-            <span className="mono" style={{fontSize:9,color:C.textD,padding:"2px 8px",background:C.s2,border:`1px solid ${C.border}`}}>{vt.l}</span>
-            {v.nationality&&<span style={{fontSize:12,color:C.textDD,fontStyle:"italic"}}>{v.nationality}</span>}
-            <span style={{flex:1}}/>
-            <VisaValidityBadge visa={v}/>
-          </div>
-          <div style={{display:"flex",gap:"1.75rem",flexWrap:"wrap"}}>
-            <div><span className="mono" style={{fontSize:8,color:C.textDD,marginRight:6}}>ISSUED</span><span style={{fontSize:13,color:C.text}}>{fmtDate(v.issuedAt)}</span></div>
-            <div><span className="mono" style={{fontSize:8,color:C.textDD,marginRight:6}}>VALID UNTIL</span><span style={{fontSize:13,color:expired?C.redL:C.text}}>{v.permanent||v.validUntil==="permanent"?"Permanent":(v.validUntil?fmtDate(v.validUntil):"—")}</span></div>
-          </div>
-        </div>;
-      })}
-    </div>}
-  </div>;
+/* ── VISA EXEMPTION ────────────────────────────────────────────────────────────
+   A visa is permission to enter the Empire. Whether one is needed at all depends
+   on the passports the applicant already carries: an Imperial passport makes the
+   question moot, and a passport of a nation the Empire admits visa-free bars the
+   application outright — the passport itself is the entry document. */
+// A country record's visa regime, normalised. New records carry `visaRegime`
+// ("free" | "voa" | "required"); older Lech records had only the visaOnArrival
+// flag, where unchecked meant "Visa Not Required".
+function visaRegimeOf(c){
+  if(!c)return null;
+  if(c.visaRegime)return c.visaRegime;
+  if(c.visaOnArrival===true)return "voa";
+  if(c.visaOnArrival===false)return "free";
+  return null;
+}
+const NATION_MATCH={vindex:/vindex/i,wilden:/wilden/i,lech:/lech/i};
+function countryRecFor(countries,nation){
+  return Object.values(countries||{}).find(c=>NATION_MATCH[nation]&&NATION_MATCH[nation].test(c.name||""))||null;
+}
+function ownActivePassports(register,user){
+  if(!user)return [];
+  const u=String(user.username||"").toLowerCase();
+  return Object.values(register||{}).filter(p=>String(p.username||"").toLowerCase()===u
+    &&p.status!=="revoked"&&(!p.expires||new Date(p.expires)>=new Date()));
+}
+// foreignPassports = {lech:…, vindex:…, wilden:…} — the viewer's own documents
+// (the server already filters each register to what this account may see).
+function visaExemption(user,foreignPassports,countries,host){
+  if(!user||!foreignPassports)return null;
+  const own=ownActivePassports(foreignPassports[host],user);
+  if(own.length)return {kind:"citizen",passport:own[0]};
+  const NAT_LABEL={lech:"Empire of Lech",vindex:"Republic of Vindex Nation",wilden:"Wilden"};
+  for(const nation of Object.keys(foreignPassports)){
+    if(nation===host)continue;
+    const pps=ownActivePassports(foreignPassports[nation],user);
+    if(!pps.length)continue;
+    const rec=countryRecFor(countries,nation);
+    const regime=visaRegimeOf(rec);
+    if(regime==="free")return {kind:"free",nation:NAT_LABEL[nation],passport:pps[0],rec};
+    if(regime==="voa")return {kind:"voa",nation:NAT_LABEL[nation],passport:pps[0],rec};
+  }
+  return null;
 }
 // ── IMPERIAL PASSPORT ─────────────────────────────────────────────────────────
 // The Greater Coat of Arms of the Empire of Lech — the same artwork used on the
@@ -649,54 +650,65 @@ function PassportsTab({passports,visas,user}){
   </div>;
 }
 
-function VisaTab({countries,onSubmitVisa,notify,visas,user,myCitizenship}){
-  const [sub,setSub]=useState("apply");const [trackRef,setTrackRef]=useState("");const [tracked,setTracked]=useState(null);
-  function doTrack(){
-    const ref=trackRef.trim().toUpperCase();
-    if(!ref) return;
-    const found=Object.values(visas||{}).find(v=>(v.ref||"").toUpperCase()===ref);
-    setTracked(found||"notfound");
-  }
-  const st=tracked&&tracked!=="notfound"?(VISA_STATUSES.find(s=>s.v===tracked.status)||VISA_STATUSES[0]):null;
-  const vt=tracked&&tracked!=="notfound"?(VISA_TYPES.find(t=>t.v===tracked.type)||VISA_TYPES[0]):null;
+function VisaTab({countries,onSubmitVisa,notify,visas,user,myCitizenship,foreignPassports}){
+  // No tracking numbers to type in: sign in and your applications simply appear.
+  // And no pointless applications: a passport that already opens the Empire's
+  // border stops the form before it starts.
+  const exempt=visaExemption(user,foreignPassports,countries,"lech");
+  const mine=user?Object.values(visas||{}).filter(v=>String(v.username||"").toLowerCase()===String(user.username||"").toLowerCase())
+    .sort((a,b)=>(b.submitted||0)-(a.submitted||0)):[];
   return <div className="fadeIn">
-    <div style={{display:"flex",gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:"1.5rem"}}>
-      {[["apply","Apply for a Visa"],["track","Track Application"],["issued","Issued Visas"]].map(([v,l])=><button key={v} onClick={()=>setSub(v)} style={{fontFamily:"'Cinzel',serif",fontSize:10,letterSpacing:"0.15em",textTransform:"uppercase",padding:"0.6rem 1.1rem",background:"transparent",border:"none",cursor:"pointer",borderBottom:`2px solid ${sub===v?C.accent:"transparent"}`,color:sub===v?C.accent:C.textD}}>{l}</button>)}
+    <STitle>Visa Services</STitle>
+    <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.25rem"}}>
+      Application for a visa to enter the Empire of Lech. Approved visas are stamped into the bearer's passport.
     </div>
-    {sub==="apply"&&<VisaForm countries={countries} onSubmit={onSubmitVisa} notify={notify} user={user} myCitizenship={myCitizenship}/>}
-    {sub==="issued"&&<IssuedVisas visas={visas}/>}
-    {sub==="track"&&<div>
-      <STitle>Track Your Application</STitle>
-      <div style={{fontSize:14,color:C.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:"1.25rem"}}>Enter your application reference number to check your status.</div>
-      <div style={{display:"flex",gap:8,maxWidth:420,marginBottom:"1rem"}}>
-        <Inp value={trackRef} onChange={setTrackRef} placeholder="e.g. VISA-2026-001234" style={{flex:1}}/>
-        <Btn onClick={doTrack}>Check</Btn>
-      </div>
-      {tracked==="notfound"&&<div style={{background:C.s1,border:`1px solid ${C.redD}44`,borderLeft:`3px solid ${C.redD}`,borderRadius:"0 3px 3px 0",padding:"1rem",maxWidth:480}}>
-        <div style={{fontFamily:"'Cinzel',serif",fontSize:13,color:C.redL,marginBottom:4}}>Reference Not Found</div>
-        <div style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>No application found. Check the reference number and try again.</div>
-      </div>}
-      {tracked&&tracked!=="notfound"&&st&&vt&&<div style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${st.color}`,borderRadius:"0 3px 3px 0",padding:"1.25rem",maxWidth:480}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"0.85rem",flexWrap:"wrap",gap:8}}>
-          <div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>REFERENCE</div><div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text}}>{tracked.ref}</div></div>
-          <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>
-            <span className="mono" style={{fontSize:10,padding:"3px 10px",background:C.s2,border:`1px solid ${st.color}44`,color:st.color}}>{st.l.toUpperCase()}</span>
-            <VisaValidityBadge visa={tracked}/>
-          </div>
-        </div>
-        <div style={{display:"flex",gap:"1.5rem",flexWrap:"wrap",marginBottom:"0.75rem"}}>
-          <div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>APPLICANT</div><span style={{fontSize:13,color:C.text}}>{tracked.name}</span></div>
-          <div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>TYPE</div><span style={{fontSize:13,color:C.text}}>{vt.l}</span></div>
-          <div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>SUBMITTED</div><span style={{fontSize:13,color:C.text}}>{fmtDate(tracked.submitted)}</span></div>
-          {tracked.status==="approved"&&tracked.issuedAt&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>ISSUED</div><span style={{fontSize:13,color:C.text}}>{fmtDate(tracked.issuedAt)}</span></div>}
-          {tracked.status==="approved"&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>VALID UNTIL</div><span style={{fontSize:13,color:C.text}}>{tracked.permanent||tracked.validUntil==="permanent"?"Permanent":(tracked.validUntil?fmtDate(tracked.validUntil):"—")}</span></div>}
-        </div>
-        {tracked.reviewNote&&<div style={{background:C.s2,border:`1px solid ${C.border}`,borderLeft:`3px solid ${st.color}`,borderRadius:"0 2px 2px 0",padding:"0.6rem 0.85rem",fontSize:13,color:C.text,fontStyle:"italic"}}>
-          <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2,fontStyle:"normal"}}>NOTE FROM MINISTRY</div>
-          {tracked.reviewNote}
-        </div>}
-      </div>}
+    {exempt&&exempt.kind==="citizen"&&<div style={{background:C.s1,border:"1px solid #2a5a2a",borderLeft:"4px solid #2a9a4a",borderRadius:"0 3px 3px 0",padding:"1.25rem",maxWidth:560,marginBottom:"1.25rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:"#5ad47a",marginBottom:6}}>No Visa Required</div>
+      <div style={{fontSize:14,color:C.textD,lineHeight:1.7}}>You hold Imperial passport <span className="mono" style={{color:C.gold}}>{exempt.passport.number}</span>.
+        A subject of His Imperial Majesty requires no visa to enter the Empire.</div>
     </div>}
+    {exempt&&exempt.kind==="free"&&<div style={{background:C.s1,border:"1px solid #2a5a2a",borderLeft:"4px solid #2a9a4a",borderRadius:"0 3px 3px 0",padding:"1.25rem",maxWidth:560,marginBottom:"1.25rem"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:"#5ad47a",marginBottom:6}}>No Visa Required</div>
+      <div style={{fontSize:14,color:C.textD,lineHeight:1.7}}>
+        Your {exempt.nation} passport <span className="mono" style={{color:C.gold}}>{exempt.passport.number}</span> grants
+        visa-free entry to the Empire{exempt.rec&&exempt.rec.visaPolicy?<> — <span style={{fontStyle:"italic"}}>{exempt.rec.visaPolicy}</span></>:" under the Empire's arrangement with "+exempt.nation+"."}
+        {" "}Travel on that passport; no application is needed or accepted.
+      </div>
+    </div>}
+    {exempt&&exempt.kind==="voa"&&<div style={{background:C.s2,border:`1px solid ${C.gold}44`,borderLeft:`3px solid ${C.gold}`,borderRadius:"0 2px 2px 0",padding:"0.85rem 1rem",maxWidth:560,marginBottom:"1.25rem",fontSize:13,color:C.textD}}>
+      <span className="mono" style={{fontSize:9,color:C.gold,marginRight:8}}>VISA ON ARRIVAL</span>
+      Your {exempt.nation} passport <span className="mono" style={{color:C.gold}}>{exempt.passport.number}</span> is granted a visa on arrival at the Imperial border — an advance application is optional.
+    </div>}
+    {(!exempt||exempt.kind==="voa")&&<VisaForm countries={countries} onSubmit={onSubmitVisa} notify={notify} user={user} myCitizenship={myCitizenship}/>}
+    <div style={{marginTop:"2rem"}}>
+      <STitle>My Applications</STitle>
+      {!user&&<div style={{fontSize:13,color:C.textDD,fontStyle:"italic"}}>Sign in and your applications appear here automatically.</div>}
+      {user&&mine.length===0&&<div style={{fontSize:13,color:C.textDD,fontStyle:"italic"}}>No applications on file for @{user.username}.</div>}
+      {user&&mine.length>0&&<div style={{display:"flex",flexDirection:"column",gap:"0.6rem",maxWidth:560}}>
+        {mine.map(v=>{
+          const st=VISA_STATUSES.find(s=>s.v===v.status)||VISA_STATUSES[0];
+          const vt=VISA_TYPES.find(t=>t.v===v.type)||VISA_TYPES[0];
+          return <div key={v.id} style={{background:C.s1,border:`1px solid ${C.border}`,borderLeft:`4px solid ${st.color}`,borderRadius:"0 3px 3px 0",padding:"1rem 1.25rem"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"0.6rem",flexWrap:"wrap",gap:8}}>
+              <div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:3}}>REFERENCE</div><div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:C.text}}>{v.ref}</div></div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>
+                <span className="mono" style={{fontSize:10,padding:"3px 10px",background:C.s2,border:`1px solid ${st.color}44`,color:st.color}}>{st.l.toUpperCase()}</span>
+                <VisaValidityBadge visa={v}/>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:"1.5rem",flexWrap:"wrap"}}>
+              <div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>TYPE</div><span style={{fontSize:13,color:C.text}}>{vt.l}</span></div>
+              <div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>SUBMITTED</div><span style={{fontSize:13,color:C.text}}>{fmtDate(v.submitted)}</span></div>
+              {v.status==="approved"&&v.issuedAt&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>ISSUED</div><span style={{fontSize:13,color:C.text}}>{fmtDate(v.issuedAt)}</span></div>}
+              {v.status==="approved"&&<div><div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2}}>VALID UNTIL</div><span style={{fontSize:13,color:C.text}}>{v.permanent||v.validUntil==="permanent"?"Permanent":(v.validUntil?fmtDate(v.validUntil):"—")}</span></div>}
+            </div>
+            {v.status==="approved"&&<div style={{fontSize:12,color:C.textDD,fontStyle:"italic",marginTop:6}}>This visa is stamped in your passport — view it on the Passports tab.</div>}
+            {v.reviewNote&&<div style={{background:C.s2,border:`1px solid ${C.border}`,borderLeft:`3px solid ${st.color}`,borderRadius:"0 2px 2px 0",padding:"0.6rem 0.85rem",fontSize:13,color:C.text,fontStyle:"italic",marginTop:8}}>
+              <div className="mono" style={{fontSize:9,color:C.textDD,marginBottom:2,fontStyle:"normal"}}>NOTE FROM MINISTRY</div>{v.reviewNote}
+            </div>}
+          </div>;})}
+      </div>}
+    </div>
   </div>;
 }
 
@@ -762,7 +774,7 @@ function PolicyDetail({country,advisories,restrictions}){
 }
 
 
-function PanelContent({user,countries,advisories,restrictions,visas,citizens,passports,accounts,onAction,notify,setProcessing}){
+function PanelContent({user,countries,advisories,restrictions,visas,stampVisas,citizens,passports,accounts,onAction,notify,setProcessing}){
   const [sec,setSec]=useState("countries");
   const pending=Object.values(visas||{}).filter(v=>v.status==="pending").length;
   const secs=[["countries","Countries & Advisories"],["restrictions","Restrictions"],["visas","Visa Queue"+(pending>0?" ("+pending+")":"")],["passports","Passports"],["citizens","Citizenship"]];
@@ -772,7 +784,7 @@ function PanelContent({user,countries,advisories,restrictions,visas,citizens,pas
     {sec==="countries"&&<PanelCountries countries={countries} advisories={advisories} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
     {sec==="restrictions"&&<PanelRestrictions countries={countries} restrictions={restrictions} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
     {sec==="visas"&&<PanelVisas visas={visas} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
-    {sec==="passports"&&<PanelPassports passports={passports} visas={visas} accounts={accounts} citizens={citizens} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+    {sec==="passports"&&<PanelPassports passports={passports} visas={stampVisas||visas} accounts={accounts} citizens={citizens} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
     {sec==="citizens"&&<PanelCitizenship citizens={citizens} accounts={accounts} user={user} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
   </div>;
 }
@@ -1108,6 +1120,17 @@ function App(){
   const citizens=useMemo(()=>raw["mfa_citizens"]||{},[raw]);
   const passports=useMemo(()=>raw["mfa_passports"]||{},[raw]);
   const pendingVisas=useMemo(()=>Object.values(visas).filter(v=>v.status==="pending").length,[visas]);
+  // The viewer's own travel documents across all three nations — the server
+  // filters each register to what this account may see. Used to bar pointless
+  // visa applications (a visa-free passport is itself the entry document).
+  const foreignPassports=useMemo(()=>({lech:passports,vindex:raw["vx_state_passports"]||{},wilden:raw["wx_state_passports"]||{}}),[passports,raw]);
+  // Every approved visa from every ministry, labelled by issuing nation, so a
+  // passport shows the stamps of all three borders.
+  const stampVisas=useMemo(()=>[
+    ...Object.values(visas).map(v=>({...v,_nation:"EMPIRE OF LECH",_col:"#28506a"})),
+    ...Object.values(raw["vx_state_visas"]||{}).map(v=>({...v,_nation:"REPUBLIC OF VINDEX NATION",_col:"#5a2a5a"})),
+    ...Object.values(raw["wx_state_visas"]||{}).map(v=>({...v,_nation:"WILDEN",_col:"#2a5a3a"})),
+  ],[visas,raw]);
 
   const onAction=useCallback(async(type,payload)=>{
     if(type==="createCountry"){const id="cty_"+uid();const next={...countries,[id]:{...payload,id,created:Date.now()}};setRaw(r=>({...r,mfa_countries:next}));await sset("mfa_countries",next);}
@@ -1163,9 +1186,9 @@ function App(){
       {authOpen&&<SignIn onClose={()=>setAuthOpen(false)} onAuth={(u,r)=>{setUser(u);setRaw(prev=>({...prev,...r}));setAuthOpen(false);notify("Signed in as "+(u.displayName||u.username)+".",C.gold);}}/>}
       {loaded&&tab==="relations"&&<RelationsTab countries={countries} advisories={advisories} restrictions={restrictions}/>}
       {loaded&&tab==="citizenship"&&<CitizenshipTab citizens={citizens} user={user} myCitizenship={myCitizenship} onRequireSignIn={()=>setAuthOpen(true)} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
-      {loaded&&tab==="visa"&&<VisaTab countries={countries} onSubmitVisa={data=>onAction("submitVisa",data)} notify={notify} visas={visas} user={user} myCitizenship={myCitizenship}/>}
-      {loaded&&tab==="passports"&&<PassportsTab passports={passports} visas={visas} user={user}/>}
-      {loaded&&tab==="panel"&&canPanel&&<PanelContent user={user} countries={countries} advisories={advisories} restrictions={restrictions} visas={visas} citizens={citizens} passports={passports} accounts={accounts} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+      {loaded&&tab==="visa"&&<VisaTab countries={countries} onSubmitVisa={data=>onAction("submitVisa",data)} notify={notify} visas={visas} user={user} myCitizenship={myCitizenship} foreignPassports={foreignPassports}/>}
+      {loaded&&tab==="passports"&&<PassportsTab passports={passports} visas={stampVisas} user={user}/>}
+      {loaded&&tab==="panel"&&canPanel&&<PanelContent user={user} countries={countries} advisories={advisories} restrictions={restrictions} visas={visas} stampVisas={stampVisas} citizens={citizens} passports={passports} accounts={accounts} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
       {loaded&&tab==="panel"&&!canPanel&&<div style={{textAlign:"center",padding:"3rem",color:C.textDD}}>
         <div style={{fontStyle:"italic",marginBottom:"1rem"}}>{user?"Your account does not have Foreign Affairs panel access.":"Sign in with your Imperial Intranet account to access the Ministry panel."}</div>
         {!user&&<Btn onClick={()=>setAuthOpen(true)}>Sign In</Btn>}

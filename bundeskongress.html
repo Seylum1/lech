@@ -946,6 +946,7 @@ async function sgetAll(prefix) {
   } catch(e){ return {}; }
 }
 // ── Atomic write tracking ─────────────────────────────────────────────────────
+// Writes go to the shared Render backend; the old Sheets-era rollback beacon is gone.
 var _writeTx = null;
 function beginTx() { _writeTx = { keys: [], committed: false }; }
 function commitTx() { if(_writeTx) _writeTx.committed = true; _writeTx = null; }
