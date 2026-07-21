@@ -461,7 +461,6 @@ function loadForeignPolicy(){
   if(_fpLoaded) return;
   _fpLoaded=true;
 
-  var SCRIPT_URL="https://script.google.com/macros/s/AKfycbxLu8jQehAZJEvMEeCLoHc9S2C4FM8o9fQh8Pp4gMzDNwwIG0S9qLJ5-1gyGM1c_InUfQ/exec";
   var ADVISORY_COLORS={1:{color:"#2a9a4a",bg:"#0a1a0e",border:"#1a4a2a",label:"Exercise Normal Caution"},2:{color:"#C9A84C",bg:"#1a1200",border:"#4a3a00",label:"Exercise Increased Caution"},3:{color:"#cc6a10",bg:"#1a0e00",border:"#6a3a00",label:"Avoid Non-Essential Travel"},4:{color:"#cc2222",bg:"#1a0808",border:"#6a1010",label:"Do Not Travel"}};
   var RELATION_CONFIG={full:{color:"#2a9a4a",border:"#1a4a2a",bg:"#0a1a0e",badge:"DIPLOMATIC RELATIONS"},limited:{color:"#C9A84C",border:"#4a3a00",bg:"#1a1200",badge:"LIMITED RELATIONS"},none:{color:"#7a7a7a",border:"#3a3a3a",bg:"#0e0e0e",badge:"NO RELATIONS"},hostile:{color:"#cc2222",border:"#6a1010",bg:"#1a0808",badge:"DESIGNATED HOSTILE"}};
 
@@ -697,9 +696,6 @@ function loadForeignPolicy(){
 
 <script>
 (function(){
-  var MOI_URL="https://script.google.com/macros/s/AKfycbxLu8jQehAZJEvMEeCLoHc9S2C4FM8o9fQh8Pp4gMzDNwwIG0S9qLJ5-1gyGM1c_InUfQ/exec";
-  var BK_URL="https://script.google.com/macros/s/AKfycbz37c5Okp9c7PkXv38x2lq7Is3RifkJPee5ASb2KQfA7EJgsN0NwrigmiRr1a_G0E6d4Q/exec";
-
   // ── Lookup tables (mirrored from the source portals) ──
   var CLEARANCE=[
     {code:"UNCLASSIFIED",short:"UC",color:"#2a9a4a"},
@@ -1421,10 +1417,11 @@ function loadForeignPolicy(){
     // ── Foreign Affairs ──
     html+='<div class="ch-panel" style="--pa:#4a93a8">';
     html+='<div class="ch-title">🌐 Citizenship &amp; Travel <a class="ch-link" href="mfa.html" style="margin-left:auto;">Foreign Affairs →</a></div>';
-    // Registered Aliens (the default for every new account) get a clear prompt to
-    // have the Ministry of Foreign Affairs review and update their status.
-    var _cstatus=myCitizenship.length?myCitizenship[0].status:(acc.citizenshipStatus||"");
-    if(_cstatus==="alien"||(!myCitizenship.length&&(acc.citizenshipStatus==="alien"))){
+    // Registered Aliens get a clear prompt to have the Ministry of Foreign
+    // Affairs review and update their status. The mfa_citizens register is the
+    // sole source of citizenship — the old account field is retired.
+    var _cstatus=myCitizenship.length?myCitizenship[0].status:"";
+    if(_cstatus==="alien"){
       html+='<div style="background:#1a1224;border:1px solid #6a4a8a;border-left:3px solid #b89ac8;border-radius:0 3px 3px 0;padding:0.75rem 1rem;margin-bottom:0.85rem;">';
       html+='<div style="font-family:\'Cinzel\',serif;font-size:0.68rem;letter-spacing:0.16em;text-transform:uppercase;color:#b89ac8;margin-bottom:4px;">Registered Alien</div>';
       html+='<div style="font-size:0.88rem;color:#d8c8e0;line-height:1.55;">You are registered but not yet a citizen. Contact the <a href="mfa.html" style="color:#C9A84C;">Ministry of Foreign Affairs</a> to have your citizenship status reviewed and updated.</div>';

@@ -55,7 +55,6 @@ input,select,textarea{font-family:'Crimson Text',Georgia,serif;}
 <script type="text/babel">
 
 const {useState,useEffect,useRef,useCallback,useMemo}=React;
-const SCRIPT_URL="https://script.google.com/macros/s/AKfycbxLu8jQehAZJEvMEeCLoHc9S2C4FM8o9fQh8Pp4gMzDNwwIG0S9qLJ5-1gyGM1c_InUfQ/exec";
 const COA_B64=document.getElementById("coa-data").textContent.trim();
 
 const ENTITY_TYPES=[{v:"state",l:"Sovereign State"},{v:"territory",l:"Territory / Dependency"},{v:"organisation",l:"International Organisation"},{v:"militant",l:"Non-State Armed Group"}];
@@ -782,7 +781,7 @@ function PanelContent({user,countries,advisories,restrictions,visas,citizens,pas
     {sec==="countries"&&<PanelCountries countries={countries} advisories={advisories} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
     {sec==="restrictions"&&<PanelRestrictions countries={countries} restrictions={restrictions} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
     {sec==="visas"&&<PanelVisas visas={visas} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
-    {sec==="passports"&&<PanelPassports passports={passports} visas={visas} accounts={accounts} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+    {sec==="passports"&&<PanelPassports passports={passports} visas={visas} accounts={accounts} citizens={citizens} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
     {sec==="citizens"&&<PanelCitizenship citizens={citizens} accounts={accounts} user={user} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
   </div>;
 }
@@ -939,15 +938,20 @@ function VisaRow({visa,onAction,notify,setProcessing}){
   </div>;
 }
 
-function PanelPassports({passports,visas,accounts,onAction,notify,setProcessing}){
-  const [acct,setAcct]=useState("");const [name,setName]=useState("");const [username,setUsername]=useState("");const [nonCitizen,setNonCitizen]=useState(false);
+function PanelPassports({passports,visas,accounts,citizens,onAction,notify,setProcessing}){
+  const [acct,setAcct]=useState("");const [name,setName]=useState("");const [username,setUsername]=useState("");
   const [type,setType]=useState("standard");
   const today=new Date().toISOString().slice(0,10);
   const plus5=new Date(Date.now()+5*365.25*86400000).toISOString().slice(0,10);
   const [issued,setIssued]=useState(today);const [expires,setExpires]=useState(plus5);
   const [place,setPlace]=useState("");const [saving,setSaving]=useState(false);
   const [viewing,setViewing]=useState(null);
-  const acctOpts=[{v:"",l:"— Select a citizen —"},...((accounts||[]).map(a=>({v:a.username,l:(a.displayName?a.displayName+" ":"")+"@"+a.username})))];
+  // A passport is issued only to a citizen on the register, and only against
+  // their account — no manual names, so every document ties back to a person.
+  const citizenSet=useMemo(()=>{const s=new Set();Object.values(citizens||{}).forEach(c=>{
+    if(["citizen","naturalised"].includes(c.status)&&c.username)s.add(String(c.username).toLowerCase());});return s;},[citizens]);
+  const citizenAccts=(accounts||[]).filter(a=>citizenSet.has(String(a.username||"").toLowerCase()));
+  const acctOpts=[{v:"",l:"— Select a citizen —"},...citizenAccts.map(a=>({v:a.username,l:(a.displayName?a.displayName+" ":"")+"@"+a.username}))];
   function pickAccount(u){setAcct(u);setUsername(u);const a=(accounts||[]).find(x=>x.username===u);setName(a?(a.displayName||a.username):"");}
   const list=Object.values(passports||{}).sort((a,b)=>((a.username||a.name)||"").localeCompare((b.username||b.name)||""));
   return <div>
@@ -958,22 +962,20 @@ function PanelPassports({passports,visas,accounts,onAction,notify,setProcessing}
         <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
           <div style={{flex:2,minWidth:200}}>
             <FL>BEARER *</FL>
-            {nonCitizen
-              ?<Inp value={name} onChange={setName} placeholder="Full name of the bearer"/>
-              :<DD value={acct} onChange={pickAccount} options={acctOpts}/>}
+            <DD value={acct} onChange={pickAccount} options={acctOpts}/>
           </div>
           <div style={{flex:1,minWidth:180}}><FL>PASSPORT TYPE</FL><DD value={type} onChange={setType} options={PASSPORT_TYPES.map(t=>({v:t.v,l:t.l}))}/></div>
         </div>
-        <CheckBox checked={nonCitizen} onChange={v=>{setNonCitizen(v);setAcct("");setName("");setUsername("");}} label="Bearer is not a registered citizen — enter their name manually"/>
+        {citizenAccts.length===0&&<div style={{fontSize:12,color:C.textDD,fontStyle:"italic"}}>No citizens to issue to yet — record citizenship in the register first.</div>}
         <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
           <div style={{flex:1,minWidth:140}}><FL>DATE OF ISSUE</FL><Inp value={issued} onChange={setIssued} type="date"/></div>
           <div style={{flex:1,minWidth:140}}><FL>DATE OF EXPIRY</FL><Inp value={expires} onChange={setExpires} type="date"/></div>
           <div style={{flex:2,minWidth:180}}><FL>PLACE OF ISSUE (optional)</FL><Inp value={place} onChange={setPlace} placeholder="e.g. the Imperial Capital"/></div>
         </div>
-        <Btn small disabled={!name.trim()||saving} onClick={async()=>{
+        <Btn small disabled={!username||!name.trim()||saving} onClick={async()=>{
           setSaving(true);setProcessing("Issuing passport...");
           const number=genPassportNo(passports);
-          await onAction("createPassport",{number,name:name.trim(),username:nonCitizen?"":username,type,issued,expires,placeOfIssue:place.trim(),status:"active",issuedAt:Date.now()});
+          await onAction("createPassport",{number,name:name.trim(),username,type,issued,expires,placeOfIssue:place.trim(),status:"active",issuedAt:Date.now()});
           setProcessing(null);setSaving(false);notify("Passport "+number+" issued to "+name+".",C.gold);
           setAcct("");setName("");setUsername("");setPlace("");
         }}>{saving?"Issuing...":"Issue Passport"}</Btn>
@@ -1009,11 +1011,13 @@ function PanelCitizenship({citizens,accounts,user,onAction,notify,setProcessing}
   // New self-registered accounts who ticked "I hold citizenship" — surfaced here
   // so the Ministry can review and set their status.
   const reviews=list.filter(c=>c.reviewRequested);
-  const acctOpts=[{v:"",l:"— Manual entry (no account) —"},...((accounts||[]).map(a=>({v:a.username,l:(a.displayName?a.displayName+" ":"")+"@"+a.username})))];
+  // Every new record ties to a registered account — the register never invents
+  // identities of its own. Legacy unlinked rows are repaired on the row itself.
+  const acctOpts=[{v:"",l:"— Select an account —"},...((accounts||[]).map(a=>({v:a.username,l:(a.displayName?a.displayName+" ":"")+"@"+a.username})))];
   function pickAccount(u){
     setAcct(u);
     const a=(accounts||[]).find(x=>x.username===u);
-    if(a){setUsername(a.username);if(!name.trim()||name===username)setName(a.displayName||a.username);}
+    if(a){setUsername(a.username);setName(a.displayName||a.username);}
     else setUsername("");
   }
   return <div>
@@ -1044,10 +1048,9 @@ function PanelCitizenship({citizens,accounts,user,onAction,notify,setProcessing}
     <div style={{background:C.s2,border:`1px solid ${C.border}`,borderRadius:3,padding:"1.25rem",marginBottom:"1.25rem"}}>
       <div className="mono" style={{fontSize:9,color:C.textD,letterSpacing:"0.15em",marginBottom:"0.75rem"}}>ADD RECORD</div>
       <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
-        <div><FL>LINK MOI ACCOUNT <span style={{fontStyle:"italic",color:C.textDD,fontSize:9,fontFamily:"'Crimson Text',serif",fontWeight:400,letterSpacing:0}}>(optional — leave manual for inactive citizens with no account)</span></FL><DD value={acct} onChange={pickAccount} options={acctOpts}/></div>
+        <div><FL>ACCOUNT *</FL><DD value={acct} onChange={pickAccount} options={acctOpts}/></div>
         <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
-          <div style={{flex:2,minWidth:180}}><FL>FULL NAME *</FL><Inp value={name} onChange={setName} placeholder="In-game name"/></div>
-          <div style={{flex:1,minWidth:140}}><FL>USERNAME</FL><Inp value={username} onChange={setUsername} placeholder="Username"/></div>
+          <div style={{flex:2,minWidth:180}}><FL>NAME OF RECORD</FL><Inp value={name} onChange={setName} placeholder="Auto-filled from the account"/></div>
           <div style={{flex:1,minWidth:140}}><FL>NATIONALITY</FL><Inp value={nationality} onChange={setNationality} placeholder="Origin country"/></div>
         </div>
         <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
@@ -1055,7 +1058,7 @@ function PanelCitizenship({citizens,accounts,user,onAction,notify,setProcessing}
           <div style={{flex:1,minWidth:140}}><FL>DATE GRANTED</FL><Inp value={since} onChange={setSince} type="date"/></div>
           <div style={{flex:2,minWidth:200}}><FL>NOTES</FL><Inp value={notes} onChange={setNotes} placeholder="Additional notes..."/></div>
         </div>
-        <Btn small disabled={!name.trim()||saving} onClick={async()=>{setSaving(true);setProcessing("Adding...");await onAction("createCitizen",{name:name.trim(),username:username.trim(),nationality:nationality.trim(),status,since,notes:notes.trim()});setProcessing(null);setSaving(false);notify(name+" added.",C.accent);setAcct("");setName("");setUsername("");setNationality("");setNotes("");}}>{saving?"Adding...":"Add to Registry"}</Btn>
+        <Btn small disabled={!username.trim()||!name.trim()||saving} onClick={async()=>{setSaving(true);setProcessing("Adding...");await onAction("createCitizen",{name:name.trim(),username:username.trim(),nationality:nationality.trim(),status,since,notes:notes.trim()});setProcessing(null);setSaving(false);notify(name+" added.",C.accent);setAcct("");setName("");setUsername("");setNationality("");setNotes("");}}>{saving?"Adding...":"Add to Registry"}</Btn>
       </div>
     </div>
     <div style={{display:"flex",flexDirection:"column",gap:4}}>{list.map(c=>{const st=CITIZENSHIP_STATUSES.find(s=>s.v===c.status)||CITIZENSHIP_STATUSES[0];return <CitizenRow key={c.id} citizen={c} st={st} accounts={accounts} onAction={onAction} notify={notify} setProcessing={setProcessing}/>;})}</div>
