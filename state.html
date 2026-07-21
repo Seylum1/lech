@@ -660,12 +660,9 @@ function VisaForm({countries,onSubmit,notify,user,myCitizenship}){
     <Btn variant="ghost" onClick={()=>{setDone(null);setName("");setUsername("");setNationality("");setOtherCountry("");setPurpose("");setDuration("");setNotes("");}}>Submit Another</Btn></div>;
   return <div style={{maxWidth:560}}>
     <div style={{fontSize:14,color:V.textD,fontStyle:"italic",lineHeight:1.7,marginBottom:user?"0.75rem":"1.1rem"}}>Complete all required fields. A reference number will be issued upon submission.</div>
-    {user&&<div style={{background:V.bg2,border:`1px solid ${V.gold}44`,borderLeft:`3px solid ${V.gold}`,borderRadius:"0 2px 2px 0",padding:"7px 12px",marginBottom:"1.1rem",fontSize:12,color:V.textD}}><span className="mono" style={{fontSize:9,color:V.goldL,marginRight:8}}>PRE-FILLED</span>Details filled from your account ({user.username}). Edit any field if applying on someone else's behalf.</div>}
+    {user&&<div style={{background:V.bg2,border:`1px solid ${V.gold}44`,borderLeft:`3px solid ${V.gold}`,borderRadius:"0 2px 2px 0",padding:"7px 12px",marginBottom:"1.1rem",fontSize:12,color:V.textD}}><span className="mono" style={{fontSize:9,color:V.goldL,marginRight:8}}>PRE-FILLED</span>This application is linked to your account (@{user.username}).</div>}
     <div style={{display:"flex",flexDirection:"column",gap:"0.85rem"}}>
-      <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
-        <div style={{flex:2,minWidth:180}}><FL>Full name *</FL><Inp value={name} onChange={setName} placeholder="Applicant's name"/></div>
-        <div style={{flex:1,minWidth:140}}><FL>Account / username *</FL><Inp value={username} onChange={setUsername} placeholder="Username"/></div>
-      </div>
+      <div><FL>Full name *</FL><Inp value={name} onChange={setName} placeholder="Applicant's name"/></div>
       <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:180}}><FL>Country of citizenship *</FL>
           {recognised.length>0?<Sel value={nationality} onChange={setNationality} options={[{v:"",l:"— Select —"},...recognised.map(c=>({v:c.name,l:c.name})),{v:"__other",l:"Other / Not Listed"}]}/>:<Inp value={nationality} onChange={setNationality} placeholder="Country"/>}
@@ -675,7 +672,7 @@ function VisaForm({countries,onSubmit,notify,user,myCitizenship}){
       <div><FL>Purpose of visit *</FL><TA value={purpose} onChange={setPurpose} rows={3} placeholder="Describe the purpose of your application…"/></div>
       <div><FL>Intended duration</FL><Inp value={duration} onChange={setDuration} placeholder="e.g. 30 days, Permanent"/></div>
       <div><FL>Additional information</FL><TA value={notes} onChange={setNotes} rows={2} placeholder="Anything else relevant…"/></div>
-      <Btn variant="gold" disabled={!name.trim()||!username.trim()||!purpose.trim()||!effNat.trim()||saving} onClick={async()=>{
+      <Btn variant="gold" disabled={!name.trim()||!purpose.trim()||!effNat.trim()||saving} onClick={async()=>{
         setSaving(true);const ref="VDX-"+new Date().getFullYear()+"-"+Math.random().toString().slice(2,8).toUpperCase();
         const ok=await onSubmit({name:name.trim(),username:username.trim(),nationality:effNat.trim(),type,purpose:purpose.trim(),duration:duration.trim(),notes:notes.trim(),ref,status:"pending",submitted:Date.now()});
         setSaving(false);if(ok!==false)setDone(ref);else notify("Submission failed.",V.redL);
@@ -807,7 +804,7 @@ function VisaRow({visa,onAction,notify,setProcessing}){
   </div>;
 }
 function PanelPassports({passports,visas,accounts,onAction,notify,setProcessing}){
-  const [acct,setAcct]=useState("");const [name,setName]=useState("");const [username,setUsername]=useState("");const [nonCitizen,setNonCitizen]=useState(false);const [type,setType]=useState("regular");const [certified,setCertified]=useState(false);
+  const [acct,setAcct]=useState("");const [name,setName]=useState("");const [username,setUsername]=useState("");const [type,setType]=useState("regular");const [certified,setCertified]=useState(false);
   const today=new Date().toISOString().slice(0,10);const plus10=new Date(Date.now()+10*365.25*86400000).toISOString().slice(0,10);
   const [issued,setIssued]=useState(today);const [expires,setExpires]=useState(plus10);const [place,setPlace]=useState("");const [saving,setSaving]=useState(false);const [viewing,setViewing]=useState(null);
   const tMeta=ppType(type);
@@ -820,10 +817,9 @@ function PanelPassports({passports,visas,accounts,onAction,notify,setProcessing}
     <div style={{background:V.bg2,border:`1px solid ${V.line}`,borderRadius:4,padding:"1.1rem",margin:"0.8rem 0 1.3rem"}}>
       <div style={{display:"flex",flexDirection:"column",gap:"0.7rem"}}>
         <div style={{display:"flex",gap:"0.7rem",flexWrap:"wrap"}}>
-          <div style={{flex:2,minWidth:200}}><FL>Bearer</FL>{nonCitizen?<Inp value={name} onChange={setName} placeholder="Full name of the bearer"/>:<Sel value={acct} onChange={pick} options={acctOpts}/>}</div>
+          <div style={{flex:2,minWidth:200}}><FL>Bearer</FL><Sel value={acct} onChange={pick} options={acctOpts}/></div>
           <div style={{flex:1,minWidth:180}}><FL>Passport type</FL><Sel value={type} onChange={v=>{setType(v);setCertified(false);}} options={PASSPORT_TYPES.map(t=>({v:t.v,l:t.l}))}/></div>
         </div>
-        <CheckBox checked={nonCitizen} onChange={v=>{setNonCitizen(v);setAcct("");setName("");setUsername("");}} label="Bearer has no registered account — enter name manually"/>
         {/* eligibility criteria for the selected class */}
         <div style={{background:V.panel,border:`1px solid ${tMeta.trim}44`,borderLeft:`3px solid ${tMeta.cover}`,borderRadius:"0 3px 3px 0",padding:"0.7rem 0.9rem"}}>
           <div className="mono" style={{fontSize:8.5,letterSpacing:"0.18em",color:tMeta.trim,marginBottom:4}}>{tMeta.short} PASSPORT · ELIGIBILITY</div>
@@ -838,9 +834,9 @@ function PanelPassports({passports,visas,accounts,onAction,notify,setProcessing}
           <div style={{flex:2,minWidth:180}}><FL>Place of issue (optional)</FL><Inp value={place} onChange={setPlace} placeholder="e.g. the Federal Capital"/></div>
         </div>
         {tMeta.restricted&&!certified&&<div className="mono" style={{fontSize:10,color:V.goldL}}>Certification is required before a {tMeta.short.toLowerCase()} passport may be issued.</div>}
-        <Btn small variant="gold" disabled={!name.trim()||saving||(tMeta.restricted&&!certified)} onClick={async()=>{
+        <Btn small variant="gold" disabled={!acct||saving||(tMeta.restricted&&!certified)} onClick={async()=>{
           setSaving(true);setProcessing("Issuing passport…");const number=genPassportNo(passports);
-          await onAction("createPassport",{number,name:name.trim(),username:nonCitizen?"":username,type,issued,expires,placeOfIssue:place.trim(),status:"active",issuedAt:Date.now()});
+          await onAction("createPassport",{number,name:name.trim(),username,type,issued,expires,placeOfIssue:place.trim(),status:"active",issuedAt:Date.now()});
           setProcessing(null);setSaving(false);setAcct("");setName("");setUsername("");setPlace("");setCertified(false);notify("Passport "+number+" issued to "+name+".",V.goldL);
         }}>{saving?"Issuing…":"Issue passport"}</Btn>
       </div>
@@ -867,8 +863,8 @@ function PanelCitizenship({citizens,accounts,onAction,notify,setProcessing}){
   const [acct,setAcct]=useState("");const [name,setName]=useState("");const [username,setUsername]=useState("");const [nationality,setNationality]=useState("");const [status,setStatus]=useState("citizen");const [since,setSince]=useState(new Date().toISOString().slice(0,10));const [notes,setNotes]=useState("");const [saving,setSaving]=useState(false);
   const list=Object.values(citizens||{}).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
   const claims=list.filter(c=>c.claimStatus==="pending");
-  const acctOpts=[{v:"",l:"— Manual entry (no account) —"},...((accounts||[]).map(a=>({v:a.username,l:(a.displayName?a.displayName+" ":"")+"@"+a.username})))];
-  const pick=u=>{setAcct(u);const a=(accounts||[]).find(x=>x.username===u);if(a){setUsername(a.username);if(!name.trim()||name===username)setName(a.displayName||a.username);}else setUsername("");};
+  const acctOpts=[{v:"",l:"— Select an account —"},...((accounts||[]).map(a=>({v:a.username,l:(a.displayName?a.displayName+" ":"")+"@"+a.username})))];
+  const pick=u=>{setAcct(u);const a=(accounts||[]).find(x=>x.username===u);if(a){setUsername(a.username);setName(a.displayName||a.username);}else{setUsername("");setName("");}};
   return <div>
     <span className="pf" style={{fontWeight:700,fontSize:13,color:V.text}}>Citizenship Register</span>
     {claims.length>0&&<div style={{background:"#241c08",border:`1px solid ${V.gold}44`,borderLeft:`3px solid ${V.gold}`,borderRadius:"0 3px 3px 0",padding:"1rem 1.1rem",margin:"0.8rem 0"}}>
@@ -883,18 +879,15 @@ function PanelCitizenship({citizens,accounts,onAction,notify,setProcessing}){
     <div style={{background:V.bg2,border:`1px solid ${V.line}`,borderRadius:4,padding:"1.1rem",margin:"0.8rem 0 1.1rem"}}>
       <div className="mono" style={{fontSize:9,color:V.textD,letterSpacing:"0.15em",marginBottom:"0.7rem"}}>ADD RECORD</div>
       <div style={{display:"flex",flexDirection:"column",gap:"0.7rem"}}>
-        <div><FL>Link account <span style={{fontStyle:"italic",color:V.textDD,fontSize:9,fontWeight:400,letterSpacing:0}}>(optional — manual for those with no account)</span></FL><Sel value={acct} onChange={pick} options={acctOpts}/></div>
+        <div><FL>Account *</FL><Sel value={acct} onChange={pick} options={acctOpts}/>
+          {acct&&<div style={{fontSize:12,color:V.textD,fontStyle:"italic",marginTop:5}}>Registering <b style={{color:V.text}}>{name}</b> (@{username}).</div>}</div>
         <div style={{display:"flex",gap:"0.7rem",flexWrap:"wrap"}}>
-          <div style={{flex:2,minWidth:180}}><FL>Full name</FL><Inp value={name} onChange={setName} placeholder="Name"/></div>
-          <div style={{flex:1,minWidth:140}}><FL>Username</FL><Inp value={username} onChange={setUsername} placeholder="Username"/></div>
-          <div style={{flex:1,minWidth:140}}><FL>Nationality of origin</FL><Inp value={nationality} onChange={setNationality} placeholder="Origin country"/></div>
-        </div>
-        <div style={{display:"flex",gap:"0.7rem",flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:160}}><FL>Nationality of origin</FL><Inp value={nationality} onChange={setNationality} placeholder="Origin country"/></div>
           <div style={{flex:1,minWidth:160}}><FL>Status</FL><Sel value={status} onChange={setStatus} options={CITIZENSHIP_STATUSES.map(s=>({v:s.v,l:s.l}))}/></div>
           <div style={{flex:1,minWidth:140}}><FL>Date granted</FL><Inp value={since} onChange={setSince} type="date"/></div>
-          <div style={{flex:2,minWidth:200}}><FL>Notes</FL><Inp value={notes} onChange={setNotes} placeholder="Additional notes…"/></div>
         </div>
-        <Btn small variant="gold" disabled={!name.trim()||saving} onClick={async()=>{setSaving(true);setProcessing("Adding…");await onAction("createCitizen",{name:name.trim(),username:username.trim(),nationality:nationality.trim(),status,since,notes:notes.trim()});setProcessing(null);setSaving(false);setAcct("");setName("");setUsername("");setNationality("");setNotes("");notify(name+" added.",V.goldL);}}>{saving?"Adding…":"Add to register"}</Btn>
+        <div><FL>Notes</FL><Inp value={notes} onChange={setNotes} placeholder="Additional notes…"/></div>
+        <Btn small variant="gold" disabled={!acct||saving} onClick={async()=>{setSaving(true);setProcessing("Adding…");await onAction("createCitizen",{name:name.trim(),username:username.trim(),nationality:nationality.trim(),status,since,notes:notes.trim()});setProcessing(null);setSaving(false);setAcct("");setName("");setUsername("");setNationality("");setNotes("");notify(name+" added.",V.goldL);}}>{saving?"Adding…":"Add to register"}</Btn>
       </div>
     </div>
     <div style={{display:"flex",flexDirection:"column",gap:4}}>{list.map(c=>{const st=CITIZENSHIP_STATUSES.find(s=>s.v===c.status)||CITIZENSHIP_STATUSES[0];return <CitizenRow key={c.id} citizen={c} st={st} accounts={accounts} onAction={onAction} notify={notify} setProcessing={setProcessing}/>;})}</div>
@@ -907,7 +900,7 @@ function CitizenRow({citizen,st,accounts,onAction,notify,setProcessing}){
     <div onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",gap:10,padding:"0.6rem 1rem",cursor:"pointer",flexWrap:"wrap"}}><span className="mono" style={{fontSize:9,color:st.color,padding:"2px 8px",background:V.bg2,border:`1px solid ${st.color}44`}}>{st.l.toUpperCase()}</span><span className="pf" style={{fontWeight:700,fontSize:14,color:V.text,flex:1}}>{citizen.name}</span>{citizen.claimStatus==="pending"&&<span className="mono" style={{fontSize:8,color:V.goldL,border:`1px solid ${V.gold}44`,borderRadius:2,padding:"1px 6px"}}>CLAIM PENDING</span>}{citizen.username?<span className="mono" style={{fontSize:10,color:linked?"#5aae7a":V.textD}}>{citizen.username}{linked?" ✓":""}</span>:<span className="mono" style={{fontSize:9,color:V.textDD,fontStyle:"italic"}}>unlinked</span>}{citizen.since&&<span className="mono" style={{fontSize:9,color:V.textDD}}>{citizen.since}</span>}<span style={{fontSize:11,color:V.textDD}}>{open?"▲":"▼"}</span></div>
     {open&&<div style={{borderTop:`1px solid ${V.line}`,padding:"0.85rem",background:V.bg2,display:"flex",gap:"0.7rem",flexWrap:"wrap",alignItems:"flex-end"}}>
       <div style={{flex:1,minWidth:150}}><FL>Status</FL><Sel value={status} onChange={setStatus} options={CITIZENSHIP_STATUSES.map(s=>({v:s.v,l:s.l}))}/></div>
-      <div style={{flex:1,minWidth:150}}><FL>Linked username</FL><Inp value={uname} onChange={setUname} placeholder="Account (blank = unlinked)"/></div>
+      <div style={{flex:1,minWidth:150}}><FL>Linked account</FL><Sel value={uname} onChange={setUname} options={[{v:"",l:"— Unlinked —"},...((accounts||[]).map(a=>({v:a.username,l:(a.displayName?a.displayName+" ":"")+"@"+a.username})))]}/></div>
       <div style={{flex:2,minWidth:180}}><FL>Notes</FL><Inp value={notes} onChange={setNotes} placeholder="Notes…"/></div>
       <Btn small variant="gold" disabled={saving} onClick={async()=>{setSaving(true);setProcessing("Updating…");await onAction("updateCitizen",{id:citizen.id,status,username:uname.trim(),notes:notes.trim()});setProcessing(null);setSaving(false);notify(citizen.name+" updated.",V.goldL);}}>{saving?"Saving…":"Save"}</Btn>
       <ArmBtn small label="Remove" confirmLabel="Remove?" onConfirm={async()=>{setProcessing("Removing…");await onAction("deleteCitizen",{id:citizen.id});setProcessing(null);notify(citizen.name+" removed.",V.textD);}}/>

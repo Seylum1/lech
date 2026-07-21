@@ -281,24 +281,25 @@ function Tag({children,color}){return <span style={{...serif,fontSize:11,fontWei
   color:color||INK2,border:`1px solid ${(color||RULED)}66`,borderRadius:2,padding:"1px 7px",whiteSpace:"nowrap"}}>{children}</span>;}
 
 /* ── the auth chip (top-right) ───────────────────────────────────────────── */
-function Chip({user,onSignIn,onRegister,onAdmin,onSignOut}){
-  const wrap={position:"fixed",top:0,right:0,zIndex:40,display:"flex",alignItems:"center",gap:12,
-    padding:"9px 16px",...serif,fontSize:12.5};
+function Chip({user,onSignIn,onRegister,onDirectory,onProfile,onAdmin,onSignOut}){
+  const wrap={position:"fixed",top:0,right:0,zIndex:40,display:"flex",alignItems:"center",gap:11,
+    padding:"9px 16px",...serif,fontSize:12.5,flexWrap:"wrap",justifyContent:"flex-end"};
   const link={background:"none",border:0,...serif,fontSize:12.5,color:SEAL,cursor:"pointer",padding:2,
     letterSpacing:".04em",textDecoration:"underline",textUnderlineOffset:3,textDecorationColor:RULED};
+  const dot=<span style={{color:INK3}}>·</span>;
   if(!user) return <div style={wrap}>
-    <button style={link} onClick={onSignIn}>Sign in</button>
-    <span style={{color:INK3}}>·</span>
+    <button style={link} onClick={onDirectory}>Directory</button>{dot}
+    <button style={link} onClick={onSignIn}>Sign in</button>{dot}
     <button style={link} onClick={onRegister}>Register</button>
   </div>;
   return <div style={wrap}>
+    <button style={link} onClick={onDirectory}>Directory</button>{dot}
     <img src={mcFaceUrl(user.mcName||user.username)} alt="" width={22} height={22}
       style={{width:22,height:22,imageRendering:"pixelated",border:`1px solid ${RULED}`,verticalAlign:"middle"}}
       onError={e=>{e.currentTarget.style.display="none";}}/>
-    <span style={{color:INK2}}>{user.displayName||user.username}</span>
-    {isAdmin(user)&&<><span style={{color:INK3}}>·</span><button style={link} onClick={onAdmin}>Administration</button></>}
-    <span style={{color:INK3}}>·</span>
-    <button style={link} onClick={onSignOut}>Sign out</button>
+    <button style={{...link,color:INK2,textDecorationColor:"transparent"}} onClick={onProfile}>{user.displayName||user.username}</button>
+    {isAdmin(user)&&<>{dot}<button style={link} onClick={onAdmin}>Administration</button></>}
+    {dot}<button style={link} onClick={onSignOut}>Sign out</button>
   </div>;
 }
 
@@ -372,12 +373,9 @@ function Register({onClose,onDone,switchSignIn}){
 }
 
 /* ── administration: the account roster ──────────────────────────────────── */
-function Admin({user,onClose,notify}){
-  const [raw,setRaw]=useState(null);
+function Admin({user,raw,reload,onProfile,onClose,notify}){
   const [q,setQ]=useState("");
   const [creating,setCreating]=useState(false);
-  const load=useCallback(()=>{sgetAll().then(setRaw);},[]);
-  useEffect(()=>{load();},[load]);
   const accounts=useMemo(()=>{
     if(!raw) return [];
     return Object.values(raw.mi_accounts||{}).filter(a=>a&&a.username)
@@ -398,11 +396,11 @@ function Admin({user,onClose,notify}){
         {!creating&&<Btn kind="seal" onClick={()=>setCreating(true)}>+ Create account</Btn>}
       </div>
 
-      {creating&&<CreateForm onClose={()=>setCreating(false)} notify={notify} onDone={()=>{setCreating(false);load();}}/>}
+      {creating&&<CreateForm onClose={()=>setCreating(false)} notify={notify} onDone={()=>{setCreating(false);reload();}}/>}
 
       {!raw&&<div style={{...serif,color:INK3,fontStyle:"italic",padding:"1rem 0"}}>Loading the roster…</div>}
       {raw&&list.length===0&&<div style={{...serif,color:INK3,fontStyle:"italic",padding:"1rem 0"}}>No account matches that.</div>}
-      <div>{list.map(a=><Row key={a.username} acc={a} raw={raw} user={user} notify={notify} reload={load}/>)}</div>
+      <div>{list.map(a=><Row key={a.username} acc={a} raw={raw} user={user} notify={notify} reload={reload} onProfile={onProfile}/>)}</div>
     </div>
   </Overlay>;
 }
@@ -439,7 +437,7 @@ function CreateForm({onClose,onDone,notify}){
   </div>;
 }
 
-function Row({acc,raw,user,notify,reload}){
+function Row({acc,raw,user,notify,reload,onProfile}){
   const [open,setOpen]=useState(false);
   const [mcName,setMcName]=useState(acc.mcName||"");
   const [mcChk,setMcChk]=useState(null);
@@ -485,8 +483,11 @@ function Row({acc,raw,user,notify,reload}){
             :<div style={{...serif,fontSize:13,color:INK3,fontStyle:"italic"}}>No standing</div>}
         </div>)}
       </div>
-      <div style={{...serif,fontSize:12,color:INK3,fontStyle:"italic",marginBottom:16}}>
-        Standing is set on each nation's own service. Below is account possession, which is managed here.
+      <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginBottom:16}}>
+        {onProfile&&<Btn small onClick={()=>onProfile(acc.username)}>View full record →</Btn>}
+        <span style={{...serif,fontSize:12,color:INK3,fontStyle:"italic"}}>
+          Standing is set on each nation's own service. Below is account possession, which is managed here.
+        </span>
       </div>
 
       {!admin&&<Note>You can view this account, but only a network administrator may change it.</Note>}
@@ -551,26 +552,236 @@ function DeleteControl({acc,notify,reload}){
   </div>;
 }
 
+/* ═══════════ CONSOLIDATED PLAYER PROFILE ══════════════════════════════════
+   One person, seen across all three nations at once. Accounts are shared, so a
+   player may hold citizenship in more than one country — but normally they are
+   *active* (hold office, sit, serve) in only one, and citizens at rest of the
+   others. The profile makes that plain: it marks where someone is active, and
+   lists the rest as dormant citizenships. Every nation's section is drawn from
+   that nation's own records and links back to its service for the full detail.
+   As Vindex and Wilden grow their own chambers, ministries and citizen rolls,
+   more of each section simply fills in. */
+function idHash(s){s=(s||"").toLowerCase();let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=(h*16777619)>>>0;}return h>>>0;}
+const LECH_PROV={newport:["Newport","NP"],cracov:["Cracov","CR"],rome:["Rome","RM"],kingsland:["Kingsland","KL"],
+  aquitaine:["Aquitaine","AQ"],monegasque:["Monégasque","MC"],weststadt:["Weststadt","WS"]};
+const lechIdNo=(u,code)=>"LEC-"+code+"-"+((idHash("id:"+u)%900000)+100000);
+const PEER_LABEL={crown_prince:"Crown Prince",prince:"Prince",princess:"Princess",duke:"Duke",
+  marquess:"Marquess",count:"Count",viscount:"Viscount",baron:"Baron",baronet:"Baronet"};
+const PP_TYPE={regular:"Regular passport",official:"Official passport",diplomatic:"Diplomatic passport",service:"Service passport"};
+
+function buildProfile(acc,raw){
+  const u=String(acc.username||"").toLowerCase();
+  const dn=acc.displayName||acc.username;
+  const eq=v=>String(v||"").toLowerCase()===u;
+  const nm=v=>{const s=String(v||"").toLowerCase();return !!s&&(s===u||s===String(acc.displayName||"").toLowerCase());};
+
+  // ── Empire of Lech ──
+  const off=raw.bk_officials||{};
+  const lech=[];
+  if(acc.role==="emperor") lech.push("Emperor of Lech");
+  else if(acc.role==="minister") lech.push("Minister of the Interior");
+  if(eq(off.chancellor_username)) lech.push("Imperial Chancellor");
+  if(eq(off.president_bt_username)) lech.push("President of the Bundestag");
+  if(eq(off.president_bh_username)) lech.push("President of the Bundesherren");
+  Object.entries(off.minister_usernames||{}).forEach(([p,mu])=>{if(eq(mu)) lech.push(p);});
+  if(Object.values(raw.bk_members||{}).some(m=>eq(m.username))) lech.push("Member of the Bundestag");
+  const bh=Object.values(raw.bk_bh||{}).find(m=>eq(m.username));
+  let peerage=null;
+  if(bh){const r=PEER_LABEL[bh.rank];peerage=r?(r+(bh.title?", "+bh.title:"")):(bh.title||"Bundesherr");lech.push("Bundesherr");}
+  // Only public offices and named titles are shown — never the internal access
+  // levels (War Office, Treasury, Judiciary and the like), which are permissions,
+  // not offices a person holds.
+  const lechHon=Object.values(raw.ih_honours||{}).filter(h=>h&&nm(h.recipient)).map(h=>h.medal).filter(Boolean);
+  const lechCit=Object.values(raw.mfa_citizens||{}).find(c=>eq(c.username));
+  const lechDocs=[];
+  if(acc.stateOfResidency&&LECH_PROV[acc.stateOfResidency]){const [pn,code]=LECH_PROV[acc.stateOfResidency];
+    lechDocs.push({label:"Provincial identity card",ref:lechIdNo(u,code),note:pn+" Province"});}
+  const lechExtra=[];
+  if(peerage) lechExtra.push("Peerage — "+peerage);
+  if(lechHon.length) lechExtra.push("Honours — "+lechHon.join(", "));
+
+  // ── Republic of Vindex Nation ──
+  const vindex=[];
+  if(acc.vxRole&&acc.vxRole!=="citizen") vindex.push(VX_LABEL[acc.vxRole]||acc.vxRole);
+  const vxCit=Object.values(raw.vx_state_citizens||{}).find(c=>eq(c.username));
+  const vxPass=Object.values(raw.vx_state_passports||{}).find(pp=>pp&&(eq(pp.username)||nm(pp.name)));
+  const vxDocs=[];
+  if(vxPass&&vxPass.number) vxDocs.push({label:PP_TYPE[vxPass.type]||"Passport",ref:vxPass.number,
+    note:vxPass.status==="revoked"?"Revoked":null});
+
+  // ── Wilden ──  (citizenship register not yet established — Constitution s40)
+  const wilden=[];
+  if(acc.wxRole&&acc.wxRole!=="citizen") wilden.push(WX_LABEL[acc.wxRole]||acc.wxRole);
+
+  const countries=[
+    {key:"lech",name:"Empire of Lech",short:"Lech",color:"#b8902f",href:"lech.html",
+     citizenship:lechCit?(CIT_LABEL[lechCit.status]||lechCit.status):null,
+     residency:acc.stateOfResidency&&LECH_PROV[acc.stateOfResidency]?LECH_PROV[acc.stateOfResidency][0]:null,
+     offices:lech,extra:lechExtra,documents:lechDocs,note:null},
+    {key:"vindex",name:"Republic of Vindex Nation",short:"Vindex",color:"#2f6fb5",href:"vindex.html",
+     citizenship:vxCit?(CIT_LABEL[vxCit.status]||vxCit.status):null,residency:null,
+     offices:vindex,extra:[],documents:vxDocs,note:null},
+    {key:"wilden",name:"Wilden",short:"Wilden",color:"#5f9c74",href:"wilden.html",
+     citizenship:null,residency:null,offices:wilden,extra:[],documents:[],
+     note:"Wilden's citizenship register is not yet established."},
+  ];
+  countries.forEach(c=>{c.active=c.offices.length>0;c.hasStanding=c.active||!!c.citizenship||c.documents.length>0;});
+  return {username:acc.username,displayName:dn,mcName:acc.mcName,countries};
+}
+
+function summaryOf(countries){
+  const active=countries.filter(c=>c.active);
+  const dormant=countries.filter(c=>c.citizenship&&!c.active);
+  if(active.length===1){
+    let s="Active in the "+active[0].name;
+    if(dormant.length) s+=" — also a citizen of "+dormant.map(c=>c.short).join(" and ");
+    return s;
+  }
+  if(active.length>1) return "Holds office in "+active.map(c=>c.short).join(" and ")+" — active in more than one nation";
+  const cits=countries.filter(c=>c.citizenship);
+  if(cits.length) return "Citizen of "+cits.map(c=>c.short).join(", ")+", holding no office";
+  return "Registered — no national standing yet";
+}
+
+function Profile({username,raw,user,onOpenAdmin,onClose}){
+  const acc=raw?Object.values(raw.mi_accounts||{}).find(a=>a&&String(a.username||"").toLowerCase()===String(username||"").toLowerCase()):null;
+  const p=acc?buildProfile(acc,raw):null;
+  const isMe=user&&String(user.username||"").toLowerCase()===String(username||"").toLowerCase();
+  return <Overlay onClose={onClose} wide>
+    <ModalHead title={isMe?"My record":"Player record"} onClose={onClose}/>
+    <div style={{padding:"18px 24px 26px"}}>
+      {!raw&&<div style={{...serif,color:INK3,fontStyle:"italic"}}>Loading…</div>}
+      {raw&&!acc&&<Note err>No account by that name.</Note>}
+      {p&&<>
+        {/* header */}
+        <div style={{display:"flex",gap:16,alignItems:"center",flexWrap:"wrap",borderBottom:`1px solid ${RULE}`,paddingBottom:16,marginBottom:16}}>
+          <img src={mcFaceUrl(p.mcName||p.username)} alt="" width={64} height={64}
+            style={{width:64,height:64,imageRendering:"pixelated",border:`1px solid ${RULED}`}}
+            onError={e=>{e.currentTarget.style.visibility="hidden";}}/>
+          <div style={{minWidth:180}}>
+            <div style={{...serif,fontSize:24,fontWeight:700,color:INK,lineHeight:1.1}}>{p.displayName}</div>
+            <div style={{...serif,fontSize:13,color:INK3}}>{p.username}</div>
+            <div style={{...serif,fontSize:14,fontStyle:"italic",color:INK2,marginTop:6}}>{summaryOf(p.countries)}</div>
+          </div>
+        </div>
+
+        {/* three nations */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr",gap:14}}>
+          {p.countries.map(c=><CountryPanel key={c.key} c={c}/>)}
+        </div>
+
+        <div style={{...serif,fontSize:12,color:INK3,fontStyle:"italic",marginTop:16,lineHeight:1.6}}>
+          Citizenship, offices and documents are held by each nation and shown here together. Open a
+          nation's own service for the full record.
+          {isAdmin(user)&&onOpenAdmin&&<> · <button onClick={onOpenAdmin} style={{background:"none",border:0,...serif,fontSize:12,
+            color:SEAL,cursor:"pointer",textDecoration:"underline",textUnderlineOffset:3}}>Manage this account</button></>}
+        </div>
+      </>}
+    </div>
+  </Overlay>;
+}
+
+function CountryPanel({c}){
+  const dim=!c.hasStanding;
+  return <div style={{border:`1px solid ${RULE}`,borderTop:`3px solid ${dim?RULED:c.color}`,
+    background:dim?PAPER:"#fffdf8",padding:"14px 16px",opacity:dim?.8:1}}>
+    <div style={{display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap",marginBottom:10}}>
+      <a href={c.href} style={{...serif,fontSize:16,fontWeight:700,color:c.color,textDecoration:"none"}}>{c.name}</a>
+      {c.active&&<span style={{...serif,fontSize:10.5,fontWeight:700,letterSpacing:".12em",textTransform:"uppercase",
+        color:"#fff",background:c.color,padding:"2px 8px"}}>Active</span>}
+      {c.citizenship&&!c.active&&<span style={{...serif,fontSize:10.5,fontWeight:600,letterSpacing:".08em",
+        textTransform:"uppercase",color:c.color,border:`1px solid ${c.color}66`,padding:"1px 7px"}}>Citizen</span>}
+      <span style={{flex:1}}/>
+      <a href={c.href} style={{...serif,fontSize:12.5,color:c.color}}>Full record →</a>
+    </div>
+
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:"6px 20px"}}>
+      <div>
+        <div style={{...serif,fontSize:10.5,fontWeight:700,letterSpacing:".1em",textTransform:"uppercase",color:INK3,marginBottom:3}}>Citizenship</div>
+        <div style={{...serif,fontSize:14,color:c.citizenship?INK:INK3,fontStyle:c.citizenship?"normal":"italic"}}>
+          {c.citizenship||(c.note?"—":"Not a citizen")}{c.residency?" · resident of "+c.residency:""}</div>
+      </div>
+      <div>
+        <div style={{...serif,fontSize:10.5,fontWeight:700,letterSpacing:".1em",textTransform:"uppercase",color:INK3,marginBottom:3}}>Office &amp; standing</div>
+        {c.offices.length>0
+          ?<div style={{display:"flex",flexWrap:"wrap",gap:5}}>{c.offices.map((o,i)=><Tag key={i} color={c.color}>{o}</Tag>)}</div>
+          :<div style={{...serif,fontSize:14,color:INK3,fontStyle:"italic"}}>Holds no office</div>}
+        {c.extra.map((e,i)=><div key={i} style={{...serif,fontSize:12.5,color:INK2,marginTop:4}}>{e}</div>)}
+      </div>
+      {c.documents.length>0&&<div>
+        <div style={{...serif,fontSize:10.5,fontWeight:700,letterSpacing:".1em",textTransform:"uppercase",color:INK3,marginBottom:3}}>Documents</div>
+        {c.documents.map((d,i)=><div key={i} style={{...serif,fontSize:14,color:INK}}>
+          {d.label} · <span style={{fontVariantNumeric:"tabular-nums"}}>{d.ref}</span>
+          {d.note&&<span style={{color:INK3,fontStyle:"italic"}}> ({d.note})</span>}</div>)}
+      </div>}
+    </div>
+    {c.note&&<div style={{...serif,fontSize:12,color:INK3,fontStyle:"italic",marginTop:8}}>{c.note}</div>}
+  </div>;
+}
+
+/* ── directory: find a player, then open their record ────────────────────── */
+function Directory({raw,onOpen,onClose}){
+  const [q,setQ]=useState("");
+  const accounts=raw?Object.values(raw.mi_accounts||{}).filter(a=>a&&a.username)
+    .sort((a,b)=>((a.displayName||a.username)||"").localeCompare((b.displayName||b.username)||"")):[];
+  const query=q.trim().toLowerCase();
+  const list=accounts.filter(a=>!query||((a.displayName||"")+" "+(a.username||"")).toLowerCase().includes(query));
+  return <Overlay onClose={onClose} wide>
+    <ModalHead title="Directory" onClose={onClose}/>
+    <div style={{padding:"18px 24px 26px"}}>
+      <Note>Everyone registered on the network. Open a record to see their standing across all three nations.</Note>
+      <Inp value={q} onChange={e=>setQ(e.target.value)} placeholder="Search name or username" style={{maxWidth:340,marginBottom:16}}/>
+      {!raw&&<div style={{...serif,color:INK3,fontStyle:"italic"}}>Loading…</div>}
+      {raw&&list.length===0&&<div style={{...serif,color:INK3,fontStyle:"italic"}}>No one matches that.</div>}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:8}}>
+        {list.map(a=>{const p=buildProfile(a,raw);const active=p.countries.find(c=>c.active);
+          return <button key={a.username} onClick={()=>onOpen(a.username)}
+            style={{textAlign:"left",background:"#fffdf8",border:`1px solid ${RULE}`,padding:"9px 12px",cursor:"pointer",
+              display:"flex",gap:10,alignItems:"center"}}>
+            <img src={mcFaceUrl(a.mcName||a.username)} alt="" width={30} height={30}
+              style={{width:30,height:30,imageRendering:"pixelated",border:`1px solid ${RULED}`}}
+              onError={e=>{e.currentTarget.style.visibility="hidden";}}/>
+            <span style={{minWidth:0}}>
+              <span style={{...serif,fontSize:14,fontWeight:600,color:INK,display:"block"}}>{a.displayName||a.username}</span>
+              <span style={{...serif,fontSize:11.5,color:active?active.color:INK3}}>
+                {active?"Active in "+active.short:(p.countries.some(c=>c.citizenship)?"Citizen":"Registered")}</span>
+            </span>
+          </button>;})}
+      </div>
+    </div>
+  </Overlay>;
+}
+
 /* ── root ────────────────────────────────────────────────────────────────── */
 function VintranetApp(){
   const [user,setUser]=useState(()=>cachedAccount());
-  const [view,setView]=useState(null);   // null | signin | register | admin
+  const [view,setView]=useState(null);   // null | {t:"signin"|"register"|"admin"|"directory"|"profile", username?}
+  const [raw,setRaw]=useState(null);      // shared snapshot for the data-backed views
   const [toast,setToast]=useState(null);
   const notify=useCallback((text,ok)=>{setToast({text,ok});setTimeout(()=>setToast(t=>t&&t.text===text?null:t),4500);},[]);
+  const loadRaw=useCallback(async()=>{const r=await sgetAll();setRaw(r);return r;},[]);
+  // Load the roster the first time a view needs it, and refresh it after a write.
+  const open=useCallback((v)=>{if(v&&["admin","directory","profile"].includes(v.t)&&!raw)loadRaw();setView(v);},[raw,loadRaw]);
   useEffect(()=>{srestore().then(acc=>{if(acc)setUser(acc);else if(!AUTH_TOKEN)setUser(null);});},[]);
   return <>
     <Chip user={user}
-      onSignIn={()=>setView("signin")} onRegister={()=>setView("register")}
-      onAdmin={()=>setView("admin")}
+      onSignIn={()=>setView({t:"signin"})} onRegister={()=>setView({t:"register"})}
+      onDirectory={()=>open({t:"directory"})}
+      onProfile={()=>open({t:"profile",username:user.username})}
+      onAdmin={()=>open({t:"admin"})}
       onSignOut={()=>{forgetSession();setUser(null);setView(null);notify("You have been signed out.",true);}}/>
     {toast&&<div style={{position:"fixed",top:44,right:16,zIndex:80,maxWidth:340,...serif,fontSize:13.5,
       background:PAPER,border:`1px solid ${RULED}`,borderLeft:`4px solid ${toast.ok?"#2e7d32":SEAL}`,
       padding:"10px 15px",boxShadow:"0 8px 26px rgba(32,29,24,.28)"}}>{toast.text}</div>}
-    {view==="signin"&&<SignIn onClose={()=>setView(null)} switchRegister={()=>setView("register")}
+    {view&&view.t==="signin"&&<SignIn onClose={()=>setView(null)} switchRegister={()=>setView({t:"register"})}
       onDone={acc=>{setUser(acc);setView(null);notify("Signed in as "+(acc.displayName||acc.username)+".",true);}}/>}
-    {view==="register"&&<Register onClose={()=>setView(null)} switchSignIn={()=>setView("signin")}
+    {view&&view.t==="register"&&<Register onClose={()=>setView(null)} switchSignIn={()=>setView({t:"signin"})}
       onDone={acc=>{setUser(acc);setView(null);notify("Welcome, "+(acc.displayName||acc.username)+". Your account is ready.",true);}}/>}
-    {view==="admin"&&isAdmin(user)&&<Admin user={user} onClose={()=>setView(null)} notify={notify}/>}
+    {view&&view.t==="admin"&&isAdmin(user)&&<Admin user={user} raw={raw} reload={loadRaw}
+      onProfile={un=>open({t:"profile",username:un})} onClose={()=>setView(null)} notify={notify}/>}
+    {view&&view.t==="directory"&&<Directory raw={raw} onOpen={un=>open({t:"profile",username:un})} onClose={()=>setView(null)}/>}
+    {view&&view.t==="profile"&&<Profile username={view.username} raw={raw} user={user}
+      onOpenAdmin={isAdmin(user)?()=>open({t:"admin"}):null} onClose={()=>setView(null)}/>}
   </>;
 }
 

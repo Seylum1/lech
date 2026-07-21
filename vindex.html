@@ -30,10 +30,10 @@ const {useState,useEffect,useCallback,useMemo}=React;
 
 /* ═══════════════════════════════════════════════════════════════════════════
    REPUBLIC OF VINDEX NATION — GOVERNMENT PORTAL
-   The seat of the three branches established by The Establishment Act 2024.
-   Shares the Empire of Lech's accounts and backend: Vinish office is a field on
-   the account (vxRole), granted from the Empire's Interior Ministry, so one
-   sign-in carries across both governments. Records live under vx_* keys.
+   The seat of the three branches: the Executive, the Legislature and the
+   Judiciary. Office is a field on the account (vxRole), conferred here on the
+   Republic's own service. Accounts are shared across the wider network but each
+   nation's standing is its own. Records live under vx_* keys.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 const V={
@@ -249,11 +249,20 @@ function STitle({children,color}){return <div style={{display:"flex",alignItems:
   <span style={{flex:1,height:1,background:`linear-gradient(90deg,${V.line},transparent)`}}/></div>;}
 function Toast({msg,color}){if(!msg)return null;return <div style={{position:"fixed",top:14,right:14,zIndex:9999,background:V.panel,border:`1px solid ${color}66`,borderLeft:`3px solid ${color}`,padding:"9px 16px",borderRadius:3,fontFamily:"'Playfair Display',serif",fontSize:12,color,maxWidth:380,animation:"fadeIn .2s ease"}}>{msg}</div>;}
 function Overlay({label}){if(!label)return null;return <div style={{position:"fixed",inset:0,zIndex:99999,background:"rgba(6,12,26,.96)",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{textAlign:"center"}}><div className="mono" style={{color:V.gold,fontSize:10,letterSpacing:"0.35em",marginBottom:8,animation:"pulse 1s infinite"}}>PROCESSING</div><div className="pf" style={{fontSize:17,color:V.text}}>{label}</div></div></div>;}
+// A seal or crest. Files sit beside this page; a missing one falls back to a
+// star roundel so the layout never breaks before the artwork is in place.
 function Seal({file,size=64,style:ex={}}){
   const [ok,setOk]=useState(true);
-  if(!ok)return <div style={{width:size,height:size,borderRadius:"50%",border:`2px solid ${V.gold}55`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,...ex}}><span className="pf" style={{fontWeight:900,fontSize:size*0.3,color:V.gold}}>VN</span></div>;
-  return <img src={"vindex/"+file} alt="" draggable={false} onError={()=>setOk(false)} style={{width:size,height:size,objectFit:"contain",flexShrink:0,...ex}}/>;
+  if(!ok||!file)return <div style={{width:size,height:size,borderRadius:"50%",border:`2px solid ${V.gold}55`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,background:V.navy,...ex}}><span className="pf" style={{fontWeight:900,fontSize:size*0.36,color:V.gold}}>★</span></div>;
+  return <img src={file} alt="" draggable={false} onError={()=>setOk(false)} style={{width:size,height:size,objectFit:"contain",flexShrink:0,...ex}}/>;
 }
+// Seal artwork by office and department. Filenames only — drop the PNGs in beside
+// the page and they appear; until then each shows the star fallback.
+const OFFICE_SEAL={president:"povn.png",vice_president:"vpovn.png"};
+const DEPT_SEAL={"Secretary of State":"statedept.png","Secretary of Treasury":"treasury.png",
+  "Secretary of Defense":"defense.png","Attorney General":"justice.png",
+  "Secretary of Interior":"interior.png","Secretary of Commerce":"commerce.png",
+  "Secretary of Health and Human Services":"hhs.png"};
 function PoweredBy(){
   const [ok,setOk]=useState(true);
   return <div style={{display:"inline-flex",alignItems:"center",gap:9}}>
@@ -267,23 +276,39 @@ function Card({children,accent,style:ex={}}){
     borderRadius:"0 0 4px 4px",padding:"1.1rem 1.25rem",...ex}}>{children}</div>;
 }
 function Empty({children}){return <div style={{fontSize:14,color:V.textDD,fontStyle:"italic",padding:"1.2rem 0"}}>{children}</div>;}
-function Cite({children}){return <span className="mono" style={{fontSize:8.5,letterSpacing:"0.12em",color:V.textDD,border:`1px solid ${V.line}`,borderRadius:2,padding:"1px 6px",whiteSpace:"nowrap"}}>{children}</span>;}
+// The founding document is referenced only in the site's construction, never cited
+// on the page. Retained as a no-op so existing call sites render nothing.
+function Cite(){return null;}
 
-/* ── an officeholder, drawn straight from the shared account ─────────────── */
-function Officer({account,office,accent,size=44,vacantNote}){
+/* ── an officeholder, drawn straight from the shared account ─────────────────
+   When a seal is given it heads the card (the office); the holder's own face
+   sits small beside their name, so the card reads office-then-person. */
+function Officer({account,office,accent,size=44,seal,vacantNote}){
   const col=accent||V.gold;
-  if(!account) return <div style={{background:V.bg2,border:`1px dashed ${V.line}`,borderRadius:3,padding:"0.8rem 1rem"}}>
-    <div className="mono" style={{fontSize:8.5,letterSpacing:"0.2em",color:V.textDD,marginBottom:4,textTransform:"uppercase"}}>{office}</div>
-    <div className="pf" style={{fontSize:15,fontWeight:700,color:V.textDD,fontStyle:"italic"}}>Vacant</div>
-    {vacantNote&&<div style={{fontSize:11.5,color:V.textDD,fontStyle:"italic",marginTop:3,lineHeight:1.5}}>{vacantNote}</div>}
+  const icon=seal
+    ?<Seal file={seal} size={size+10} style={{opacity:account?1:.45}}/>
+    :(account?<McFace account={account} size={size} style={{borderColor:col+"66"}}/>:null);
+  if(!account) return <div style={{background:V.bg2,border:`1px dashed ${V.line}`,borderRadius:3,
+    padding:"0.8rem 1rem",display:"flex",alignItems:"center",gap:12}}>
+    {icon}
+    <div style={{minWidth:0}}>
+      <div className="mono" style={{fontSize:8.5,letterSpacing:"0.2em",color:V.textDD,marginBottom:4,textTransform:"uppercase"}}>{office}</div>
+      <div className="pf" style={{fontSize:15,fontWeight:700,color:V.textDD,fontStyle:"italic"}}>Vacant</div>
+      {vacantNote&&<div style={{fontSize:11.5,color:V.textDD,fontStyle:"italic",marginTop:3,lineHeight:1.5}}>{vacantNote}</div>}
+    </div>
   </div>;
   return <div style={{background:V.panel,border:`1px solid ${V.line}`,borderLeft:`3px solid ${col}`,
-    borderRadius:"0 3px 3px 0",padding:"0.8rem 1rem",display:"flex",alignItems:"center",gap:11}}>
-    <McFace account={account} size={size} style={{borderColor:col+"66"}}/>
+    borderRadius:"0 3px 3px 0",padding:"0.8rem 1rem",display:"flex",alignItems:"center",gap:12}}>
+    {icon}
     <div style={{minWidth:0}}>
       <div className="mono" style={{fontSize:8.5,letterSpacing:"0.2em",color:col,marginBottom:3,textTransform:"uppercase"}}>{office}</div>
-      <div className="pf" style={{fontSize:16,fontWeight:700,color:V.text,lineHeight:1.15,overflowWrap:"anywhere"}}>{account.displayName||account.username}</div>
-      {account.displayName&&<div className="mono" style={{fontSize:9.5,color:V.textDD}}>@{account.username}</div>}
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        {seal&&<McFace account={account} size={22} style={{borderColor:col+"66"}}/>}
+        <div style={{minWidth:0}}>
+          <div className="pf" style={{fontSize:16,fontWeight:700,color:V.text,lineHeight:1.15,overflowWrap:"anywhere"}}>{account.displayName||account.username}</div>
+          {account.displayName&&<div className="mono" style={{fontSize:9.5,color:V.textDD}}>@{account.username}</div>}
+        </div>
+      </div>
     </div>
   </div>;
 }
@@ -458,7 +483,7 @@ function BillCard({bill,votes,reps,user,accounts,onAction,notify,setProcessing})
               setProcessing(null); notify(res.ok?"Override vote open — a unanimous House is required.":res.error,res.ok?V.goldL:V.redL);
             }}>Open Override Vote</Btn>
           :<span style={{fontSize:12,color:V.redL,fontStyle:"italic"}}>
-              This veto is final — {k.cite} allows no override.
+              This veto is final and cannot be overridden.
             </span>)}
 
         {canPreside(user)&&["docket","failed"].includes(bill.status)&&
@@ -478,41 +503,36 @@ function HomeTab({president,speaker,reps,bills,onGo}){
   const laws=Object.values(bills||{}).filter(b=>b.status==="law").length;
   const onFloor=Object.values(bills||{}).filter(b=>b.status==="floor"||b.status==="override").length;
   const BRANCH=[
-    {k:"executive",l:"The Executive",icon:"★",color:V.goldL,
-     d:"The President, the Vice President, and the Cabinet. Enacts or vetoes the House's legislation, enforces the law, and issues executive orders.",
-     cite:"TEA Sec. 4",foot:president?("President "+(president.displayName||president.username)):"The presidency is vacant"},
-    {k:"legislature",l:"The Legislature",icon:"⚖",color:"#6fa8ff",
-     d:"The House of Representatives — seven members elected by the general public each month, presided over by a Speaker appointed by the President.",
-     cite:"TEA Sec. 6",foot:reps.length+" of "+HOUSE_SEATS+" seats filled · "+onFloor+" before the House"},
-    {k:"judiciary",l:"The Judiciary",icon:"§",color:V.textD,
-     d:"One Supreme Court of a Chief Justice and two Associate Justices, and the lower courts. Interprets the law and conducts judicial review.",
-     cite:"TEA Sec. 5",foot:"Coming soon"},
+    {k:"executive",l:"The Executive",seal:"povn.png",color:V.goldL,
+     d:"The President, the Vice President and the Cabinet. Enacts or vetoes legislation, enforces the law, and issues executive orders.",
+     foot:president?("President "+(president.displayName||president.username)):"Presidency vacant"},
+    {k:"legislature",l:"The Legislature",seal:"house.png",color:"#6fa8ff",
+     d:"The House of Representatives — seven members elected by the public, presided over by a Speaker.",
+     foot:reps.length+" of "+HOUSE_SEATS+" seats · "+onFloor+" before the House"},
+    {k:"judiciary",l:"The Judiciary",seal:"supremecourt.png",color:V.textD,
+     d:"The Supreme Court and the lower courts. Interprets the law and conducts judicial review.",
+     foot:"Coming soon"},
   ];
   return <div className="fadeIn">
-    <div style={{textAlign:"center",padding:"0.5rem 0 0.5rem"}}>
+    <div style={{textAlign:"center",padding:"0.25rem 0 0.5rem"}}>
+      <Seal file="vindexcoa.png" size={96} style={{margin:"0 auto 0.8rem",display:"block"}}/>
       <div className="pf" style={{fontWeight:900,fontSize:26,color:V.text,letterSpacing:"0.04em"}}>The Government of Vindex Nation</div>
-      <div style={{fontSize:15,color:V.textD,fontStyle:"italic",marginTop:7,maxWidth:640,margin:"7px auto 0",lineHeight:1.75}}>
-        Three branches, entirely separate from one another, established in one supreme law:
-        The Establishment Act 2024.
+      <div style={{fontSize:15,color:V.textD,fontStyle:"italic",marginTop:7,maxWidth:600,margin:"7px auto 0",lineHeight:1.75}}>
+        A federal republic of three branches, each independent of the others.
       </div>
     </div>
     <STitle>The Three Branches</STitle>
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:12}}>
       {BRANCH.map(b=>(
         <div key={b.k} onClick={()=>onGo(b.k)} style={{background:V.panel,border:`1px solid ${V.line}`,
-          borderTop:`3px solid ${b.color}`,borderRadius:"0 0 4px 4px",padding:"1.1rem 1.2rem",cursor:"pointer",
-          transition:"border-color .15s",display:"flex",flexDirection:"column"}}
-          onMouseEnter={e=>e.currentTarget.style.borderColor=b.color+"88"}
-          onMouseLeave={e=>e.currentTarget.style.borderColor=V.line}>
-          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
-            <span className="pf" style={{fontSize:22,color:b.color,lineHeight:1}}>{b.icon}</span>
-            <span className="pf" style={{fontWeight:700,fontSize:17,color:V.text}}>{b.l}</span>
-          </div>
-          <div style={{fontSize:13.5,color:V.textD,lineHeight:1.75,flex:1}}>{b.d}</div>
-          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:11,flexWrap:"wrap"}}>
-            <Cite>{b.cite}</Cite>
-            <span className="mono" style={{fontSize:9,color:b.color,letterSpacing:"0.08em"}}>{b.foot.toUpperCase()}</span>
-          </div>
+          borderTop:`3px solid ${b.color}`,borderRadius:"0 0 4px 4px",padding:"1.2rem 1.2rem 1rem",cursor:"pointer",
+          transition:"border-color .15s, transform .15s",display:"flex",flexDirection:"column",alignItems:"center",textAlign:"center"}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor=b.color+"88";e.currentTarget.style.transform="translateY(-2px)";}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor=V.line;e.currentTarget.style.transform="none";}}>
+          <Seal file={b.seal} size={64} style={{marginBottom:11}}/>
+          <span className="pf" style={{fontWeight:700,fontSize:17,color:V.text,marginBottom:7}}>{b.l}</span>
+          <div style={{fontSize:13.5,color:V.textD,lineHeight:1.7,flex:1}}>{b.d}</div>
+          <div className="mono" style={{fontSize:9,color:b.color,letterSpacing:"0.08em",marginTop:12}}>{b.foot.toUpperCase()}</div>
         </div>
       ))}
     </div>
@@ -528,12 +548,15 @@ function HomeTab({president,speaker,reps,bills,onGo}){
       ))}
     </div>
     <STitle>Departments</STitle>
-    <a href="state.html" style={{textDecoration:"none",display:"block",maxWidth:420}}>
+    <a href="state.html" style={{textDecoration:"none",display:"block",maxWidth:440}}>
       <div style={{background:V.panel,border:`1px solid ${V.line}`,borderLeft:`3px solid ${V.gold}`,
-        borderRadius:"0 3px 3px 0",padding:"0.9rem 1.1rem"}}>
-        <div className="pf" style={{fontWeight:700,fontSize:15,color:V.text}}>Department of State ↗</div>
-        <div style={{fontSize:13,color:V.textD,fontStyle:"italic",marginTop:3,lineHeight:1.6}}>
-          Travel advisories, citizenship, visas, passports and foreign policy.
+        borderRadius:"0 3px 3px 0",padding:"0.9rem 1.1rem",display:"flex",alignItems:"center",gap:13}}>
+        <Seal file="statedept.png" size={44}/>
+        <div>
+          <div className="pf" style={{fontWeight:700,fontSize:15,color:V.text}}>Department of State ↗</div>
+          <div style={{fontSize:13,color:V.textD,fontStyle:"italic",marginTop:3,lineHeight:1.6}}>
+            Travel advisories, citizenship, visas, passports and foreign policy.
+          </div>
         </div>
       </div>
     </a>
@@ -553,17 +576,14 @@ function ExecutiveTab({president,vp,cabinet,gov,orders,speaker}){
   return <div className="fadeIn">
     <STitle>The Presidency</STitle>
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:10}}>
-      <Officer account={president} office="President of Vindex Nation" accent={V.goldL} size={52}
-        vacantNote="Appointed by the Emperor under TEA Sec. 4(1)(a)."/>
-      <Officer account={vp} office="Vice President" accent="#6fa8ff" size={52}
+      <Officer account={president} office="President of Vindex Nation" accent={V.goldL} size={52} seal="povn.png"
+        vacantNote="The office is currently vacant."/>
+      <Officer account={vp} office="Vice President" accent="#6fa8ff" size={52} seal="vpovn.png"
         vacantNote="Assumes the presidency should it fall vacant."/>
     </div>
     <div style={{background:V.bg2,border:`1px solid ${V.line}`,borderRadius:3,padding:"0.9rem 1.1rem",marginTop:10}}>
-      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:6}}>
-        <Cite>TEA Sec. 4(2)</Cite>
-        <span className="mono" style={{fontSize:8.5,letterSpacing:"0.18em",color:V.textDD}}>POWERS OF THE EXECUTIVE</span>
-      </div>
-      <div style={{fontSize:13.5,color:V.textD,lineHeight:1.85}}>
+      <span className="mono" style={{fontSize:8.5,letterSpacing:"0.18em",color:V.textDD}}>POWERS OF THE EXECUTIVE</span>
+      <div style={{fontSize:13.5,color:V.textD,lineHeight:1.85,marginTop:6}}>
         To enact or veto legislation passed by the House; to authorize a declaration of war;
         to manage the officers and employees of the government, save those of the Judicial and
         Legislative branches; to authorize the use of military force within Vinish territory;
@@ -575,15 +595,14 @@ function ExecutiveTab({president,vp,cabinet,gov,orders,speaker}){
     <STitle>The Cabinet</STitle>
     {cabinet.length===0?<Empty>No Cabinet secretaries appointed. The President may create and dismantle departments at their discretion.</Empty>
       :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:10}}>
-        {cabinet.map(c=><Officer key={c.username} account={c}
-          office={posts[String(c.username||"").toLowerCase()]||"Cabinet Secretary"} accent="#9a7ab0"/>)}
+        {cabinet.map(c=>{const post=posts[String(c.username||"").toLowerCase()];
+          return <Officer key={c.username} account={c} office={post||"Cabinet Secretary"} accent="#9a7ab0" seal={DEPT_SEAL[post]}/>;})}
       </div>}
 
     <STitle>Executive Orders</STitle>
     <div style={{fontSize:13,color:V.textD,fontStyle:"italic",marginBottom:10,lineHeight:1.7}}>
       A lawfully-binding directive issued to the Cabinet departments and the citizens of Vindex
       Nation. An executive order may not violate standing law, and is subject to judicial review.
-      <span style={{marginLeft:8}}><Cite>TEA Sec. 4(3)</Cite></span>
     </div>
     {orderList.length===0?<Empty>No executive orders on the register.</Empty>
       :orderList.map(o=>(
@@ -601,7 +620,6 @@ function ExecutiveTab({president,vp,cabinet,gov,orders,speaker}){
     <STitle>Line of Succession</STitle>
     <div style={{fontSize:13,color:V.textD,fontStyle:"italic",marginBottom:10,lineHeight:1.7}}>
       Should the President be removed, the presidency passes in this order.
-      <span style={{marginLeft:8}}><Cite>TEA Sec. 9</Cite></span>
     </div>
     <div style={{display:"flex",flexDirection:"column",gap:3}}>
       {SUCCESSION.map((post,i)=>{
@@ -633,8 +651,8 @@ function LegislatureTab({speaker,reps,bills,votes,user,accounts,onAction,notify,
 
   return <div className="fadeIn">
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:10,marginBottom:"0.5rem"}}>
-      <Officer account={speaker} office="Speaker of the House" accent={V.goldL} size={52}
-        vacantNote="Appointed by the President for a term of one month. TEA Sec. 6(1)(a)."/>
+      <Officer account={speaker} office="Speaker of the House" accent={V.goldL} size={52} seal="house.png"
+        vacantNote="Appointed by the President to preside over the House."/>
       <Card accent="#6fa8ff">
         <div className="pf" style={{fontWeight:900,fontSize:22,color:"#6fa8ff",lineHeight:1.2}}>{reps.length} / {HOUSE_SEATS}</div>
         <div className="mono" style={{fontSize:8.5,letterSpacing:"0.18em",color:V.textDD,marginTop:5}}>SEATS FILLED</div>
@@ -689,7 +707,6 @@ function LegislatureTab({speaker,reps,bills,votes,user,accounts,onAction,notify,
       <div style={{fontSize:13,color:V.textD,fontStyle:"italic",marginBottom:12,lineHeight:1.7}}>
         Seven Representatives, elected by the general public each month. A Representative may be
         removed only on conviction in a federal court, or by impeachment — not by the Speaker.
-        <span style={{marginLeft:8}}><Cite>TEA Sec. 6(1)(b)</Cite></span>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))",gap:10}}>
         {reps.map(r=><Officer key={r.username} account={r} office="Representative" accent="#6fa8ff"/>)}
@@ -708,7 +725,6 @@ function LegislatureTab({speaker,reps,bills,votes,user,accounts,onAction,notify,
               <span style={{fontSize:12,color:V.textDD,fontStyle:"italic"}}>
                 {k.vetoOverridable?"veto overridable by a unanimous House":"veto is final"}
               </span>
-              <span style={{marginLeft:"auto"}}><Cite>{k.cite}</Cite></span>
             </div>
           ))}
         </div>
@@ -720,16 +736,15 @@ function LegislatureTab({speaker,reps,bills,votes,user,accounts,onAction,notify,
 /* ═══════════ JUDICIARY ═══════════════════════════════════════════════════ */
 function JudiciaryTab(){
   return <div className="fadeIn">
-    <div style={{textAlign:"center",padding:"2.5rem 1rem 1rem"}}>
-      <div className="pf" style={{fontSize:44,color:V.textDD,lineHeight:1}}>§</div>
-      <div className="pf" style={{fontWeight:900,fontSize:24,color:V.text,marginTop:14}}>The Judicial Branch</div>
+    <div style={{textAlign:"center",padding:"2.25rem 1rem 1rem"}}>
+      <Seal file="supremecourt.png" size={92} style={{margin:"0 auto 1rem",display:"block",opacity:.9}}/>
+      <div className="pf" style={{fontWeight:900,fontSize:24,color:V.text}}>The Judicial Branch</div>
       <div className="mono" style={{fontSize:10,letterSpacing:"0.45em",color:V.gold,marginTop:12}}>COMING SOON</div>
       <div style={{fontSize:14.5,color:V.textD,fontStyle:"italic",maxWidth:560,margin:"1.2rem auto 0",lineHeight:1.85}}>
         One Supreme Court — a Chief Justice and two Associate Justices — together with the
         lower courts established by the House. Its docket, its rulings and its register of
         warrants will be published here.
       </div>
-      <div style={{marginTop:16}}><Cite>TEA Sec. 5</Cite></div>
     </div>
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:10,marginTop:"1.5rem",opacity:.55}}>
       {[["The Supreme Court","Appellate jurisdiction over the lower courts, and the power of judicial review."],
@@ -757,7 +772,7 @@ function PanelTab({user,bills,gov,orders,cabinet,accounts,onAction,notify,setPro
       borderRadius:"0 3px 3px 0",padding:"0.85rem 1.1rem",marginBottom:"1rem"}}>
       <div className="mono" style={{fontSize:8.5,letterSpacing:"0.18em",color:V.goldL,marginBottom:5}}>SIGNED IN AS</div>
       <div style={{fontSize:14,color:V.text}}>
-        {(user.displayName||user.username)} — {vxRole(user)?officeOf(vxRole(user)).l:(isEmperor(user)?"Emperor of Lech":"no Vinish office")}
+        {(user.displayName||user.username)} — {vxRole(user)?officeOf(vxRole(user)).l:(isEmperor(user)?"System Administrator":"no office")}
       </div>
     </div>
     <div style={{display:"flex",gap:0,borderBottom:`1px solid ${V.line}`,marginBottom:"1rem",overflowX:"auto"}}>
@@ -803,14 +818,13 @@ function AppointmentsForm({user,accounts,onAction,notify,setProcessing}){
       <div className="mono" style={{fontSize:8.5,letterSpacing:"0.18em",color:V.goldL,marginBottom:6}}>WHAT YOU MAY CONFER</div>
       <div style={{fontSize:13.5,color:V.textD,lineHeight:1.8}}>
         {isEmperor(user)
-          ? <>As Emperor you appoint the President of Vindex Nation, and may confer any Vinish office. <Cite>TEA Sec. 4(1)(a)</Cite></>
+          ? "As System Administrator you appoint the President, and may confer any office."
           : isPresident(user)
-          ? <>As President you appoint the Speaker, the Vice President and the Cabinet, and may seat Representatives. The presidency itself is the Emperor's to confer, so you may neither appoint a successor nor remove yourself. <Cite>TEA Sec. 4(2)(f), 6(1)(a)</Cite></>
-          : <>As Speaker you seat the Representatives returned by the monthly elections you organize. A Representative may otherwise be removed only on conviction in a federal court, or by impeachment. <Cite>TEA Sec. 6(1)(b)</Cite></>}
+          ? "As President you appoint the Speaker, the Vice President and the Cabinet, and may seat Representatives. The presidency itself is the System Administrator's to confer, so you may neither appoint a successor nor remove yourself."
+          : "As Speaker you seat the Representatives returned by the monthly elections you organize. A Representative may otherwise be removed only on conviction in a federal court, or by impeachment."}
       </div>
       <div style={{fontSize:12,color:V.textDD,fontStyle:"italic",marginTop:8,lineHeight:1.7}}>
-        These accounts are shared with the Empire of Lech, but the office is the Republic's alone —
-        conferring one here changes nothing about their Imperial standing.
+        Conferring an office here affects only a person's standing in Vindex Nation.
       </div>
     </div>
 
@@ -825,7 +839,7 @@ function AppointmentsForm({user,accounts,onAction,notify,setProcessing}){
     </div>
 
     <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:"0.9rem"}}>
-      <div style={{flex:1,minWidth:200}}><Inp value={search} onChange={setSearch} placeholder="Search the Imperial Network for someone to appoint…"/></div>
+      <div style={{flex:1,minWidth:200}}><Inp value={search} onChange={setSearch} placeholder="Search for someone to appoint…"/></div>
       {!q&&<Btn small variant="ghost" onClick={()=>setShowAll(s=>!s)}>{showAll?"Show office-holders only":"Show everyone"}</Btn>}
     </div>
 
@@ -869,7 +883,7 @@ function AppointRow({account,user,grants,onAction,notify,setProcessing}){
         <span className="mono" style={{fontSize:9,color:o.color,border:`1px solid ${o.color}44`,
           background:o.color+"14",borderRadius:2,padding:"3px 9px"}}>{o.short}</span>
         <span style={{fontSize:11,color:V.textDD,fontStyle:"italic"}}>
-          {cur==="president"?"the Emperor's to confer":"not yours to confer"}
+          {cur==="president"?"the System Administrator's to confer":"not yours to confer"}
         </span>
       </div>}
   </div>;
@@ -995,12 +1009,11 @@ function AuthModal({onClose,onAuth}){
   return <div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:"fixed",inset:0,zIndex:9000,background:"rgba(5,10,22,.92)",display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem"}}>
     <div style={{maxWidth:400,width:"100%",background:V.panel,border:`1px solid ${V.line}`,borderTop:`3px solid ${V.gold}`,borderRadius:"0 0 5px 5px",padding:"1.7rem"}} onKeyDown={e=>{if(e.key==="Enter")go();}}>
       <div style={{textAlign:"center",marginBottom:"1.2rem"}}>
-        <Seal file="coa.png" size={56} style={{margin:"0 auto 10px",display:"block"}}/>
+        <Seal file="vindexcoa.png" size={56} style={{margin:"0 auto 10px",display:"block"}}/>
         <div className="mono" style={{fontSize:9,letterSpacing:"0.4em",color:V.gold}}>VINDEX NATION</div>
         <div className="pf" style={{fontWeight:900,fontSize:20,color:V.text,marginTop:4}}>Sign In</div>
         <div style={{fontSize:13,color:V.textD,fontStyle:"italic",marginTop:6,lineHeight:1.6}}>
-          Use your Imperial Network account — the Republic and the Empire share one sign-in.
-          The public record is readable without it.
+          Use your Vindex Nation account. The public record is readable without signing in.
         </div>
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
@@ -1137,7 +1150,7 @@ function App(){
     {v:"judiciary",l:"Judiciary"},
     ...(hasPanel?[{v:"panel",l:"Government Panel"}]:[]),
   ];
-  const standing=user?(vxRole(user)?officeOf(vxRole(user)).l:(isEmperor(user)?"Emperor of Lech":"Signed in")):"";
+  const standing=user?(vxRole(user)?officeOf(vxRole(user)).l:(isEmperor(user)?"System Administrator":"Signed in")):"";
 
   return <div style={{minHeight:"100vh",background:`radial-gradient(ellipse 80% 45% at 50% -5%, #1c3a6e55, transparent 60%), ${V.bg}`}}>
     <Toast msg={toast.msg} color={toast.color}/>
@@ -1145,7 +1158,7 @@ function App(){
     <div style={{background:`linear-gradient(180deg,${V.navy},${V.bg2})`,borderBottom:`2px solid ${V.gold}55`}}>
       <div style={{maxWidth:1080,margin:"0 auto",padding:"0.8rem 1.2rem",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
         <a href="index.html" className="mono" style={{fontSize:8,letterSpacing:"0.1em",color:V.textD,textDecoration:"none",border:`1px solid ${V.line}`,borderRadius:2,padding:"4px 9px",flexShrink:0}}>← VINTRANET</a>
-        <Seal file="coa.png" size={44}/>
+        <Seal file="vindexcoa.png" size={44}/>
         <div style={{flex:1,minWidth:170}}>
           <div className="pf" style={{fontWeight:900,fontSize:16.5,letterSpacing:"0.05em",color:V.text,lineHeight:1.1}}>Government Portal</div>
           <div className="mono" style={{fontSize:8,letterSpacing:"0.3em",color:V.gold,marginTop:2}}>REPUBLIC OF VINDEX NATION · E PLURIBUS UNUM</div>
@@ -1164,12 +1177,7 @@ function App(){
       </div>
     </div>
 
-    <div style={{maxWidth:1080,margin:"0 auto",padding:"1.5rem 1.2rem 0",textAlign:"center"}}>
-      <Seal file="coa.png" size={112} style={{margin:"0 auto",display:"block"}}/>
-      <div className="mono" style={{fontSize:8.5,letterSpacing:"0.45em",color:V.gold,marginTop:"0.7rem"}}>ONE SUPREME LAW · THREE SEPARATE BRANCHES</div>
-    </div>
-
-    <div style={{maxWidth:1080,margin:"0 auto",padding:"0.4rem 1.2rem 3rem"}}>
+    <div style={{maxWidth:1080,margin:"0 auto",padding:"1.6rem 1.2rem 3rem"}}>
       {!loaded&&<div style={{textAlign:"center",padding:"4rem"}}><div className="mono" style={{fontSize:10,letterSpacing:"0.35em",color:V.textDD,animation:"pulse 1.4s infinite"}}>LOADING…</div></div>}
       {loaded&&tab==="home"&&<HomeTab president={president} speaker={speaker} reps={reps} bills={bills} onGo={setTab}/>}
       {loaded&&tab==="executive"&&<ExecutiveTab president={president} vp={vp} cabinet={cabinet} gov={gov} orders={orders} speaker={speaker}/>}
@@ -1182,7 +1190,7 @@ function App(){
 
     <div style={{borderTop:`1px solid ${V.line}`,padding:"1.1rem 1.2rem 1.5rem"}}>
       <div style={{maxWidth:1080,margin:"0 auto",display:"flex",justifyContent:"space-between",alignItems:"center",gap:16,flexWrap:"wrap"}}>
-        <div className="mono" style={{fontSize:8.5,letterSpacing:"0.26em",color:V.textDD}}>GOVERNMENT OF THE REPUBLIC OF VINDEX NATION · TEA 2024</div>
+        <div className="mono" style={{fontSize:8.5,letterSpacing:"0.26em",color:V.textDD}}>GOVERNMENT OF THE REPUBLIC OF VINDEX NATION</div>
         <PoweredBy/>
       </div>
     </div>
