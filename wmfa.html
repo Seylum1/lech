@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Ministry of Foreign Affairs — Wilden</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.7/babel.min.js"></script>
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   WILDEN — MINISTRY OF FOREIGN AFFAIRS
+   Same civic-digital register as the rest of Wilden's service. Handles the two
+   things a foreign ministry owns for a citizen: their citizenship, and their
+   passport. Citizenship is what makes a person eligible to hold office, so it is
+   granted here and read by the Government's appointments.
+   ═══════════════════════════════════════════════════════════════════════════ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --black:#0b0c0c;--crown:#0f2f33;--crownD:#0a2124;
+  --grey1:#f3f2f1;--grey2:#e8e6e4;--grey3:#b1b4b6;--grey4:#505a5f;
+  --green:#00703c;--greenD:#005a30;--greenL:#cce2d8;
+  --blue:#1d70b8;--blueD:#003078;--blueL:#d2e2f1;
+  --red:#d4351c;--redD:#942514;--redL:#f6d7d2;
+  --teal:#1e857a;--tealL:#d4ebe8;--amber:#f47738;--amberL:#fcdccb;
+  --focus:#ffdd00;--white:#fff;
+}
+html{font-size:100%;}
+body{background:var(--white);color:var(--black);font-family:Inter,'Helvetica Neue',Arial,sans-serif;
+  font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased;min-height:100vh;display:flex;flex-direction:column;}
+a:focus,button:focus,input:focus,select:focus,textarea:focus{
+  outline:3px solid transparent;background-color:var(--focus)!important;color:var(--black)!important;
+  box-shadow:0 -2px var(--focus),0 4px var(--black);text-decoration:none!important;}
+.w{max-width:1020px;margin:0 auto;padding:0 15px;width:100%;}
+.mono{font-variant-numeric:tabular-nums;}
+
+.hdr{background:var(--crown);border-bottom:10px solid var(--crownD);}
+.hdr .w{display:flex;align-items:center;gap:12px;padding:10px 15px;flex-wrap:wrap;}
+.hdr .arms{width:34px;height:34px;flex-shrink:0;display:flex;align-items:center;justify-content:center;}
+.hdr .arms img{max-width:100%;max-height:100%;object-fit:contain;}
+.hdr .arms .fb{display:none;color:#fff;font-size:19px;}
+.hdr a.brand{color:#fff;text-decoration:none;font-weight:800;font-size:18px;letter-spacing:-.01em;}
+.hdr a.brand:hover{text-decoration:underline;text-underline-offset:3px;}
+.hdr a.brand span{display:block;font-size:12px;font-weight:500;color:#c9d6d8;letter-spacing:.02em;margin-top:1px;}
+.hdr .spacer{flex:1;}
+.hdr .who{color:#c9d6d8;font-size:13px;text-align:right;line-height:1.3;}
+.hdr .who b{color:#fff;display:block;font-weight:600;font-size:14px;}
+.hdr .signout{background:none;border:0;color:#fff;font:inherit;font-size:14px;text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:4px 2px;}
+.hdr .signin{background:var(--green);border:0;border-bottom:2px solid rgba(0,0,0,.28);color:#fff;font:inherit;font-weight:600;font-size:14px;padding:7px 14px;cursor:pointer;}
+
+.nav{background:var(--crownD);}
+.nav .w{display:flex;overflow-x:auto;padding:0 15px;}
+.nav button{background:none;border:0;border-bottom:4px solid transparent;color:#c9d6d8;font:inherit;font-weight:600;font-size:15px;padding:12px 15px;cursor:pointer;white-space:nowrap;}
+.nav button:hover{color:#fff;}
+.nav button[aria-current="page"]{color:#fff;border-bottom-color:#fff;}
+
+.phase{border-bottom:1px solid var(--grey3);}
+.phase .w{display:flex;align-items:center;gap:11px;padding:9px 15px;flex-wrap:wrap;}
+.phase p{font-size:14px;color:var(--grey4);}
+
+main{flex:1;padding:26px 0 46px;}
+h1{font-size:34px;font-weight:700;letter-spacing:-.02em;line-height:1.11;margin-bottom:18px;}
+h2{font-size:24px;font-weight:700;letter-spacing:-.01em;line-height:1.2;margin:34px 0 14px;}
+h3{font-size:18px;font-weight:700;line-height:1.25;margin:20px 0 8px;}
+p{margin-bottom:14px;}
+.lede{font-size:19px;line-height:1.55;margin-bottom:20px;max-width:640px;}
+.hint{font-size:15px;color:var(--grey4);margin-bottom:12px;}
+.caption{font-size:14px;color:var(--grey4);font-weight:600;margin-bottom:2px;}
+a{color:var(--blue);text-underline-offset:2px;}
+a:hover{color:var(--blueD);}
+.rule{border:0;border-top:1px solid var(--grey3);margin:26px 0;}
+
+.tag{display:inline-block;font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:3px 8px;white-space:nowrap;}
+.tag.blue{background:var(--blueL);color:var(--blueD);}
+.tag.green{background:var(--greenL);color:#005a30;}
+.tag.grey{background:var(--grey2);color:#383f43;}
+.tag.red{background:var(--redL);color:#942514;}
+.tag.amber{background:var(--amberL);color:#8b4415;}
+.tag.teal{background:var(--tealL);color:#12564f;}
+
+.btn{display:inline-block;font:inherit;font-weight:600;font-size:16px;padding:9px 16px;border:0;border-bottom:2px solid rgba(0,0,0,.28);background:var(--green);color:#fff;cursor:pointer;text-decoration:none;text-align:center;}
+.btn:hover{background:var(--greenD);}
+.btn.sec{background:var(--grey2);color:var(--black);border-bottom-color:#929191;}
+.btn.sec:hover{background:#dbdad9;}
+.btn.warn{background:var(--red);}
+.btn.warn:hover{background:var(--redD);}
+.btn.small{font-size:14px;padding:6px 12px;}
+.btn[disabled]{opacity:.55;cursor:not-allowed;}
+.btn-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+
+.inset{border-left:10px solid var(--grey3);padding:12px 0 12px 18px;margin:18px 0;}
+.inset.blue{border-left-color:var(--blue);}
+.notif{border:5px solid var(--blue);margin-bottom:22px;}
+.notif .head{background:var(--blue);color:#fff;padding:8px 15px;font-weight:700;font-size:15px;}
+.notif .body{padding:14px 15px;}
+.notif.ok{border-color:var(--green);}.notif.ok .head{background:var(--green);}
+.notif.err{border-color:var(--red);}.notif.err .head{background:var(--red);}
+
+.sl{border-top:1px solid var(--grey3);margin-bottom:20px;}
+.sl .row{display:flex;gap:16px;border-bottom:1px solid var(--grey3);padding:11px 0;flex-wrap:wrap;}
+.sl .k{font-weight:700;width:200px;flex-shrink:0;}
+.sl .v{flex:1;min-width:180px;}
+
+table{width:100%;border-collapse:collapse;margin-bottom:20px;}
+caption{text-align:left;font-weight:700;font-size:18px;margin-bottom:10px;}
+th,td{text-align:left;padding:10px 14px 10px 0;border-bottom:1px solid var(--grey3);vertical-align:top;font-size:15px;}
+th{font-weight:700;}thead th{border-bottom:1px solid var(--black);}
+td.num,th.num{text-align:right;padding-right:0;}
+
+.grid{display:grid;gap:18px;}
+.g2{grid-template-columns:repeat(auto-fit,minmax(280px,1fr));}
+.g3{grid-template-columns:repeat(auto-fit,minmax(220px,1fr));}
+.card{border:1px solid var(--grey3);border-top:4px solid var(--teal);padding:16px 18px;background:var(--white);}
+.card h3{margin-top:0;}
+.stat{border:1px solid var(--grey3);padding:14px 16px;}
+.stat .n{font-size:30px;font-weight:700;line-height:1.05;letter-spacing:-.02em;}
+.stat .l{font-size:14px;color:var(--grey4);margin-top:3px;}
+
+.person{display:flex;gap:12px;align-items:center;}
+.person img{width:38px;height:38px;image-rendering:pixelated;border:1px solid var(--grey3);flex-shrink:0;}
+.person .nm{font-weight:600;line-height:1.3;}
+.person .un{font-size:13px;color:var(--grey4);}
+.vacant{color:var(--grey4);font-style:italic;}
+
+label{display:block;font-weight:600;margin-bottom:5px;}
+input[type=text],input[type=password],input[type=date],textarea,select{
+  width:100%;font:inherit;font-size:16px;padding:8px 10px;border:2px solid var(--black);background:#fff;color:var(--black);}
+.field{margin-bottom:18px;max-width:520px;}
+.field .hint{margin-bottom:6px;}
+.err{border-left:5px solid var(--red);padding:12px 0 12px 14px;margin-bottom:18px;}
+.err .t{font-weight:700;color:var(--red);}
+.subnav{display:flex;gap:0;border-bottom:1px solid var(--grey3);margin-bottom:22px;overflow-x:auto;}
+.subnav button{background:none;border:0;border-bottom:4px solid transparent;font:inherit;font-weight:600;font-size:15px;color:var(--blue);padding:9px 14px;cursor:pointer;white-space:nowrap;}
+.subnav button[aria-current="true"]{color:var(--black);border-bottom-color:var(--black);}
+
+.ftr{border-top:1px solid var(--grey3);background:var(--grey1);padding:22px 0 26px;margin-top:auto;}
+.ftr .w{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;align-items:flex-end;}
+.ftr .lic{font-size:14px;color:var(--grey4);max-width:480px;}
+.powered{display:inline-flex;align-items:center;gap:9px;}
+.powered .by{font-size:12px;color:var(--grey4);text-transform:uppercase;letter-spacing:.09em;font-weight:600;}
+.powered img{height:28px;width:auto;object-fit:contain;}
+.powered .fb{display:none;font-weight:700;font-size:13px;color:var(--grey4);}
+@media(max-width:640px){h1{font-size:28px;}h2{font-size:21px;}.lede{font-size:17px;}.sl .k{width:100%;}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useCallback,useMemo}=React;
+
+/* ── backend (shared session) ────────────────────────────────────────────── */
+function uid(){return Date.now()+"_"+Math.random().toString(36).slice(2,8);}
+const API="https://lech-backend.onrender.com";
+let AUTH_TOKEN=null;
+const SESSION_KEY="lech_session",SESSION_ACC_KEY="lech_session_acc";
+function saveSession(t,acc){try{if(t)localStorage.setItem(SESSION_KEY,t);if(acc)localStorage.setItem(SESSION_ACC_KEY,JSON.stringify(acc));}catch(e){}}
+function cachedAccount(){try{const t=localStorage.getItem(SESSION_KEY);if(!t)return null;const a=localStorage.getItem(SESSION_ACC_KEY);if(!a)return null;AUTH_TOKEN=t;return JSON.parse(a);}catch(e){return null;}}
+function clearSession(){try{localStorage.removeItem(SESSION_KEY);localStorage.removeItem(SESSION_ACC_KEY);}catch(e){}AUTH_TOKEN=null;}
+function forgetSession(){const t=AUTH_TOKEN;clearSession();try{if(t)fetch(API+"/api/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:t})});}catch(e){}}
+async function srestore(){let t=null;try{t=localStorage.getItem(SESSION_KEY);}catch(e){}if(!t)return null;AUTH_TOKEN=t;
+  try{const r=await fetch(API+"/api/me?token="+encodeURIComponent(t));const d=await r.json();if(d&&d.ok&&d.account){saveSession(t,d.account);return d.account;}clearSession();return null;}catch(e){return null;}}
+async function sgetAll(){try{const r=await fetch(API+"/api/data"+(AUTH_TOKEN?"?token="+encodeURIComponent(AUTH_TOKEN):""));const d=await r.json();return (d&&d.ok)?(d.data||{}):{};}catch{return{};}}
+async function sset(k,v){try{const r=await fetch(API+"/api/set",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:AUTH_TOKEN,key:k,value:v})});const d=await r.json();return d&&d.ok?{ok:true}:{ok:false,error:(d&&d.error)||"Refused."};}catch{return {ok:false,error:"Connection error."};}}
+async function slogin(username,password){try{const r=await fetch(API+"/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:String(username||"").trim(),password})});const d=await r.json();if(d&&d.ok){AUTH_TOKEN=d.token;saveSession(d.token,d.account);return {ok:true,account:d.account};}return {ok:false,error:(d&&d.error)||"Sign in was refused"};}catch(e){return {ok:false,error:"Connection error"};}}
+function fmtDate(d){if(d===undefined||d===null||d==="")return "—";const t=typeof d==="number"?d:new Date(d).getTime();if(isNaN(t))return ""+d;return new Date(t).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"});}
+function mcFaceUrl(n){return "https://mc-heads.net/avatar/"+encodeURIComponent(n||"")+"/64";}
+
+// Wilden office lives on the shared account as wxRole. The Ministry is run by the
+// Government: the Sovereign, the Prime Minister, any minister who holds a
+// department, and the network administrator (the owner).
+const wxRole=u=>String((u&&u.wxRole)||"");
+const isOwner=u=>!!u&&u.role==="emperor";
+const canManage=(u,gov)=>!!u&&(isOwner(u)||["sovereign","pm"].includes(wxRole(u))
+  ||!!((gov&&gov.cabinet)||{})[String(u.username||"").toLowerCase()]);
+
+const CIT_STATUS=[
+  {v:"citizen",l:"Citizen",tag:"green",cit:true},
+  {v:"naturalised",l:"Naturalised citizen",tag:"green",cit:true},
+  {v:"resident",l:"Resident",tag:"blue"},
+  {v:"alien",l:"Registered alien",tag:"grey"},
+  {v:"revoked",l:"Revoked",tag:"red"},
+  {v:"renounced",l:"Renounced",tag:"grey"},
+];
+const statusOf=v=>CIT_STATUS.find(s=>s.v===v)||CIT_STATUS[3];
+const PP_TYPES=[
+  {v:"ordinary",l:"Ordinary passport",short:"P"},
+  {v:"official",l:"Official passport",short:"PS"},
+  {v:"diplomatic",l:"Diplomatic passport",short:"PD"},
+];
+const ppOf=v=>PP_TYPES.find(t=>t.v===v)||PP_TYPES[0];
+function genPassportNo(passports){
+  const seen=new Set(Object.values(passports||{}).map(p=>p.number));
+  let n,t=0;do{n="W"+String(Math.floor(10000000+Math.random()*90000000));t++;}while(seen.has(n)&&t<60);return n;
+}
+
+/* ── UI atoms ────────────────────────────────────────────────────────────── */
+function Tag({t,children}){return <span className={"tag "+(t||"grey")}>{children}</span>;}
+function Btn({children,onClick,kind,small,disabled,type}){return <button type={type||"button"}
+  className={"btn"+(kind?" "+kind:"")+(small?" small":"")} disabled={disabled} onClick={disabled?undefined:onClick}>{children}</button>;}
+function ArmBtn({label,confirmLabel,onConfirm,small}){
+  const [a,setA]=useState(false);
+  useEffect(()=>{if(!a)return;const t=setTimeout(()=>setA(false),4000);return()=>clearTimeout(t);},[a]);
+  return a?<Btn kind="warn" small={small} onClick={()=>{setA(false);onConfirm();}}>{confirmLabel||"Confirm"}</Btn>
+    :<Btn kind="sec" small={small} onClick={()=>setA(true)}>{label}</Btn>;}
+function Field({label,hint,children}){return <div className="field"><label>{label}</label>{hint&&<div className="hint">{hint}</div>}{children}</div>;}
+function Person({account,size=38,sub}){
+  if(!account) return <span className="vacant">Unknown</span>;
+  const n=account.mcName||account.username;
+  return <span className="person">
+    <img src={mcFaceUrl(n)} alt="" width={size} height={size} loading="lazy" style={{width:size,height:size}}
+      onError={e=>{e.currentTarget.style.visibility="hidden";}}/>
+    <span><span className="nm">{account.displayName||account.username}</span>
+      <span className="un">{account.username}{sub?" · "+sub:""}</span></span>
+  </span>;
+}
+function Notif({title,children,kind}){return <div className={"notif"+(kind?" "+kind:"")}><div className="head">{title}</div><div className="body">{children}</div></div>;}
+function AccountSelect({accounts,value,onChange,placeholder}){
+  return <select value={value} onChange={e=>onChange(e.target.value)}>
+    <option value="">{placeholder||"— Select an account —"}</option>
+    {accounts.map(a=><option key={a.username} value={a.username}>{(a.displayName?a.displayName+" ":"")+"@"+a.username}</option>)}
+  </select>;
+}
+
+/* ═══════════ HOME ════════════════════════════════════════════════════════ */
+function HomeTab({citizens,passports,me,onGo}){
+  const cits=Object.values(citizens||{});
+  const nCit=cits.filter(c=>statusOf(c.status).cit).length;
+  const nPass=Object.values(passports||{}).length;
+  return <div>
+    <h1>Ministry of Foreign Affairs</h1>
+    <p className="lede">Citizenship and travel documents of Wilden. Your citizenship is what entitles
+      you to a passport, and to stand for and hold office.</p>
+
+    {me&&<Notif title="Your status" kind={statusOf(me.status).cit?"ok":undefined}>
+      <p style={{marginBottom:0}}>You are recorded as <b>{statusOf(me.status).l}</b> of Wilden
+        {me.since?", since "+fmtDate(me.since):""}. {statusOf(me.status).cit
+          ?"As a citizen you are eligible for a passport and for office."
+          :"Contact the Ministry to have your status reviewed."}</p>
+    </Notif>}
+
+    <div className="grid g3" style={{marginBottom:26}}>
+      <Stat n={nCit} l="Citizens on the register"/>
+      <Stat n={cits.length} l="People on the register"/>
+      <Stat n={nPass} l="Passports issued"/>
+    </div>
+
+    <div className="grid g2">
+      <div className="card"><h3><a href="#" onClick={e=>{e.preventDefault();onGo("citizenship");}}>Citizenship</a></h3>
+        <p style={{fontSize:15,marginBottom:0}}>The register of citizens, residents and aliens. Citizenship is
+          acquired, held and lost as provided by Act of Parliament.</p></div>
+      <div className="card"><h3><a href="#" onClick={e=>{e.preventDefault();onGo("passports");}}>Passports</a></h3>
+        <p style={{fontSize:15,marginBottom:0}}>Every citizen is entitled, on application, to be issued a
+          passport for travel to and from Wilden.</p></div>
+    </div>
+    <p className="hint" style={{marginTop:24}}><a href="wilden.html">← Government of Wilden</a> · <a href="index.html">Vintranet</a></p>
+  </div>;
+}
+function Stat({n,l}){return <div className="stat"><div className="n">{n}</div><div className="l">{l}</div></div>;}
+
+/* ═══════════ CITIZENSHIP ═════════════════════════════════════════════════ */
+function CitizenshipTab({citizens,accounts,user,gov,onAction,notify,setBusy}){
+  const manage=canManage(user,gov);
+  const list=Object.values(citizens||{}).sort((a,b)=>{
+    const ra=CIT_STATUS.findIndex(s=>s.v===a.status),rb=CIT_STATUS.findIndex(s=>s.v===b.status);
+    return ra!==rb?ra-rb:((a.name||a.username)||"").localeCompare((b.name||b.username)||"");
+  });
+  const acctOf=u=>accounts.find(a=>String(a.username||"").toLowerCase()===String(u||"").toLowerCase());
+  return <div>
+    <h1>Citizenship</h1>
+    <p className="lede">The register of the people of Wilden. Only a citizen may hold office in the
+      Government, so the register is what the Government's appointments draw from.</p>
+
+    {manage&&<GrantCitizen accounts={accounts} onAction={onAction} notify={notify} setBusy={setBusy}/>}
+
+    <h2>The register</h2>
+    {list.length===0?<p className="hint">No one is on the register yet.</p>
+      :<table>
+        <caption>{list.length} on the register</caption>
+        <thead><tr><th>Person</th><th>Status</th><th>Since</th>{manage&&<th className="num">Manage</th>}</tr></thead>
+        <tbody>{list.map(c=>{const st=statusOf(c.status);const a=acctOf(c.username);
+          return <CitizenRow key={c.id} citizen={c} st={st} account={a} manage={manage}
+            onAction={onAction} notify={notify} setBusy={setBusy}/>;})}</tbody>
+      </table>}
+  </div>;
+}
+function GrantCitizen({accounts,onAction,notify,setBusy}){
+  const [acct,setAcct]=useState(""),[status,setStatus]=useState("citizen");
+  const [since,setSince]=useState(new Date().toISOString().slice(0,10)),[notes,setNotes]=useState(""),[saving,setSaving]=useState(false);
+  const a=accounts.find(x=>x.username===acct);
+  return <div style={{border:"1px solid var(--grey3)",background:"#fafafa",padding:"16px 18px",marginBottom:20}}>
+    <h3 style={{marginTop:0}}>Grant or record status</h3>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"0 16px"}}>
+      <Field label="Account"><AccountSelect accounts={accounts} value={acct} onChange={setAcct}/></Field>
+      <Field label="Status">
+        <select value={status} onChange={e=>setStatus(e.target.value)}>
+          {CIT_STATUS.map(s=><option key={s.v} value={s.v}>{s.l}</option>)}
+        </select>
+      </Field>
+      <Field label="Date granted"><input type="date" value={since} onChange={e=>setSince(e.target.value)}/></Field>
+    </div>
+    <Field label="Notes (optional)"><input type="text" value={notes} onChange={e=>setNotes(e.target.value)}/></Field>
+    {a&&<p className="hint">Recording <b>{a.displayName||a.username}</b> (@{a.username}) as {statusOf(status).l}.</p>}
+    <Btn disabled={!acct||saving} onClick={async()=>{
+      setSaving(true);setBusy("Recording");
+      const res=await onAction("grant",{username:a.username,name:(a.displayName||a.username),status,since,notes:notes.trim()});
+      setBusy(null);setSaving(false);
+      if(res.ok){setAcct("");setNotes("");notify((a.displayName||a.username)+" recorded as "+statusOf(status).l+".",true);}
+      else notify(res.error,false);
+    }}>{saving?"Recording…":"Record status"}</Btn>
+  </div>;
+}
+function CitizenRow({citizen,st,account,manage,onAction,notify,setBusy}){
+  const [open,setOpen]=useState(false),[status,setStatus]=useState(citizen.status||"citizen"),[busy,setBusy2]=useState(false);
+  return <>
+    <tr>
+      <td>{account?<Person account={account} size={30}/>:<span className="nm">{citizen.name||citizen.username}</span>}</td>
+      <td><Tag t={st.tag}>{st.l}</Tag></td>
+      <td>{citizen.since?fmtDate(citizen.since):"—"}</td>
+      {manage&&<td className="num"><Btn small kind="sec" onClick={()=>setOpen(o=>!o)}>{open?"Close":"Edit"}</Btn></td>}
+    </tr>
+    {manage&&open&&<tr><td colSpan={4} style={{background:"#fafafa"}}>
+      <div style={{display:"flex",gap:12,alignItems:"flex-end",flexWrap:"wrap",padding:"6px 0 10px"}}>
+        <div className="field" style={{marginBottom:0,minWidth:200}}><label>Status</label>
+          <select value={status} onChange={e=>setStatus(e.target.value)}>
+            {CIT_STATUS.map(s=><option key={s.v} value={s.v}>{s.l}</option>)}
+          </select></div>
+        <Btn small disabled={busy} onClick={async()=>{setBusy2(true);setBusy("Updating");
+          const res=await onAction("update",{id:citizen.id,status});setBusy(null);setBusy2(false);
+          notify(res.ok?((citizen.name||citizen.username)+" updated."):res.error,res.ok);}}>Save</Btn>
+        <ArmBtn small label="Remove" confirmLabel="Remove from register" onConfirm={async()=>{
+          setBusy("Removing");const res=await onAction("remove",{id:citizen.id});setBusy(null);
+          notify(res.ok?"Removed from the register.":res.error,res.ok);}}/>
+      </div>
+    </td></tr>}
+  </>;
+}
+
+/* ═══════════ PASSPORTS ═══════════════════════════════════════════════════ */
+function PassportsTab({passports,citizens,accounts,user,gov,onAction,notify,setBusy}){
+  const manage=canManage(user,gov);
+  const list=Object.values(passports||{}).sort((a,b)=>(b.issued||0)-(a.issued||0));
+  const acctOf=u=>accounts.find(a=>String(a.username||"").toLowerCase()===String(u||"").toLowerCase());
+  const citizenSet=useMemo(()=>{const s=new Set();Object.values(citizens||{}).forEach(c=>{if(statusOf(c.status).cit)s.add(String(c.username||"").toLowerCase());});return s;},[citizens]);
+  return <div>
+    <h1>Passports</h1>
+    <p className="lede">The passport of a citizen of Wilden. Every citizen is entitled, on application,
+      to be issued one.</p>
+    {manage&&<IssuePassport accounts={accounts} passports={passports} citizenSet={citizenSet} onAction={onAction} notify={notify} setBusy={setBusy}/>}
+    <h2>Issued passports</h2>
+    {list.length===0?<p className="hint">No passports issued.</p>
+      :<table>
+        <caption>{list.length} issued</caption>
+        <thead><tr><th>Bearer</th><th>Number</th><th>Type</th><th>Expires</th>{manage&&<th className="num">Manage</th>}</tr></thead>
+        <tbody>{list.map(p=>{const t=ppOf(p.type);const a=acctOf(p.username);const revoked=p.status==="revoked";
+          return <tr key={p.id} style={{opacity:revoked?.6:1}}>
+            <td>{a?<Person account={a} size={30}/>:<span className="nm">{p.name||p.username}</span>}</td>
+            <td className="mono">{p.number}</td>
+            <td><Tag t="teal">{t.l}</Tag>{revoked&&<span style={{marginLeft:6}}><Tag t="red">Revoked</Tag></span>}</td>
+            <td>{p.expires?fmtDate(p.expires):"—"}</td>
+            {manage&&<td className="num">
+              {revoked?<Btn small kind="sec" onClick={async()=>{setBusy("Reinstating");const res=await onAction("ppUpdate",{id:p.id,status:"active"});setBusy(null);notify(res.ok?(p.number+" reinstated."):res.error,res.ok);}}>Reinstate</Btn>
+                :<ArmBtn small label="Revoke" confirmLabel="Revoke" onConfirm={async()=>{setBusy("Revoking");const res=await onAction("ppUpdate",{id:p.id,status:"revoked"});setBusy(null);notify(res.ok?(p.number+" revoked."):res.error,res.ok);}}/>}
+            </td>}
+          </tr>;})}</tbody>
+      </table>}
+  </div>;
+}
+function IssuePassport({accounts,passports,citizenSet,onAction,notify,setBusy}){
+  const [acct,setAcct]=useState(""),[type,setType]=useState("ordinary");
+  const today=new Date().toISOString().slice(0,10);
+  const plus10=new Date(Date.now()+10*365.25*86400000).toISOString().slice(0,10);
+  const [issued,setIssued]=useState(today),[expires,setExpires]=useState(plus10),[saving,setSaving]=useState(false);
+  const a=accounts.find(x=>x.username===acct);
+  const isCit=a&&citizenSet.has(String(a.username||"").toLowerCase());
+  return <div style={{border:"1px solid var(--grey3)",background:"#fafafa",padding:"16px 18px",marginBottom:20}}>
+    <h3 style={{marginTop:0}}>Issue a passport</h3>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"0 16px"}}>
+      <Field label="Bearer"><AccountSelect accounts={accounts} value={acct} onChange={setAcct}/></Field>
+      <Field label="Type"><select value={type} onChange={e=>setType(e.target.value)}>{PP_TYPES.map(t=><option key={t.v} value={t.v}>{t.l}</option>)}</select></Field>
+      <Field label="Date of issue"><input type="date" value={issued} onChange={e=>setIssued(e.target.value)}/></Field>
+      <Field label="Date of expiry"><input type="date" value={expires} onChange={e=>setExpires(e.target.value)}/></Field>
+    </div>
+    {a&&!isCit&&<div className="err"><div className="t">Not a citizen</div>
+      <p style={{marginBottom:0}}>Only a citizen of Wilden may be issued a passport. Grant citizenship first.</p></div>}
+    <Btn disabled={!acct||!isCit||saving} onClick={async()=>{
+      setSaving(true);setBusy("Issuing");const number=genPassportNo(passports);
+      const res=await onAction("issue",{number,username:a.username,name:(a.displayName||a.username),type,issued,expires,status:"active"});
+      setBusy(null);setSaving(false);
+      if(res.ok){setAcct("");notify("Passport "+number+" issued to "+(a.displayName||a.username)+".",true);}
+      else notify(res.error,false);
+    }}>{saving?"Issuing…":"Issue passport"}</Btn>
+  </div>;
+}
+
+/* ── sign in ─────────────────────────────────────────────────────────────── */
+function SignIn({onClose,onAuth}){
+  const [u,setU]=useState(""),[p,setP]=useState(""),[err,setErr]=useState(""),[busy,setBusy]=useState(false);
+  const go=async()=>{if(busy)return;if(!u.trim()||!p){setErr("Enter your username and password.");return;}
+    setBusy(true);setErr("");const r=await slogin(u,p);if(!r.ok){setErr(r.error);setBusy(false);return;}onAuth(r.account);};
+  return <div style={{position:"fixed",inset:0,zIndex:900,background:"rgba(11,12,12,.75)",display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"6vh 15px",overflowY:"auto"}}
+    onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+    <div style={{background:"#fff",maxWidth:460,width:"100%",padding:"26px 26px 30px"}} onKeyDown={e=>{if(e.key==="Enter")go();}}>
+      <h1 style={{fontSize:28,marginBottom:10}}>Sign in</h1>
+      <p className="hint">One account works across Wilden's services. The public register is readable without signing in.</p>
+      {err&&<div className="err"><div className="t">There is a problem</div><p style={{marginBottom:0}}>{err}</p></div>}
+      <Field label="Username"><input type="text" value={u} onChange={e=>setU(e.target.value)} autoFocus/></Field>
+      <Field label="Password"><input type="password" value={p} onChange={e=>setP(e.target.value)}/></Field>
+      <div className="btn-row"><Btn onClick={go} disabled={busy}>{busy?"Signing in…":"Sign in"}</Btn><Btn kind="sec" onClick={onClose}>Cancel</Btn></div>
+    </div>
+  </div>;
+}
+
+/* ── app ─────────────────────────────────────────────────────────────────── */
+function App(){
+  const [raw,setRaw]=useState({});
+  const [loaded,setLoaded]=useState(false);
+  const [tab,setTab]=useState("home");
+  const [user,setUser]=useState(()=>cachedAccount());
+  const [authOpen,setAuthOpen]=useState(false);
+  const [msg,setMsg]=useState(null);
+  const [busy,setBusy]=useState(null);
+  const notify=useCallback((text,ok)=>{setMsg({text,ok});window.scrollTo({top:0,behavior:"smooth"});setTimeout(()=>setMsg(m=>m&&m.text===text?null:m),6000);},[]);
+
+  useEffect(()=>{sgetAll().then(r=>{setRaw(r);setLoaded(true);});},[]);
+  useEffect(()=>{srestore().then(acc=>{if(acc){setUser(acc);sgetAll().then(r=>setRaw(prev=>({...prev,...r})));}else if(!AUTH_TOKEN)setUser(null);});},[]);
+
+  const accounts=useMemo(()=>Object.values(raw["mi_accounts"]||{}).filter(a=>a&&a.username)
+    .sort((a,b)=>((a.displayName||a.username)||"").localeCompare((b.displayName||b.username)||"")),[raw]);
+  const citizens=useMemo(()=>raw["wx_state_citizens"]||{},[raw]);
+  const passports=useMemo(()=>raw["wx_state_passports"]||{},[raw]);
+  const gov=useMemo(()=>raw["wx_gov"]||{},[raw]);
+  const me=useMemo(()=>{if(!user)return null;const u=String(user.username||"").toLowerCase();
+    return Object.values(citizens).find(c=>String(c.username||"").toLowerCase()===u)||null;},[citizens,user]);
+
+  // Registers are written whole, like the rest of the Ministry data. Government
+  // authority is enforced by the server on every wx_state_* write.
+  const onAction=useCallback(async(type,p)=>{
+    const put=async(key,next)=>{const res=await sset(key,next);if(res.ok)setRaw(r=>({...r,[key]:next}));return res;};
+    if(type==="grant"){
+      // One record per account: replace an existing one for this person, else add.
+      const cur={...citizens};
+      const existingId=Object.keys(cur).find(id=>String(cur[id].username||"").toLowerCase()===String(p.username||"").toLowerCase());
+      const id=existingId||("wcit_"+uid());
+      cur[id]={...(cur[id]||{}),id,...p};
+      return await put("wx_state_citizens",cur);
+    }
+    if(type==="update"){const cur={...citizens};if(cur[p.id])cur[p.id]={...cur[p.id],status:p.status};return await put("wx_state_citizens",cur);}
+    if(type==="remove"){const cur={...citizens};delete cur[p.id];return await put("wx_state_citizens",cur);}
+    if(type==="issue"){const id="wpp_"+uid();const cur={...passports,[id]:{id,...p,issuedAt:Date.now()}};return await put("wx_state_passports",cur);}
+    if(type==="ppUpdate"){const cur={...passports};if(cur[p.id])cur[p.id]={...cur[p.id],status:p.status};return await put("wx_state_passports",cur);}
+    return {ok:false,error:"Unknown action."};
+  },[citizens,passports]);
+
+  const TABS=[["home","Home"],["citizenship","Citizenship"],["passports","Passports"]];
+  const manages=canManage(user,gov);
+  const office=user?(wxRole(user)?wxRole(user):(isOwner(user)?"System administrator":"signed in")):"";
+
+  return <>
+    <header className="hdr">
+      <div className="w">
+        <span className="arms">
+          <img src="wildencoa.png" alt="" onError={e=>{e.currentTarget.style.display='none';e.currentTarget.nextElementSibling.style.display='block';}}/>
+          <span className="fb" aria-hidden="true">&#9672;</span>
+        </span>
+        <a className="brand" href="wilden.html">Wilden<span>Ministry of Foreign Affairs</span></a>
+        <span className="spacer"/>
+        {user
+          ?<><span className="who"><b>{user.displayName||user.username}</b>{manages?"Government":"Signed in"}</span>
+             <button className="signout" onClick={()=>{forgetSession();setUser(null);notify("You have been signed out.",true);}}>Sign out</button></>
+          :<button className="signin" onClick={()=>setAuthOpen(true)}>Sign in</button>}
+      </div>
+    </header>
+    <nav className="nav"><div className="w">
+      {TABS.map(([v,l])=><button key={v} aria-current={tab===v?"page":undefined} onClick={()=>setTab(v)}>{l}</button>)}
+    </div></nav>
+    <div className="phase"><div className="w">
+      <Tag t="blue">Foreign Affairs</Tag>
+      <p>Citizenship and passports of Wilden. <a href="wilden.html">Government of Wilden</a></p>
+    </div></div>
+
+    <main><div className="w">
+      {msg&&<div className={"notif"+(msg.ok?" ok":" err")}><div className="head">{msg.ok?"Success":"There is a problem"}</div>
+        <div className="body"><p style={{marginBottom:0}}>{msg.text}</p></div></div>}
+      {busy&&<Notif title={busy+"…"}><p style={{marginBottom:0}}>Please wait.</p></Notif>}
+      {!loaded&&<p className="lede">Loading…</p>}
+      {loaded&&tab==="home"&&<HomeTab citizens={citizens} passports={passports} me={me} onGo={setTab}/>}
+      {loaded&&tab==="citizenship"&&<CitizenshipTab citizens={citizens} accounts={accounts} user={user} gov={gov} onAction={onAction} notify={notify} setBusy={setBusy}/>}
+      {loaded&&tab==="passports"&&<PassportsTab passports={passports} citizens={citizens} accounts={accounts} user={user} gov={gov} onAction={onAction} notify={notify} setBusy={setBusy}/>}
+    </div></main>
+
+    <footer className="ftr"><div className="w">
+      <div className="lic">Published by the Ministry of Foreign Affairs of Wilden.
+        {" "}<a href="wilden.html">Government of Wilden</a> · <a href="index.html">Vintranet</a></div>
+      <div className="powered"><span className="by">Powered by</span>
+        <img src="vindex/saudkruger.png" alt="Saud Kruger Information Systems" draggable="false"
+          onError={e=>{e.currentTarget.style.display='none';e.currentTarget.nextElementSibling.style.display='block';}}/>
+        <span className="fb">Saud Kruger Information Systems</span></div>
+    </div></footer>
+
+    {authOpen&&<SignIn onClose={()=>setAuthOpen(false)}
+      onAuth={acc=>{setUser(acc);setAuthOpen(false);sgetAll().then(r=>setRaw(prev=>({...prev,...r})));notify("You are signed in as "+(acc.displayName||acc.username)+".",true);}}/>}
+  </>;
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

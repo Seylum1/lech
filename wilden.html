@@ -770,6 +770,12 @@ function GovernmentTab({pm,cabinet,appointed,gov,lords,commons}){
       His behalf, by His Majesty's Government. The Government holds office for so long as it commands
       the confidence of the House of Commons. <Cite>s27</Cite> <Cite>s31(1)</Cite></p>
 
+    <div className="card" style={{maxWidth:520,marginBottom:8}}>
+      <h3 style={{marginTop:0}}><a href="wmfa.html">Ministry of Foreign Affairs ↗</a></h3>
+      <p style={{fontSize:15,marginBottom:0}}>Citizenship and passports. Citizenship is granted here and is
+        what makes a person eligible to hold office.</p>
+    </div>
+
     <h2>The Prime Minister</h2>
     {pm?<div className="card" style={{maxWidth:460}}><Person account={pm} size={52}/></div>
       :<Inset><p style={{marginBottom:0}}>There is no Prime Minister. The House of Commons elects one of its
@@ -889,7 +895,7 @@ function JudicatureTab({justices}){
 }
 
 /* ═══════════ PANEL ═══════════════════════════════════════════════════════ */
-function PanelTab({user,bills,gov,accounts,cabinetish,onAction,notify,setBusy}){
+function PanelTab({user,bills,gov,accounts,citizens,cabinetish,onAction,notify,setBusy}){
   const secs=[
     ...(canIntroduce(user)?[["bill","Introduce a bill"]]:[]),
     ...(canAppoint(user)?[["office","Appointments"]]:[]),
@@ -907,7 +913,7 @@ function PanelTab({user,bills,gov,accounts,cabinetish,onAction,notify,setBusy}){
       {secs.map(([id,l])=><button key={id} aria-current={sec===id?"true":undefined} onClick={()=>setSec(id)}>{l}</button>)}
     </div>
     {sec==="bill"&&<BillForm bills={bills} user={user} onAction={onAction} notify={notify} setBusy={setBusy}/>}
-    {sec==="office"&&<OfficeForm user={user} accounts={accounts} onAction={onAction} notify={notify} setBusy={setBusy}/>}
+    {sec==="office"&&<OfficeForm user={user} accounts={accounts} citizens={citizens} onAction={onAction} notify={notify} setBusy={setBusy}/>}
     {sec==="cabinet"&&<DeptForm gov={gov} members={cabinetish} onAction={onAction} notify={notify} setBusy={setBusy}/>}
   </div>;
 }
@@ -948,21 +954,28 @@ function BillForm({bills,user,onAction,notify,setBusy}){
   </div>;
 }
 
-function OfficeForm({user,accounts,onAction,notify,setBusy}){
+function OfficeForm({user,accounts,citizens,onAction,notify,setBusy}){
   const [q,setQ]=useState("");
-  const [showAll,setShowAll]=useState(false);
   const grants=grantableBy(user);
   const query=q.trim().toLowerCase();
+  const isCit=a=>citizens.has(String(a.username||"").toLowerCase());
+  // Only a citizen may hold office. The roll is the citizens plus anyone who already
+  // holds an office (so a legacy holder can still be removed); a search reaches the
+  // whole network, but a non-citizen there cannot be appointed until the Ministry of
+  // Foreign Affairs grants them citizenship.
   const list=Object.values(accounts)
     .filter(a=>{
       if(query) return ((a.displayName||"")+" "+(a.username||"")).toLowerCase().includes(query);
-      return String(a.wxRole||"")!==""||showAll;
+      return isCit(a)||String(a.wxRole||"")!=="";
     })
     .sort((a,b)=>{
       const rank=v=>{const i=OFFICES.findIndex(o=>o.v===String(v||""));return v?(OFFICES.length-i):99;};
       const d=rank(a.wxRole)-rank(b.wxRole);
       return d!==0?d:((a.displayName||a.username)||"").localeCompare((b.displayName||b.username)||"");
     });
+  // An office (past "citizen") needs citizenship. The Crown is the one exception —
+  // the Sovereign is above citizenship, and is the administrator's to appoint.
+  const needsCit=v=>!!v&&v!=="citizen"&&v!=="sovereign";
   return <div>
     <h2 style={{marginTop:0}}>Appointments</h2>
     <Inset blue>
@@ -973,37 +986,38 @@ function OfficeForm({user,accounts,onAction,notify,setBusy}){
         :"As Speaker you may seat the members returned at a general election."
       }</p>
     </Inset>
-    <p className="hint">These accounts are shared across the networks. Conferring a Wildenian office changes
-      nothing about a person's standing in Lech or Vindex.</p>
+    <p className="hint">Only citizens of Wilden may hold office. Citizenship is granted by the{" "}
+      <a href="wmfa.html">Ministry of Foreign Affairs</a>. Conferring an office changes only a person's
+      standing in Wilden.</p>
     <div className="field" style={{maxWidth:460}}>
       <label htmlFor="q">Search for a person</label>
       <input id="q" type="text" value={q} onChange={e=>setQ(e.target.value)} placeholder="Name or username"/>
     </div>
-    {!query&&<div className="btn-row" style={{marginBottom:18}}>
-      <Btn kind="sec" small onClick={()=>setShowAll(s=>!s)}>{showAll?"Show office-holders only":"Show everyone"}</Btn>
-    </div>}
-    {list.length===0?<Empty>{query?"No account matches that.":"No Wildenian offices conferred yet. Search for a person to appoint."}</Empty>
+    {list.length===0?<Empty>{query?"No account matches that.":"No citizens to appoint yet. Grant citizenship in the Ministry of Foreign Affairs first."}</Empty>
       :<table>
         <caption>Office-holders</caption>
-        <thead><tr><th>Person</th><th>Office</th><th className="num">Confer</th></tr></thead>
+        <thead><tr><th>Person</th><th>Citizenship</th><th>Office</th><th className="num">Confer</th></tr></thead>
         <tbody>{list.map(a=>{
           const cur=String(a.wxRole||"");const o=officeOf(cur);
-          const editable=mayEditOffice(user,a);
+          const editable=mayEditOffice(user,a);const cit=isCit(a);
+          const opts=OFFICES.filter(x=>grants.includes(x.v)&&(cit||!needsCit(x.v)||x.v===cur));
           return <tr key={a.username}>
             <td><Person account={a} size={32}/></td>
+            <td><Tag t={cit?"green":"grey"}>{cit?"Citizen":"Not a citizen"}</Tag></td>
             <td><Tag t={o.tag}>{o.short}</Tag></td>
             <td className="num" style={{minWidth:240}}>
               {editable
-                ?<select value={cur} onChange={async e=>{
+                ?<><select value={cur} onChange={async e=>{
                     const v=e.target.value;
                     setBusy(v?"Conferring office":"Removing from office");
                     const res=await onAction("office",{account:a,office:v});
                     setBusy(null);
                     notify(res.ok?((a.displayName||a.username)+(v?" — "+officeOf(v).l:" removed from office")):res.error,res.ok);
                   }}>
-                    {OFFICES.filter(x=>grants.includes(x.v)).map(x=><option key={x.v} value={x.v}>{x.l}</option>)}
+                    {opts.map(x=><option key={x.v} value={x.v}>{x.l}</option>)}
                   </select>
-                :<span className="vacant">{cur==="sovereign"?"Not yours to confer":"Not yours to confer"}</span>}
+                  {!cit&&<div className="hint" style={{margin:"5px 0 0",textAlign:"left"}}>Grant citizenship to appoint them.</div>}</>
+                :<span className="vacant">Not yours to confer</span>}
             </td>
           </tr>;})}</tbody>
       </table>}
@@ -1116,6 +1130,15 @@ function App(){
   const bills=useMemo(()=>raw["wx_bills"]||{},[raw]);
   const votes=useMemo(()=>raw["wx_votes"]||{},[raw]);
   const gov=useMemo(()=>raw["wx_gov"]||{},[raw]);
+  // Citizens of Wilden, from the Ministry of Foreign Affairs. Only a citizen may
+  // hold office, so this is what the appointments panel draws from.
+  const citizens=useMemo(()=>{
+    const s=new Set();
+    Object.values(raw["wx_state_citizens"]||{}).forEach(c=>{
+      if(c&&["citizen","naturalised"].includes(String(c.status||""))) s.add(String(c.username||"").toLowerCase());
+    });
+    return s;
+  },[raw]);
   const posts=gov.cabinet||{};
   // Anyone who could hold a department: everyone with a seat, plus appointed Ministers.
   const cabinetish=useMemo(()=>[...commons,...lords,...appointed],[commons,lords,appointed]);
@@ -1253,7 +1276,7 @@ function App(){
           gov={gov} lords={lords} commons={commons}/>}
         {loaded&&tab==="judicature"&&<JudicatureTab justices={justices}/>}
         {loaded&&tab==="panel"&&hasPanel&&<PanelTab user={user} bills={bills} gov={gov} accounts={accounts}
-          cabinetish={cabinetish} onAction={onAction} notify={notify} setBusy={setBusy}/>}
+          citizens={citizens} cabinetish={cabinetish} onAction={onAction} notify={notify} setBusy={setBusy}/>}
       </div>
     </main>
 

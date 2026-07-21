@@ -760,7 +760,7 @@ function JudiciaryTab(){
 }
 
 /* ═══════════ PANEL ═══════════════════════════════════════════════════════ */
-function PanelTab({user,bills,gov,orders,cabinet,accounts,onAction,notify,setProcessing}){
+function PanelTab({user,bills,gov,orders,cabinet,accounts,citizens,onAction,notify,setProcessing}){
   const [sec,setSec]=useState(canIntroduce(user)?"introduce":"appointments");
   const SECS=[
     ...(canIntroduce(user)?[["introduce","Introduce a Bill"]]:[]),
@@ -784,27 +784,28 @@ function PanelTab({user,bills,gov,orders,cabinet,accounts,onAction,notify,setPro
       ))}
     </div>
     {sec==="introduce"&&<IntroduceForm bills={bills} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
-    {sec==="appointments"&&<AppointmentsForm user={user} accounts={accounts} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+    {sec==="appointments"&&<AppointmentsForm user={user} accounts={accounts} citizens={citizens} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
     {sec==="orders"&&<OrdersForm orders={orders} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
     {sec==="cabinet"&&<CabinetForm gov={gov} cabinet={cabinet} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
   </div>;
 }
 
 /* ── APPOINTMENTS — where every Vinish office is conferred ────────────────── */
-function AppointmentsForm({user,accounts,onAction,notify,setProcessing}){
+function AppointmentsForm({user,accounts,citizens,onAction,notify,setProcessing}){
   const [search,setSearch]=useState("");
-  const [showAll,setShowAll]=useState(false);
+  const isCit=a=>citizens.has(String(a.username||"").toLowerCase());
   const grants=grantableBy(user);
   const seated=Object.values(accounts).filter(a=>String(a.vxRole||"")!=="").length;
   const reps=Object.values(accounts).filter(a=>String(a.vxRole||"")==="representative").length;
   const q=search.trim().toLowerCase();
-  // Everyone holding office is always listed; the rest of the Imperial Network
-  // appears only on a search, so the roll is not lost in a directory.
+  // Only citizens may hold office, so the roll is the citizens plus anyone who
+  // already holds an office (so a legacy holder can still be seen and removed). A
+  // search still reaches the whole network — a non-citizen there simply cannot be
+  // appointed until the Department of State grants them citizenship.
   const list=Object.values(accounts)
     .filter(a=>{
-      const holds=String(a.vxRole||"")!=="";
       if(q) return ((a.displayName||"")+" "+(a.username||"")).toLowerCase().includes(q);
-      return holds||showAll;
+      return isCit(a)||String(a.vxRole||"")!=="";
     })
     .sort((a,b)=>{
       const oi=v=>{const i=VX_OFFICES.findIndex(o=>o.v===String(v||""));return i<0?99:(v?-i:99);};
@@ -824,7 +825,9 @@ function AppointmentsForm({user,accounts,onAction,notify,setProcessing}){
           : "As Speaker you seat the Representatives returned by the monthly elections you organize. A Representative may otherwise be removed only on conviction in a federal court, or by impeachment."}
       </div>
       <div style={{fontSize:12,color:V.textDD,fontStyle:"italic",marginTop:8,lineHeight:1.7}}>
-        Conferring an office here affects only a person's standing in Vindex Nation.
+        Only citizens of Vindex Nation may hold office. Citizenship is granted in the{" "}
+        <a href="state.html" style={{color:V.goldL}}>Department of State</a>.
+        Conferring an office here affects only a person's standing in the Republic.
       </div>
     </div>
 
@@ -840,26 +843,29 @@ function AppointmentsForm({user,accounts,onAction,notify,setProcessing}){
 
     <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:"0.9rem"}}>
       <div style={{flex:1,minWidth:200}}><Inp value={search} onChange={setSearch} placeholder="Search for someone to appoint…"/></div>
-      {!q&&<Btn small variant="ghost" onClick={()=>setShowAll(s=>!s)}>{showAll?"Show office-holders only":"Show everyone"}</Btn>}
     </div>
 
     {list.length===0
-      ?<Empty>{q?"No account by that name.":"No Vinish offices conferred yet. Search for an account to appoint."}</Empty>
+      ?<Empty>{q?"No account by that name.":"No citizens to appoint yet. Grant citizenship in the Department of State first."}</Empty>
       :<div style={{display:"flex",flexDirection:"column",gap:5}}>
-        {list.map(a=><AppointRow key={a.username} account={a} user={user} grants={grants}
+        {list.map(a=><AppointRow key={a.username} account={a} user={user} grants={grants} citizen={isCit(a)}
           onAction={onAction} notify={notify} setProcessing={setProcessing}/>)}
       </div>}
   </div>;
 }
 
-function AppointRow({account,user,grants,onAction,notify,setProcessing}){
+function AppointRow({account,user,grants,citizen,onAction,notify,setProcessing}){
   const cur=String(account.vxRole||"");
   const o=officeOf(cur);
   const isMe=String(account.username||"").toLowerCase()===String(user.username||"").toLowerCase();
   // You may only touch an office you are allowed to confer — which is what keeps a
   // President from demoting the President, or a Speaker from unseating the Cabinet.
   const editable=mayEditOffice(user,account);
-  const opts=VX_OFFICES.filter(x=>grants.includes(x.v));
+  // An actual office (anything past "citizen") may be conferred only on a citizen.
+  // A non-citizen who somehow holds one may still be removed, so their current
+  // value stays selectable — they just cannot be moved into another office.
+  const needsCit=v=>!!v&&v!=="citizen";
+  const opts=VX_OFFICES.filter(x=>grants.includes(x.v)&&(citizen||!needsCit(x.v)||x.v===cur));
   return <div style={{background:V.panel,border:`1px solid ${V.line}`,borderLeft:`3px solid ${cur?o.color:V.line}`,
     borderRadius:"0 3px 3px 0",padding:"0.6rem 1rem",display:"flex",gap:11,alignItems:"center",flexWrap:"wrap"}}>
     <McFace account={account} size={30}/>
@@ -867,6 +873,8 @@ function AppointRow({account,user,grants,onAction,notify,setProcessing}){
       <span className="pf" style={{fontWeight:700,fontSize:14,color:V.text}}>{account.displayName||account.username}</span>
       {account.displayName&&<span className="mono" style={{fontSize:9,color:V.textDD,marginLeft:8}}>@{account.username}</span>}
       {isMe&&<span className="mono" style={{fontSize:8,color:V.goldL,border:`1px solid ${V.gold}44`,borderRadius:2,padding:"1px 5px",marginLeft:8}}>YOU</span>}
+      <span className="mono" style={{fontSize:8,marginLeft:8,borderRadius:2,padding:"1px 5px",
+        color:citizen?V.greenL:V.textDD,border:`1px solid ${(citizen?V.greenL:V.textDD)}44`}}>{citizen?"CITIZEN":"NOT A CITIZEN"}</span>
     </div>
     {editable
       ?<div style={{minWidth:250}}>
@@ -878,6 +886,9 @@ function AppointRow({account,user,grants,onAction,notify,setProcessing}){
             ?((account.displayName||account.username)+(v?" — "+officeOf(v).l:" removed from office"))
             :res.error,res.ok?V.goldL:V.redL);
         }}/>
+        {!citizen&&<div style={{fontSize:11,color:V.textDD,fontStyle:"italic",marginTop:4,lineHeight:1.5}}>
+          Grant citizenship in the Department of State to appoint them to office.
+        </div>}
       </div>
       :<div style={{minWidth:250,display:"flex",justifyContent:"flex-end",alignItems:"center",gap:8}}>
         <span className="mono" style={{fontSize:9,color:o.color,border:`1px solid ${o.color}44`,
@@ -1068,6 +1079,15 @@ function App(){
   const votes=useMemo(()=>raw["vx_votes"]||{},[raw]);
   const orders=useMemo(()=>raw["vx_orders"]||{},[raw]);
   const gov=useMemo(()=>raw["vx_gov"]||{},[raw]);
+  // Citizens of the Republic, from the Department of State's register. Only a
+  // citizen may hold office, so this is what the appointments panel draws from.
+  const citizens=useMemo(()=>{
+    const s=new Set();
+    Object.values(raw["vx_state_citizens"]||{}).forEach(c=>{
+      if(c&&["citizen","naturalised"].includes(String(c.status||""))) s.add(String(c.username||"").toLowerCase());
+    });
+    return s;
+  },[raw]);
 
   const meUser=String(user?.username||"").toLowerCase();
 
@@ -1185,7 +1205,7 @@ function App(){
         user={user} accounts={accounts} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
       {loaded&&tab==="judiciary"&&<JudiciaryTab/>}
       {loaded&&tab==="panel"&&hasPanel&&<PanelTab user={user} bills={bills} gov={gov} orders={orders}
-        cabinet={cabinet} accounts={accounts} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
+        cabinet={cabinet} accounts={accounts} citizens={citizens} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}
     </div>
 
     <div style={{borderTop:`1px solid ${V.line}`,padding:"1.1rem 1.2rem 1.5rem"}}>
