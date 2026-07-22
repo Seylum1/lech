@@ -497,7 +497,67 @@ function BillCard({bill,votes,reps,user,accounts,onAction,notify,setProcessing})
 }
 
 /* ═══════════ HOME ════════════════════════════════════════════════════════ */
-function HomeTab({president,speaker,reps,bills,onGo}){
+/* ── the citizen's own standing ───────────────────────────────────────────────
+   A citizen of the Republic — and only a citizen — sees where they stand at a
+   glance, modelled on the Empire's citizen portal: citizenship, office, passport,
+   any visa they hold to enter the Republic, and the documents and records held
+   on them. Everything is read from the Department of State's registers and the
+   shared account; nothing new is stored. Tiles for things a person either holds
+   or doesn't — a visa, an identity card, a warrant, a registered vessel — are
+   shown only when they hold one. Services not yet built (the courts, clearance,
+   an identity register) are marked as forthcoming. */
+const VX_CIT_LABEL={citizen:"Citizen",naturalised:"Naturalized",resident:"Permanent Resident",alien:"Registered Alien",revoked:"Revoked",renounced:"Renounced"};
+const VX_PP_LABEL={regular:"Regular",official:"Official",diplomatic:"Diplomatic",service:"Service"};
+const VX_VISA_LABEL={pending:"Under review",approved:"Approved",rejected:"Denied",additional:"Info requested",withdrawn:"Withdrawn"};
+function StandingTile({label,value,sub,color,href,soon}){
+  const inner=<div style={{background:V.panel,border:`1px solid ${V.line}`,borderTop:`3px solid ${soon?V.line:(color||V.gold)}`,
+    borderRadius:"0 0 4px 4px",padding:"0.8rem 0.95rem",height:"100%",opacity:soon?0.72:1,transition:"border-color .15s"}}>
+    <div className="mono" style={{fontSize:8,letterSpacing:"0.16em",color:V.textDD,textTransform:"uppercase",marginBottom:6}}>{label}</div>
+    <div className="pf" style={{fontWeight:700,fontSize:15,color:soon?V.textD:(color||V.text),lineHeight:1.25,overflowWrap:"anywhere"}}>{value}</div>
+    {sub&&<div style={{fontSize:11.5,color:V.textDD,marginTop:3,lineHeight:1.4}}>{sub}</div>}
+  </div>;
+  return href&&!soon?<a href={href} style={{textDecoration:"none",display:"block"}}>{inner}</a>:inner;
+}
+function MyStanding({user,office,citizen,passport,visa,honours,idCard,warrant,vessel}){
+  const cit=citizen?(VX_CIT_LABEL[citizen.status]||citizen.status):null;
+  const ppValid=passport?(!passport.expires||new Date(passport.expires)>=new Date()):null;
+  const vs=visa?(VX_VISA_LABEL[visa.status]||visa.status):null;
+  const hon=honours||[];
+  const tiles=[
+    {label:"Citizenship",color:V.greenL,href:"state.html",
+      value:cit||"Citizen",sub:citizen&&citizen.since?"Since "+citizen.since:"Department of State"},
+    {label:"Office",color:office&&office!=="No office"?V.goldL:V.textD,
+      value:office||"No office",sub:office&&office!=="No office"?"Republic of Vindex Nation":"No office held"},
+    {label:"Passport",color:passport?(ppValid?V.greenL:V.red):V.textD,href:"state.html",
+      value:passport?passport.number:"None issued",
+      sub:passport?((VX_PP_LABEL[passport.type]||"Passport")+" · "+(ppValid?"Valid":"Expired")):"You do not hold a passport"},
+    // Shown only when the citizen actually holds a visa to enter the Republic.
+    visa&&{label:"Visa to enter Vindex",color:visa.status==="approved"?V.greenL:V.goldL,href:"state.html",
+      value:vs,sub:visa.ref||"Department of State"},
+    {label:"Honours & awards",color:hon.length?V.goldL:V.textD,
+      value:hon.length?(hon.length+(hon.length===1?" honour":" honours")):"None",
+      sub:hon.length?hon.map(h=>h.title||h.name).filter(Boolean).join(", "):"No honours or awards conferred"},
+    {label:"Judiciary",soon:true,value:"Coming soon",sub:"Courts and cases pertaining to you"},
+    {label:"Security clearance",soon:true,value:"Coming soon",sub:"Government vetting"},
+    // Documents & records shown only when held — hidden otherwise (per record).
+    idCard&&{label:"National identity card",color:V.greenL,value:idCard.number||"Issued",sub:"Vindex identity register"},
+    warrant&&{label:"Active warrant",color:V.red,value:"Warrant in force",sub:warrant.reason||"See the Judiciary"},
+    vessel&&{label:"Maritime vessel",color:V.greenL,value:vessel.name||vessel.number||"Registered",sub:vessel.port?("Port of "+vessel.port):"Registered vessel"},
+  ].filter(Boolean);
+  return <div style={{background:`linear-gradient(180deg,${V.bg2},${V.panel})`,border:`1px solid ${V.line}`,borderRadius:6,padding:"1.1rem 1.2rem",marginBottom:"1.6rem"}}>
+    <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:"0.9rem",flexWrap:"wrap"}}>
+      <McFace account={user} size={38}/>
+      <div style={{flex:1,minWidth:160}}>
+        <div className="pf" style={{fontWeight:700,fontSize:16,color:V.text,lineHeight:1.1}}>{user.displayName||user.username}</div>
+        <div className="mono" style={{fontSize:8.5,letterSpacing:"0.14em",color:V.textDD,marginTop:2}}>YOUR STANDING IN THE REPUBLIC</div>
+      </div>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10}}>
+      {tiles.map(t=><StandingTile key={t.label} {...t}/>)}
+    </div>
+  </div>;
+}
+function HomeTab({president,speaker,reps,bills,onGo,me}){
   const laws=Object.values(bills||{}).filter(b=>b.status==="law").length;
   const onFloor=Object.values(bills||{}).filter(b=>b.status==="floor"||b.status==="override").length;
   const BRANCH=[
@@ -512,6 +572,7 @@ function HomeTab({president,speaker,reps,bills,onGo}){
      foot:"Coming soon"},
   ];
   return <div className="fadeIn">
+    {me&&<MyStanding {...me}/>}
     <div style={{textAlign:"center",padding:"0.25rem 0 0.5rem"}}>
       <Seal file="vindexcoa.png" size={96} style={{margin:"0 auto 0.8rem",display:"block"}}/>
       <div className="pf" style={{fontWeight:900,fontSize:26,color:V.text,letterSpacing:"0.04em"}}>The Government of Vindex Nation</div>
@@ -546,18 +607,32 @@ function HomeTab({president,speaker,reps,bills,onGo}){
       ))}
     </div>
     <STitle>Departments</STitle>
-    <a href="state.html" style={{textDecoration:"none",display:"block",maxWidth:440}}>
-      <div style={{background:V.panel,border:`1px solid ${V.line}`,borderLeft:`3px solid ${V.gold}`,
-        borderRadius:"0 3px 3px 0",padding:"0.9rem 1.1rem",display:"flex",alignItems:"center",gap:13}}>
-        <Seal file="statedept.png" size={44}/>
-        <div>
-          <div className="pf" style={{fontWeight:700,fontSize:15,color:V.text}}>Department of State ↗</div>
-          <div style={{fontSize:13,color:V.textD,fontStyle:"italic",marginTop:3,lineHeight:1.6}}>
-            Travel advisories, citizenship, visas, passports and foreign policy.
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",gap:10,maxWidth:900}}>
+      <a href="state.html" style={{textDecoration:"none",display:"block"}}>
+        <div style={{background:V.panel,border:`1px solid ${V.line}`,borderLeft:`3px solid ${V.gold}`,
+          borderRadius:"0 3px 3px 0",padding:"0.9rem 1.1rem",display:"flex",alignItems:"center",gap:13,height:"100%"}}>
+          <Seal file="statedept.png" size={44}/>
+          <div>
+            <div className="pf" style={{fontWeight:700,fontSize:15,color:V.text}}>Department of State ↗</div>
+            <div style={{fontSize:13,color:V.textD,fontStyle:"italic",marginTop:3,lineHeight:1.6}}>
+              Travel advisories, citizenship, visas, passports and foreign policy.
+            </div>
           </div>
         </div>
-      </div>
-    </a>
+      </a>
+      <a href="doj.html" style={{textDecoration:"none",display:"block"}}>
+        <div style={{background:V.panel,border:`1px solid ${V.line}`,borderLeft:`3px solid ${V.gold}`,
+          borderRadius:"0 3px 3px 0",padding:"0.9rem 1.1rem",display:"flex",alignItems:"center",gap:13,height:"100%"}}>
+          <Seal file="doj.png" glyph="§" size={44}/>
+          <div>
+            <div className="pf" style={{fontWeight:700,fontSize:15,color:V.text}}>Department of Justice ↗</div>
+            <div style={{fontSize:13,color:V.textD,fontStyle:"italic",marginTop:3,lineHeight:1.6}}>
+              State identity cards, and the Republic's law-enforcement agencies.
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
   </div>;
 }
 
@@ -1088,6 +1163,25 @@ function App(){
   },[raw]);
 
   const meUser=String(user?.username||"").toLowerCase();
+  // The signed-in national's own records, for the standing panel on the home
+  // page. Read straight from the Department of State's registers; the passport
+  // register the server already filters to what this account may see.
+  const findMine=useCallback(key=>meUser?Object.values(raw[key]||{}).find(r=>String(r.username||"").toLowerCase()===meUser):null,[raw,meUser]);
+  const myCitizen=useMemo(()=>findMine("vx_state_citizens"),[findMine]);
+  const myPassport=useMemo(()=>findMine("vx_state_passports"),[findMine]);
+  // The visa to enter the Republic that this person holds (latest application in
+  // the Republic's own register). Only their own; the tile is hidden when none.
+  const myVisa=useMemo(()=>meUser?Object.values(raw["vx_state_visas"]||{})
+    .filter(v=>String(v.username||"").toLowerCase()===meUser).sort((a,b)=>(b.submitted||0)-(a.submitted||0))[0]:null,[raw,meUser]);
+  // Records held on the citizen. These registers are not established yet — the
+  // reads resolve empty and their tiles stay hidden until a domestic ministry
+  // (Justice / Home) starts writing them, at which point they light up on their own.
+  const myHonours=useMemo(()=>meUser?Object.values(raw["vx_honours"]||{}).filter(h=>String(h.username||"").toLowerCase()===meUser):[],[raw,meUser]);
+  const myId=useMemo(()=>findMine("vx_state_ids"),[findMine]);
+  const myWarrant=useMemo(()=>meUser?Object.values(raw["vx_warrants"]||{}).find(w=>String(w.username||"").toLowerCase()===meUser&&w.status==="active"):null,[raw,meUser]);
+  const myVessel=useMemo(()=>findMine("vx_vessels"),[findMine]);
+  // The standing sheet is for citizens of the Republic alone.
+  const iAmCitizen=!!myCitizen&&["citizen","naturalised"].includes(String(myCitizen.status||""));
 
   const onAction=useCallback(async(type,p)=>{
     // Writes go per record, so two Representatives acting at once cannot clobber
@@ -1197,7 +1291,8 @@ function App(){
 
     <div style={{maxWidth:1080,margin:"0 auto",padding:"1.6rem 1.2rem 3rem"}}>
       {!loaded&&<div style={{textAlign:"center",padding:"4rem"}}><div className="mono" style={{fontSize:10,letterSpacing:"0.35em",color:V.textDD,animation:"pulse 1.4s infinite"}}>LOADING…</div></div>}
-      {loaded&&tab==="home"&&<HomeTab president={president} speaker={speaker} reps={reps} bills={bills} onGo={setTab}/>}
+      {loaded&&tab==="home"&&<HomeTab president={president} speaker={speaker} reps={reps} bills={bills} onGo={setTab}
+        me={user&&iAmCitizen?{user,office:isEmperor(user)?"System Administrator":officeOf(vxRole(user)).l,citizen:myCitizen,passport:myPassport,visa:myVisa,honours:myHonours,idCard:myId,warrant:myWarrant,vessel:myVessel}:null}/>}
       {loaded&&tab==="executive"&&<ExecutiveTab president={president} vp={vp} cabinet={cabinet} gov={gov} orders={orders} speaker={speaker}/>}
       {loaded&&tab==="legislature"&&<LegislatureTab speaker={speaker} reps={reps} bills={bills} votes={votes}
         user={user} accounts={accounts} onAction={onAction} notify={notify} setProcessing={setProcessing}/>}

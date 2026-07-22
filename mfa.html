@@ -237,15 +237,19 @@ function SignIn({onAuth,onClose}){
   </div>;
 }
 
+// The bilateral visa regime, one of three states. Older records carried only a
+// visaOnArrival flag; visaRegimeOf (below) normalises both shapes.
+const VISA_REGIMES=[{v:"required",l:"Visa Required in Advance",color:"#e08a3a"},{v:"voa",l:"Visa on Arrival",color:"#2a9a4a"},{v:"free",l:"Visa Not Required",color:"#6aa07a"}];
 // Clean, single-line visa requirement display (replaces the old double visaPolicy / visaOnArrival boxes).
 function VisaInfo({country}){
-  const hasReq=country.visaOnArrival!==undefined;
+  const regime=visaRegimeOf(country);
+  const hasReq=!!regime;
   if(!hasReq && !country.visaPolicy) return null;
-  const req=country.visaOnArrival===false?"Visa Not Required":"Visa on Arrival";
-  const reqCol=country.visaOnArrival===false?"#6aa07a":"#2a9a4a";
+  const rg=VISA_REGIMES.find(r=>r.v===regime)||VISA_REGIMES[0];
+  const req=rg.l,reqCol=rg.color;
   return <div style={{marginTop:"0.75rem",background:C.s2,border:`1px solid ${C.border}`,borderRadius:2,padding:"7px 12px"}}>
     {hasReq&&<div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
-      <span className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.08em"}}>ENTRY FOR LECH CITIZENS</span>
+      <span className="mono" style={{fontSize:9,color:C.textDD,letterSpacing:"0.08em"}}>ENTRY INTO LECH ON THIS PASSPORT</span>
       <span style={{fontSize:13,color:reqCol,fontFamily:"'Cinzel',serif"}}>{req}</span>
     </div>}
     {country.visaPolicy&&<div style={{fontSize:13,color:C.textD,fontStyle:"italic",lineHeight:1.6,marginTop:hasReq?4:0}}>{country.visaPolicy}</div>}
@@ -526,11 +530,11 @@ function PassportViewer({passport:p,visas,onClose}){
           </div>
           :<div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column",gap:10,paddingTop:4}}>
             {endorsements.slice(0,3).map((v,i)=>{
-              const cols=["#28506a","#5a2a5a","#2a5a3a"];const col=cols[i%3];
+              const cols=["#28506a","#5a2a5a","#2a5a3a"];const col=v._col||cols[i%3];
               const vt=VISA_TYPES.find(x=>x.v===v.type)||VISA_TYPES[0];
               return <div key={v.id||i} style={{border:`2px solid ${col}aa`,borderRadius:3,padding:"6px 10px",
                 transform:`rotate(${i%2===0?-2.4:1.8}deg)`,background:"rgba(255,255,255,.22)",boxShadow:"0 1px 3px rgba(80,60,30,.2)"}}>
-                <div className="mono" style={{fontSize:fs(.024),letterSpacing:"0.16em",color:col,fontWeight:700}}>EMPIRE OF LECH · VISA</div>
+                <div className="mono" style={{fontSize:fs(.024),letterSpacing:"0.16em",color:col,fontWeight:700}}>{(v._nation||"EMPIRE OF LECH")+" · VISA"}</div>
                 <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
                   <span style={{fontFamily:"'Cinzel',serif",fontSize:fs(.034),color:"#3a3226"}}>{vt.l}</span>
                   <span className="mono" style={{fontSize:fs(.024),color:col}}>{v.ref}</span>
@@ -724,7 +728,7 @@ function VisaForm({countries,onSubmit,notify,user,myCitizenship}){
       <div style={{fontFamily:"'Cinzel',serif",fontSize:14,color:"#5ad47a",marginBottom:6}}>Application Submitted</div>
       <div style={{fontSize:14,color:C.textD,lineHeight:1.7,marginBottom:"0.5rem"}}>Your reference number is:</div>
       <div className="mono" style={{fontSize:14,color:C.gold,marginBottom:"0.75rem"}}>{done}</div>
-      <div style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>Use the Track Application tab to follow up on your status.</div>
+      <div style={{fontSize:13,color:C.textD,fontStyle:"italic"}}>Your application appears under My Applications below, and updates there automatically.</div>
     </div>
     <Btn variant="ghost" onClick={()=>{setDone(null);setName("");setUsername("");setNationality("");setOtherCountry("");setPurpose("");setDuration("");setNotes("");}}>Submit Another Application</Btn>
   </div>;
@@ -791,7 +795,7 @@ function PanelContent({user,countries,advisories,restrictions,visas,stampVisas,c
 
 function PanelCountries({countries,advisories,onAction,notify,setProcessing}){
   const [creating,setCreating]=useState(false);
-  const [name,setName]=useState("");const [entityType,setEntityType]=useState("state");const [relation,setRelation]=useState("full");const [visaPolicy,setVisaPolicy]=useState("");const [visaOnArrival,setVisaOnArrival]=useState(true);const [policy,setPolicy]=useState("");const [advLevel,setAdvLevel]=useState(1);const [saving,setSaving]=useState(false);
+  const [name,setName]=useState("");const [entityType,setEntityType]=useState("state");const [relation,setRelation]=useState("full");const [visaPolicy,setVisaPolicy]=useState("");const [visaRegime,setVisaRegime]=useState("required");const [policy,setPolicy]=useState("");const [advLevel,setAdvLevel]=useState(1);const [saving,setSaving]=useState(false);
   const isPlace=!entityType||entityType==="state"||entityType==="territory";
   const list=Object.values(countries||{}).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
   return <div>
@@ -805,8 +809,8 @@ function PanelCountries({countries,advisories,onAction,notify,setProcessing}){
           <div style={{flex:1,minWidth:160}}><FL>DIPLOMATIC STATUS</FL><DD value={relation} onChange={setRelation} options={RELATION_TYPES.map(r=>({v:r.v,l:r.l}))}/></div>
         </div>
         <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap",alignItems:"flex-end"}}>
-          <div style={{flex:2,minWidth:200}}><FL>VISA POLICY</FL><Inp value={visaPolicy} onChange={setVisaPolicy} placeholder="e.g. Visa on Arrival"/></div>
-          <div style={{flex:1,paddingBottom:4}}><CheckBox checked={visaOnArrival} onChange={setVisaOnArrival} label="Visa on Arrival (uncheck = Visa Not Required)"/></div>
+          <div style={{flex:1,minWidth:180}}><FL>VISA REGIME (ENTRY INTO LECH)</FL><DD value={visaRegime} onChange={setVisaRegime} options={VISA_REGIMES.map(r=>({v:r.v,l:r.l}))}/></div>
+          <div style={{flex:2,minWidth:200}}><FL>VISA POLICY (NOTE)</FL><Inp value={visaPolicy} onChange={setVisaPolicy} placeholder="e.g. mutual visa-free agreement of 2026"/></div>
         </div>
         <div><FL>POLICY STATEMENT</FL><TA value={policy} onChange={setPolicy} placeholder="Official policy statement..." rows={3}/></div>
         {isPlace&&<div><FL>INITIAL TRAVEL ADVISORY LEVEL</FL>
@@ -814,7 +818,7 @@ function PanelCountries({countries,advisories,onAction,notify,setProcessing}){
         </div>}
         <div style={{display:"flex",gap:8}}>
           <Btn disabled={!name.trim()||saving} onClick={async()=>{setSaving(true);setProcessing("Adding entity...");
-            const rec={name:name.trim(),entityType,relation,visaPolicy:visaPolicy.trim(),visaOnArrival,policyStatement:policy.trim()};
+            const rec={name:name.trim(),entityType,relation,visaPolicy:visaPolicy.trim(),visaRegime,policyStatement:policy.trim()};
             if(isPlace){rec.advisoryLevel=advLevel;rec.advisoryText="";rec.advisoryUpdatedAt=Date.now();}
             await onAction("createCountry",rec);setProcessing(null);setSaving(false);notify(name+" added.",C.accent);setName("");setPolicy("");setVisaPolicy("");setAdvLevel(1);setCreating(false);}}>{saving?"Adding...":"Add Entity"}</Btn>
           <Btn variant="ghost" onClick={()=>setCreating(false)}>Cancel</Btn>
@@ -827,7 +831,7 @@ function PanelCountries({countries,advisories,onAction,notify,setProcessing}){
 
 function CountryRow({country,advisories,onAction,notify,setProcessing}){
   const cur=getAdvisory(country,advisories);
-  const [open,setOpen]=useState(false);const [relation,setRelation]=useState(country.relation||"full");const [vp,setVp]=useState(country.visaPolicy||"");const [voa,setVoa]=useState(country.visaOnArrival!==false);const [policy,setPolicy]=useState(country.policyStatement||"");
+  const [open,setOpen]=useState(false);const [relation,setRelation]=useState(country.relation||"full");const [vp,setVp]=useState(country.visaPolicy||"");const [regime,setRegime]=useState(visaRegimeOf(country)||"required");const [policy,setPolicy]=useState(country.policyStatement||"");
   const [advLevel,setAdvLevel]=useState(cur.level||1);const [advText,setAdvText]=useState(cur.text||"");const [saving,setSaving]=useState(false);
   const rt=getRT(country.relation);
   const isPlace=!country.entityType||country.entityType==="state"||country.entityType==="territory";
@@ -837,8 +841,8 @@ function CountryRow({country,advisories,onAction,notify,setProcessing}){
       <div style={{display:"flex",flexDirection:"column",gap:"0.75rem"}}>
         <div style={{display:"flex",gap:"0.75rem",flexWrap:"wrap",alignItems:"flex-end"}}>
           <div style={{flex:1,minWidth:180}}><FL>DIPLOMATIC STATUS</FL><DD value={relation} onChange={setRelation} options={RELATION_TYPES.map(r=>({v:r.v,l:r.l}))}/></div>
-          <div style={{flex:1,minWidth:180}}><FL>VISA POLICY (NOTE)</FL><Inp value={vp} onChange={setVp} placeholder="e.g. eVisa required in advance"/></div>
-          <div style={{flex:1,paddingBottom:4}}><CheckBox checked={voa} onChange={setVoa} label="Visa on Arrival (uncheck = Visa Not Required)"/></div>
+          <div style={{flex:1,minWidth:180}}><FL>VISA REGIME (ENTRY INTO LECH)</FL><DD value={regime} onChange={setRegime} options={VISA_REGIMES.map(r=>({v:r.v,l:r.l}))}/></div>
+          <div style={{flex:1,minWidth:180}}><FL>VISA POLICY (NOTE)</FL><Inp value={vp} onChange={setVp} placeholder="e.g. mutual visa-free agreement"/></div>
         </div>
         <div><FL>POLICY STATEMENT</FL><TA value={policy} onChange={setPolicy} placeholder="Official policy statement..." rows={3}/></div>
         {isPlace&&<div style={{borderTop:`1px solid ${C.border}`,paddingTop:"0.75rem"}}>
@@ -848,7 +852,7 @@ function CountryRow({country,advisories,onAction,notify,setProcessing}){
         </div>}
         <div style={{display:"flex",gap:8}}>
           <Btn small variant="gold" disabled={saving} onClick={async()=>{setSaving(true);setProcessing("Updating...");
-            const patch={id:country.id,relation,visaPolicy:vp.trim(),visaOnArrival:voa,policyStatement:policy.trim()};
+            const patch={id:country.id,relation,visaPolicy:vp.trim(),visaRegime:regime,policyStatement:policy.trim()};
             if(isPlace){patch.advisoryLevel=advLevel;patch.advisoryText=advText.trim();patch.advisoryUpdatedAt=Date.now();}
             await onAction("updateCountry",patch);setProcessing(null);setSaving(false);notify(country.name+" updated.",C.gold);}}>{saving?"Saving...":"Save Changes"}</Btn>
           <ArmBtn small label="Remove" confirmLabel="Remove entity?" onConfirm={async()=>{setProcessing("Removing...");await onAction("deleteCountry",{id:country.id});setProcessing(null);notify(country.name+" removed.",C.textD);}}/>
@@ -1172,7 +1176,7 @@ function App(){
               <div style={{fontFamily:"'Cinzel',serif",fontSize:11,color:C.text}}>{user.displayName||user.username}</div>
               <div className="mono" style={{fontSize:7,color:canPanel?C.gold:C.textDD,letterSpacing:"0.1em"}}>{canPanel?"MINISTRY ACCESS":myCitizenship?"REGISTERED CITIZEN":"SIGNED IN"}</div>
             </div>
-            <Btn small variant="ghost" onClick={()=>{forgetSession();setUser(null);if(tab==="panel")setTab("advisories");notify("Signed out.",C.textD);}}>Sign Out</Btn>
+            <Btn small variant="ghost" onClick={()=>{forgetSession();setUser(null);if(tab==="panel")setTab("relations");notify("Signed out.",C.textD);}}>Sign Out</Btn>
           </div>:<Btn small onClick={()=>setAuthOpen(true)}>Sign In</Btn>}
           <a href="lech.html" style={{fontFamily:"'Cinzel',serif",fontSize:9,letterSpacing:"0.1em",color:C.textD,textDecoration:"none",border:`1px solid ${C.border}`,borderRadius:2,padding:"3px 10px"}}>Back</a>
         </div>

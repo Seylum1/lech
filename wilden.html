@@ -438,7 +438,65 @@ function Notif({title,children,ok}){
 }
 
 /* ═══════════ HOME ════════════════════════════════════════════════════════ */
-function HomeTab({sovereign,pm,speaker,commons,lords,justices,bills,onGo}){
+/* ── the citizen's own standing ───────────────────────────────────────────────
+   A citizen of Wilden — and only a citizen — sees where they stand at a glance,
+   modelled on the Empire's citizen portal: citizenship, office, passport, any
+   visa they hold to enter Wilden, and the documents and records held on them.
+   All of it is read from the Ministry of Foreign Affairs' registers and the
+   shared account; nothing new is stored. Cards for things a person either holds
+   or doesn't — a visa, an identity card, a warrant, a registered vessel — appear
+   only when they hold one. Services not yet built (the courts, clearance, an
+   identity register) are shown as forthcoming. */
+const WX_CIT_LABEL={citizen:"Citizen",naturalised:"Naturalised",resident:"Resident",alien:"Registered alien",revoked:"Revoked",renounced:"Renounced"};
+const WX_PP_LABEL={ordinary:"Ordinary",official:"Official",diplomatic:"Diplomatic",service:"Service"};
+const WX_VISA_LABEL={pending:"Under review",approved:"Approved",refused:"Refused"};
+function StandingCard({label,value,sub,tone,href,soon}){
+  const top=soon?"var(--grey3)":tone==="good"?"var(--green)":tone==="warn"?"var(--amber)":tone==="alert"?"var(--red)":"var(--blue)";
+  const inner=<div className="card" style={{borderTopColor:top,opacity:soon?0.72:1,height:"100%"}}>
+    <div className="caption">{label}</div>
+    <div style={{fontSize:19,fontWeight:700,lineHeight:1.2,margin:"1px 0 2px",color:soon?"var(--grey4)":tone==="alert"?"var(--red)":"var(--black)"}}>{value}</div>
+    {sub&&<div className="hint" style={{marginBottom:0}}>{sub}</div>}
+  </div>;
+  return href&&!soon?<a href={href} style={{textDecoration:"none",color:"inherit",display:"block"}}>{inner}</a>:inner;
+}
+function MyStanding({user,office,citizen,passport,visa,honours,idCard,warrant,vessel}){
+  const cit=citizen?(WX_CIT_LABEL[citizen.status]||citizen.status):null;
+  const citTone=citizen&&["citizen","naturalised"].includes(citizen.status)?"good":"neutral";
+  const ppValid=passport?(!passport.expires||new Date(passport.expires)>=new Date()):null;
+  const vs=visa?(WX_VISA_LABEL[visa.status]||visa.status):null;
+  const hon=honours||[];
+  const cards=[
+    {label:"Citizenship",tone:citTone,href:"wmfa.html",
+      value:cit||"Citizen",sub:citizen&&citizen.since?"Since "+citizen.since:"Ministry of Foreign Affairs"},
+    {label:"Office",tone:office&&office!=="No office"?"good":"neutral",
+      value:office||"No office",sub:office&&office!=="No office"?"Government of Wilden":"No office held"},
+    {label:"Passport",tone:passport?(ppValid?"good":"warn"):"neutral",href:"wmfa.html",
+      value:passport?passport.number:"None issued",
+      sub:passport?((WX_PP_LABEL[passport.type]||"Passport")+" · "+(ppValid?"Valid":"Expired")):"You do not hold a passport"},
+    // Shown only when the citizen actually holds a visa to enter Wilden.
+    visa&&{label:"Visa to enter Wilden",tone:visa.status==="approved"?"good":"neutral",href:"wmfa.html",
+      value:vs,sub:visa.ref||"Ministry of Foreign Affairs"},
+    {label:"Honours & awards",tone:hon.length?"good":"neutral",
+      value:hon.length?(hon.length+(hon.length===1?" honour":" honours")):"None",
+      sub:hon.length?hon.map(h=>h.title||h.name).filter(Boolean).join(", "):"No honours or awards conferred"},
+    {label:"Judicature",soon:true,value:"Coming soon",sub:"Courts and cases pertaining to you"},
+    {label:"Security clearance",soon:true,value:"Coming soon",sub:"Government vetting"},
+    // Documents & records shown only when held — hidden otherwise (per record).
+    idCard&&{label:"National identity card",tone:"good",value:idCard.number||"Issued",sub:"Wilden identity register"},
+    warrant&&{label:"Active warrant",tone:"alert",value:"Warrant in force",sub:warrant.reason||"See the Judicature"},
+    vessel&&{label:"Maritime vessel",tone:"good",value:vessel.name||vessel.number||"Registered",sub:vessel.port?("Port of "+vessel.port):"Registered vessel"},
+  ].filter(Boolean);
+  return <section style={{border:"1px solid var(--grey3)",background:"var(--grey1)",padding:"16px 18px",marginBottom:26}}>
+    <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+      <Person account={user}/>
+      <div className="caption" style={{marginLeft:"auto",marginBottom:0}}>YOUR STANDING IN WILDEN</div>
+    </div>
+    <div className="grid g3">
+      {cards.map(c=><StandingCard key={c.label} {...c}/>)}
+    </div>
+  </section>;
+}
+function HomeTab({sovereign,pm,speaker,commons,lords,justices,bills,onGo,me}){
   const all=Object.values(bills||{});
   const acts=all.filter(b=>b.stage==="act").length;
   const before=all.filter(b=>["commons","lords","reconsider"].includes(b.stage)).length;
@@ -447,6 +505,8 @@ function HomeTab({sovereign,pm,speaker,commons,lords,justices,bills,onGo}){
     <h1>Government of Wilden</h1>
     <p className="lede">Wilden is a sovereign, independent and democratic constitutional monarchy.
       Use this service to follow Parliament, the Government and the courts.</p>
+
+    {me&&<MyStanding {...me}/>}
 
     {forAssent>0&&<Notif title="Awaiting the Royal Assent">
       <p style={{marginBottom:0}}>{forAssent} bill{forAssent!==1?"s have":" has"} passed both Houses and
@@ -1143,6 +1203,25 @@ function App(){
   const cabinet=useMemo(()=>cabinetish.filter(a=>posts[String(a.username||"").toLowerCase()]),[cabinetish,posts]);
 
   const me=String(user?.username||"").toLowerCase();
+  // The signed-in person's own records, for the standing panel on the home page.
+  // Read straight from the Ministry of Foreign Affairs' registers; the passport
+  // register the server already filters to what this account may see.
+  const findMine=useCallback(key=>me?Object.values(raw[key]||{}).find(r=>String(r.username||"").toLowerCase()===me):null,[raw,me]);
+  const myCitizen=useMemo(()=>findMine("wx_state_citizens"),[findMine]);
+  const myPassport=useMemo(()=>findMine("wx_state_passports"),[findMine]);
+  // The visa to enter Wilden that this person holds (latest application in
+  // Wilden's own register). Only their own; the card is hidden when none.
+  const myVisa=useMemo(()=>me?Object.values(raw["wx_state_visas"]||{})
+    .filter(v=>String(v.username||"").toLowerCase()===me).sort((a,b)=>(b.submitted||0)-(a.submitted||0))[0]:null,[raw,me]);
+  // Records held on the citizen. These registers are not established yet — the
+  // reads resolve empty and their cards stay hidden until a domestic ministry
+  // (Justice / Home) starts writing them, at which point they light up on their own.
+  const myHonours=useMemo(()=>me?Object.values(raw["wx_honours"]||{}).filter(h=>String(h.username||"").toLowerCase()===me):[],[raw,me]);
+  const myId=useMemo(()=>findMine("wx_state_ids"),[findMine]);
+  const myWarrant=useMemo(()=>me?Object.values(raw["wx_warrants"]||{}).find(w=>String(w.username||"").toLowerCase()===me&&w.status==="active"):null,[raw,me]);
+  const myVessel=useMemo(()=>findMine("wx_vessels"),[findMine]);
+  // The standing sheet is for citizens of Wilden alone.
+  const iAmCitizen=!!myCitizen&&["citizen","naturalised"].includes(String(myCitizen.status||""));
 
   const onAction=useCallback(async(type,p)=>{
     const put=async(bill)=>{
@@ -1266,7 +1345,8 @@ function App(){
 
         {!loaded&&<p className="lede">Loading the record…</p>}
         {loaded&&tab==="home"&&<HomeTab sovereign={sovereign} pm={pm} speaker={speaker} commons={commons}
-          lords={lords} justices={justices} bills={bills} onGo={setTab}/>}
+          lords={lords} justices={justices} bills={bills} onGo={setTab}
+          me={user&&iAmCitizen?{user,office:isOwner(user)?"Service administrator":officeOf(wxRole(user)).l,citizen:myCitizen,passport:myPassport,visa:myVisa,honours:myHonours,idCard:myId,warrant:myWarrant,vessel:myVessel}:null}/>}
         {loaded&&tab==="parliament"&&<ParliamentTab commons={commons} lords={lords} speaker={speaker}
           bills={bills} votes={votes} user={user} accounts={accounts} onAction={onAction}
           notify={notify} setBusy={setBusy}/>}

@@ -385,7 +385,11 @@ function CitizenRow({citizen,st,account,manage,onAction,notify,setBusy}){
 }
 
 /* ═══════════ PASSPORT BOOKLET ════════════════════════════════════════════ */
-function PassportViewer({passport:p,onClose}){
+function PassportViewer({passport:p,stamps,onClose}){
+  // Approved visas from any of the three ministries, stamped for this bearer.
+  const _un=(p.username||"").toLowerCase(),_nm=(p.name||"").toLowerCase();
+  const endorsements=Object.values(stamps||{}).filter(v=>v.status==="approved"
+    &&(((v.username||"").toLowerCase()===_un&&!!_un)||((v.name||"").toLowerCase()===_nm&&!!_nm)));
   const [flip,setFlip]=useState(0);
   const t=ppOf(p.type);const [l1,l2]=ppMRZ(p);
   const fs=f=>`calc(var(--ppw) * ${f})`;
@@ -475,7 +479,19 @@ function PassportViewer({passport:p,onClose}){
       <div style={{position:"absolute",inset:"18px 20px",display:"flex",flexDirection:"column"}}>
         <div style={{textAlign:"center",borderBottom:"1px solid #b09a68",paddingBottom:6,marginBottom:12}}>
           <div style={{...sans,fontWeight:700,fontSize:fs(.036),letterSpacing:"0.2em",color:"#4a3c20"}}>VISAS &amp; ENDORSEMENTS</div></div>
-        <div style={{...sans,flex:1,display:"flex",alignItems:"center",justifyContent:"center",textAlign:"center",fontStyle:"italic",color:"#8a7550",fontSize:fs(.038),lineHeight:1.7,padding:"0 10%"}}>This page is reserved for visas and official endorsements.</div>
+        {endorsements.length===0
+          ?<div style={{...sans,flex:1,display:"flex",alignItems:"center",justifyContent:"center",textAlign:"center",fontStyle:"italic",color:"#8a7550",fontSize:fs(.038),lineHeight:1.7,padding:"0 10%"}}>This page is reserved for visas and official endorsements.</div>
+          :<div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column",gap:10,paddingTop:4}}>
+            {endorsements.slice(0,3).map((v,i)=>{const col=v._col||"#12564f";const vt=wxVisaType(v.type);
+              return <div key={v.id||i} style={{border:`2px solid ${col}aa`,borderRadius:3,padding:"6px 10px",transform:`rotate(${i%2===0?-2.4:1.8}deg)`,background:"rgba(255,255,255,.22)"}}>
+                <div className="mono" style={{fontSize:fs(.024),letterSpacing:"0.14em",color:col,fontWeight:700}}>{(v._nation||"WILDEN")+" · VISA"}</div>
+                <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+                  <span style={{...sans,fontWeight:700,fontSize:fs(.034),color:"#3a3226"}}>{vt.l}</span>
+                  <span className="mono" style={{fontSize:fs(.024),color:col}}>{v.ref}</span></div>
+                <div className="mono" style={{fontSize:fs(.022),color:"#6a5c40"}}>{v.issuedAt?"ISSUED "+fmtDate(v.issuedAt).toUpperCase():""}{v.validUntil?"  ·  UNTIL "+(v.validUntil==="permanent"?"PERMANENT":fmtDate(v.validUntil).toUpperCase()):""}</div>
+              </div>;})}
+            {endorsements.length>3&&<div className="mono" style={{fontSize:fs(.024),color:"#8a7550",textAlign:"center"}}>+ {endorsements.length-3} further endorsement{endorsements.length-3!==1?"s":""} on file</div>}
+          </div>}
       </div>
       <PageNo n="3" side="left"/>
     </div>);
@@ -509,7 +525,7 @@ function PassportViewer({passport:p,onClose}){
 }
 
 /* ═══════════ PASSPORTS ═══════════════════════════════════════════════════ */
-function PassportsTab({passports,citizens,accounts,user,gov,onAction,notify,setBusy}){
+function PassportsTab({passports,citizens,accounts,user,gov,stampVisas,onAction,notify,setBusy}){
   const manage=canManage(user,gov);
   const [viewing,setViewing]=useState(null);
   const list=Object.values(passports||{}).sort((a,b)=>(b.issued||0)-(a.issued||0));
@@ -517,7 +533,7 @@ function PassportsTab({passports,citizens,accounts,user,gov,onAction,notify,setB
   const citizenSet=useMemo(()=>{const s=new Set();Object.values(citizens||{}).forEach(c=>{if(statusOf(c.status).cit)s.add(String(c.username||"").toLowerCase());});return s;},[citizens]);
   const citizenAccounts=useMemo(()=>accounts.filter(a=>citizenSet.has(String(a.username||"").toLowerCase())),[accounts,citizenSet]);
   return <div>
-    {viewing&&<PassportViewer passport={viewing} onClose={()=>setViewing(null)}/>}
+    {viewing&&<PassportViewer passport={viewing} stamps={stampVisas} onClose={()=>setViewing(null)}/>}
     <h1>Passports</h1>
     <p className="lede">The passport of a citizen of Wilden. Every citizen is entitled, on application,
       to be issued one. A passport is a personal document — you see your own here; the Ministry
@@ -605,12 +621,21 @@ function RelationsTab({relations,user,gov,onAction,notify,setBusy}){
     </div>
   </div>;
 }
+// The visa regime toward holders of that nation's passports. "free" means the
+// passport itself is the entry document — the visa service refuses applications.
+const WX_VISA_REGIMES=[
+  {v:"required",l:"Visa required in advance",tag:"amber"},
+  {v:"voa",l:"Visa on arrival",tag:"teal"},
+  {v:"free",l:"No visa required",tag:"green"},
+];
+const regimeOf=v=>WX_VISA_REGIMES.find(r=>r.v===v)||WX_VISA_REGIMES[0];
 function CountryCard({country,rec,manage,onAction,notify,setBusy}){
   const [open,setOpen]=useState(false);
   const [relation,setRelation]=useState(rec.relation||"none");
   const [advisory,setAdvisory]=useState(rec.advisory||1);
   const [advisoryText,setAdvisoryText]=useState(rec.advisoryText||"");
   const [policy,setPolicy]=useState(rec.policy||"");
+  const [visaRegime,setVisaRegime]=useState(rec.visaRegime||"required");
   const [saving,setSaving]=useState(false);
   const r=relOf(rec.relation),a=advOf(rec.advisory);
   const set=rec.relation!==undefined||rec.advisory!==undefined||rec.policy;
@@ -618,6 +643,7 @@ function CountryCard({country,rec,manage,onAction,notify,setBusy}){
     <h3 style={{marginTop:0}}><a href={country.href}>{country.name} ↗</a></h3>
     <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
       <Tag t={r.tag}>{r.l}</Tag><Tag t={a.tag}>{a.l}</Tag>
+      {rec.visaRegime&&<Tag t={regimeOf(rec.visaRegime).tag}>{regimeOf(rec.visaRegime).l}</Tag>}
     </div>
     {rec.advisoryText&&<div className="inset blue" style={{margin:"0 0 12px"}}>
       <div className="caption">Travel advisory</div>{rec.advisoryText}</div>}
@@ -628,15 +654,190 @@ function CountryCard({country,rec,manage,onAction,notify,setBusy}){
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"0 16px"}}>
         <Field label="Relation"><select value={relation} onChange={e=>setRelation(e.target.value)}>{WX_REL.map(x=><option key={x.v} value={x.v}>{x.l}</option>)}</select></Field>
         <Field label="Advisory level"><select value={advisory} onChange={e=>setAdvisory(Number(e.target.value))}>{WX_ADV.map(x=><option key={x.v} value={x.v}>{x.l}</option>)}</select></Field>
+        <Field label="Visa regime" hint="For holders of that nation's passports entering Wilden."><select value={visaRegime} onChange={e=>setVisaRegime(e.target.value)}>{WX_VISA_REGIMES.map(x=><option key={x.v} value={x.v}>{x.l}</option>)}</select></Field>
       </div>
       <Field label="Advisory text"><textarea rows={2} value={advisoryText} onChange={e=>setAdvisoryText(e.target.value)}/></Field>
       <Field label="Policy statement"><textarea rows={3} value={policy} onChange={e=>setPolicy(e.target.value)}/></Field>
       <Btn disabled={saving} onClick={async()=>{
         setSaving(true);setBusy("Saving");
-        const res=await onAction("relation",{key:country.key,relation,advisory,advisoryText:advisoryText.trim(),policy:policy.trim()});
+        const res=await onAction("relation",{key:country.key,relation,advisory,advisoryText:advisoryText.trim(),policy:policy.trim(),visaRegime});
         setBusy(null);setSaving(false);
         if(res.ok){setOpen(false);notify("Relations with "+country.name+" updated.",true);}else notify(res.error,false);
       }}>{saving?"Saving…":"Save"}</Btn>
+    </div>}
+  </div>;
+}
+
+/* ── VISAS ────────────────────────────────────────────────────────────────────
+   A visa is permission to enter Wilden. The applicant signs in, applies, and
+   the application simply appears below — no reference numbers to keep. A
+   passport that already opens Wilden's border (Wilden's own, or one of a
+   nation admitted visa-free) stops the form before it starts. Approved visas
+   are stamped into the bearer's passport. */
+const WX_VISA_TYPES=[
+  {v:"tourist",l:"Visitor"},
+  {v:"business",l:"Business"},
+  {v:"student",l:"Student"},
+  {v:"work",l:"Worker"},
+  {v:"diplomatic",l:"Diplomatic"},
+  {v:"transit",l:"Transit"},
+  {v:"other",l:"Other"},
+];
+const WX_VISA_STATUS=[
+  {v:"pending",l:"Under review",tag:"blue"},
+  {v:"approved",l:"Approved",tag:"green"},
+  {v:"refused",l:"Refused",tag:"red"},
+];
+const wxVisaStatus=v=>WX_VISA_STATUS.find(s=>s.v===v)||WX_VISA_STATUS[0];
+const wxVisaType=v=>WX_VISA_TYPES.find(t=>t.v===v)||WX_VISA_TYPES[WX_VISA_TYPES.length-1];
+function ownActivePassports(register,user){
+  if(!user)return [];
+  const u=String(user.username||"").toLowerCase();
+  return Object.values(register||{}).filter(p=>String(p.username||"").toLowerCase()===u
+    &&p.status!=="revoked"&&(!p.expires||new Date(p.expires)>=new Date()));
+}
+// relations records are keyed by nation (lech / vindex), so the lookup is direct.
+function wxVisaExemption(user,foreignPassports,relations){
+  if(!user||!foreignPassports)return null;
+  const own=ownActivePassports(foreignPassports.wilden,user);
+  if(own.length)return {kind:"citizen",passport:own[0]};
+  const NAT_LABEL={lech:"Empire of Lech",vindex:"Republic of Vindex Nation"};
+  for(const nation of ["lech","vindex"]){
+    const pps=ownActivePassports(foreignPassports[nation],user);
+    if(!pps.length)continue;
+    const rec=(relations||{})[nation]||{};
+    if(rec.visaRegime==="free")return {kind:"free",nation:NAT_LABEL[nation],passport:pps[0],rec};
+    if(rec.visaRegime==="voa")return {kind:"voa",nation:NAT_LABEL[nation],passport:pps[0],rec};
+  }
+  return null;
+}
+function VisasTab({relations,visas,user,gov,onAction,notify,setBusy,foreignPassports,onRequireSignIn}){
+  const manage=canManage(user,gov);
+  const exempt=wxVisaExemption(user,foreignPassports,relations);
+  const mine=user?Object.values(visas||{}).filter(v=>String(v.username||"").toLowerCase()===String(user.username||"").toLowerCase())
+    .sort((a,b)=>(b.submitted||0)-(a.submitted||0)):[];
+  return <div>
+    <h1>Visas</h1>
+    <p className="lede">Apply for a visa to enter Wilden. Approved visas are stamped into your
+      passport, and your applications appear on this page automatically.</p>
+    {exempt&&exempt.kind==="citizen"&&<Notif title="You do not need a visa" kind="ok">
+      <p style={{marginBottom:0}}>You hold Wilden passport <b>{exempt.passport.number}</b>. A citizen
+        of Wilden needs no visa to enter Wilden.</p>
+    </Notif>}
+    {exempt&&exempt.kind==="free"&&<Notif title="You do not need a visa" kind="ok">
+      <p style={{marginBottom:0}}>Your {exempt.nation} passport <b>{exempt.passport.number}</b> grants
+        visa-free entry to Wilden{exempt.rec.policy?" — "+exempt.rec.policy:""}. Travel on that
+        passport; no application is needed or accepted.</p>
+    </Notif>}
+    {exempt&&exempt.kind==="voa"&&<Notif title="Visa on arrival available">
+      <p style={{marginBottom:0}}>Your {exempt.nation} passport <b>{exempt.passport.number}</b> is
+        granted a visa on arrival at the Wilden border. An advance application is optional.</p>
+    </Notif>}
+    {!user&&<Notif title="Sign in to apply">
+      <p style={{marginBottom:0}}>Sign in with your shared account to apply — your applications and
+        their outcomes then appear here automatically.</p>
+    </Notif>}
+    {user&&(!exempt||exempt.kind==="voa")&&<VisaApply user={user} visas={visas} onAction={onAction} notify={notify} setBusy={setBusy}/>}
+    {user&&<>
+      <h2>Your applications</h2>
+      {mine.length===0?<p className="hint">No applications on file for @{user.username}.</p>
+        :<table>
+          <thead><tr><th>Reference</th><th>Type</th><th>Submitted</th><th>Status</th><th>Valid until</th></tr></thead>
+          <tbody>{mine.map(v=>{const st=wxVisaStatus(v.status);
+            return <tr key={v.id}>
+              <td className="mono">{v.ref}</td>
+              <td>{wxVisaType(v.type).l}</td>
+              <td>{v.submitted?fmtDate(v.submitted):"—"}</td>
+              <td><Tag t={st.tag}>{st.l}</Tag>{v.reviewNote&&<div className="hint" style={{marginTop:3,marginBottom:0}}>{v.reviewNote}</div>}</td>
+              <td>{v.status!=="approved"?"—":(v.permanent||v.validUntil==="permanent"?"No expiry":(v.validUntil?fmtDate(v.validUntil):"—"))}</td>
+            </tr>;})}</tbody>
+        </table>}
+      {mine.some(v=>v.status==="approved")&&<p className="hint">Approved visas are stamped in your passport — open it on the Passports page.</p>}
+    </>}
+    {manage&&<VisaQueue visas={visas} onAction={onAction} notify={notify} setBusy={setBusy}/>}
+  </div>;
+}
+function VisaApply({user,visas,onAction,notify,setBusy}){
+  const [nationality,setNationality]=useState("");
+  const [other,setOther]=useState("");
+  const [type,setType]=useState("tourist");
+  const [purpose,setPurpose]=useState("");
+  const [duration,setDuration]=useState("");
+  const [saving,setSaving]=useState(false);
+  const [done,setDone]=useState(null);
+  const effNat=nationality==="__other"?other.trim():nationality;
+  if(done)return <Notif title="Application submitted" kind="ok">
+    <p>Reference <b>{done}</b>. It appears under "Your applications" below and updates there automatically.</p>
+    <Btn small kind="sec" onClick={()=>{setDone(null);setPurpose("");setDuration("");}}>Submit another</Btn>
+  </Notif>;
+  return <div style={{border:"1px solid var(--grey3)",padding:"16px 18px",marginBottom:22}}>
+    <h2 style={{marginTop:0}}>Apply for a visa</h2>
+    <p className="hint">Applying as <b>{user.displayName||user.username}</b> (@{user.username}).</p>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"0 16px"}}>
+      <Field label="Nationality" hint="The passport you would travel on.">
+        <select value={nationality} onChange={e=>setNationality(e.target.value)}>
+          <option value="">— Select —</option>
+          <option value="Empire of Lech">Empire of Lech</option>
+          <option value="Republic of Vindex Nation">Republic of Vindex Nation</option>
+          <option value="__other">Other / not listed</option>
+        </select>
+        {nationality==="__other"&&<input style={{marginTop:6}} value={other} onChange={e=>setOther(e.target.value)} placeholder="Country of citizenship"/>}
+      </Field>
+      <Field label="Visa type"><select value={type} onChange={e=>setType(e.target.value)}>{WX_VISA_TYPES.map(t=><option key={t.v} value={t.v}>{t.l}</option>)}</select></Field>
+    </div>
+    <Field label="Purpose of visit"><textarea rows={3} value={purpose} onChange={e=>setPurpose(e.target.value)}/></Field>
+    <Field label="Intended duration" hint="For example: 30 days, permanent."><input value={duration} onChange={e=>setDuration(e.target.value)}/></Field>
+    <Btn disabled={!effNat||!purpose.trim()||saving} onClick={async()=>{
+      setSaving(true);setBusy("Submitting");
+      const ref="WDN-"+new Date().getFullYear()+"-"+Math.random().toString().slice(2,8);
+      const res=await onAction("visaSubmit",{name:user.displayName||user.username,username:user.username,
+        nationality:effNat,type,purpose:purpose.trim(),duration:duration.trim(),ref,status:"pending",submitted:Date.now()});
+      setBusy(null);setSaving(false);
+      if(res.ok)setDone(ref);else notify(res.error,false);
+    }}>{saving?"Submitting…":"Submit application"}</Btn>
+  </div>;
+}
+function VisaQueue({visas,onAction,notify,setBusy}){
+  const list=Object.values(visas||{}).sort((a,b)=>(b.submitted||0)-(a.submitted||0));
+  const pending=list.filter(v=>v.status==="pending").length;
+  return <div style={{marginTop:26}}>
+    <h2>Applications before the Ministry {pending>0?`(${pending} pending)`:""}</h2>
+    {list.length===0?<p className="hint">No applications received.</p>
+      :list.map(v=><VisaQueueRow key={v.id} visa={v} onAction={onAction} notify={notify} setBusy={setBusy}/>)}
+  </div>;
+}
+function VisaQueueRow({visa:v,onAction,notify,setBusy}){
+  const [open,setOpen]=useState(false);
+  const [note,setNote]=useState("");
+  const [validUntil,setValidUntil]=useState("");
+  const [permanent,setPermanent]=useState(false);
+  const [busy,setBusy2]=useState(false);
+  const st=wxVisaStatus(v.status);
+  const act=async(patch,msg)=>{setBusy2(true);setBusy("Updating");
+    const res=await onAction("visaUpdate",{id:v.id,...patch});
+    setBusy(null);setBusy2(false);
+    notify(res.ok?msg:res.error,res.ok);if(res.ok)setOpen(false);};
+  return <div style={{border:"1px solid var(--grey3)",borderLeft:"6px solid var(--grey3)",padding:"10px 14px",marginBottom:6}}>
+    <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",cursor:"pointer"}} onClick={()=>setOpen(o=>!o)}>
+      <Tag t={st.tag}>{st.l}</Tag>
+      <span className="nm" style={{flex:1}}>{v.name} <span className="hint" style={{display:"inline"}}>@{v.username}</span></span>
+      <span className="hint" style={{marginBottom:0}}>{v.nationality} · {wxVisaType(v.type).l}</span>
+      <span className="mono" style={{fontSize:12}}>{v.ref}</span>
+    </div>
+    {open&&<div style={{borderTop:"1px solid var(--grey3)",marginTop:10,paddingTop:12}}>
+      {v.purpose&&<p style={{fontSize:15}}><b>Purpose:</b> {v.purpose}</p>}
+      {v.duration&&<p style={{fontSize:15}}><b>Duration:</b> {v.duration}</p>}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:"0 16px"}}>
+        <Field label="Valid until" hint="Leave blank with the box ticked for no expiry."><input type="date" value={validUntil} onChange={e=>setValidUntil(e.target.value)}/></Field>
+        <Field label="Note to applicant"><input value={note} onChange={e=>setNote(e.target.value)}/></Field>
+      </div>
+      <label style={{display:"flex",gap:8,alignItems:"center",fontSize:15,marginBottom:12}}>
+        <input type="checkbox" checked={permanent} onChange={e=>setPermanent(e.target.checked)}/> No expiry (permanent)
+      </label>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <Btn small disabled={busy||(!permanent&&!validUntil)} onClick={()=>act({status:"approved",reviewNote:note.trim(),validUntil:permanent?"permanent":validUntil,permanent,issuedAt:v.issuedAt||Date.now()},v.ref+" approved and stamped.")}>Approve</Btn>
+        <ArmBtn small label="Refuse" confirmLabel="Refuse" onConfirm={()=>act({status:"refused",reviewNote:note.trim()},v.ref+" refused.")}/>
+      </div>
     </div>}
   </div>;
 }
@@ -679,6 +880,18 @@ function App(){
   const passports=useMemo(()=>raw["wx_state_passports"]||{},[raw]);
   const gov=useMemo(()=>raw["wx_gov"]||{},[raw]);
   const relations=useMemo(()=>raw["wx_state_relations"]||{},[raw]);
+  const visas=useMemo(()=>raw["wx_state_visas"]||{},[raw]);
+  // The viewer's own travel documents across all three nations — the server
+  // filters each register to what this account may see. Used to bar pointless
+  // visa applications (a visa-free passport is itself the entry document).
+  const foreignPassports=useMemo(()=>({wilden:passports,lech:raw["mfa_passports"]||{},vindex:raw["vx_state_passports"]||{}}),[passports,raw]);
+  // Every approved visa from every ministry, labelled by issuing nation, so a
+  // passport shows the stamps of all three borders.
+  const stampVisas=useMemo(()=>[
+    ...Object.values(visas).map(v=>({...v,_nation:"WILDEN",_col:"#12564f"})),
+    ...Object.values(raw["mfa_visas"]||{}).map(v=>({...v,_nation:"EMPIRE OF LECH",_col:"#28506a"})),
+    ...Object.values(raw["vx_state_visas"]||{}).map(v=>({...v,_nation:"REPUBLIC OF VINDEX NATION",_col:"#5a2a5a"})),
+  ],[visas,raw]);
   const me=useMemo(()=>{if(!user)return null;const u=String(user.username||"").toLowerCase();
     return Object.values(citizens).find(c=>String(c.username||"").toLowerCase()===u)||null;},[citizens,user]);
 
@@ -699,10 +912,12 @@ function App(){
     if(type==="issue"){const id="wpp_"+uid();const cur={...passports,[id]:{id,...p,issuedAt:Date.now()}};return await put("wx_state_passports",cur);}
     if(type==="ppUpdate"){const cur={...passports};if(cur[p.id])cur[p.id]={...cur[p.id],status:p.status};return await put("wx_state_passports",cur);}
     if(type==="relation"){const {key,...rec}=p;const cur={...relations,[key]:{...rec,updatedAt:Date.now()}};return await put("wx_state_relations",cur);}
+    if(type==="visaSubmit"){const id="wvis_"+uid();const cur={...visas,[id]:{...p,id}};return await put("wx_state_visas",cur);}
+    if(type==="visaUpdate"){const cur={...visas};if(cur[p.id])cur[p.id]={...cur[p.id],...p};return await put("wx_state_visas",cur);}
     return {ok:false,error:"Unknown action."};
-  },[citizens,passports,relations]);
+  },[citizens,passports,relations,visas]);
 
-  const TABS=[["home","Home"],["citizenship","Citizenship"],["passports","Passports"],["relations","Foreign Relations"]];
+  const TABS=[["home","Home"],["citizenship","Citizenship"],["passports","Passports"],["visas","Visas"],["relations","Foreign Relations"]];
   const manages=canManage(user,gov);
   const office=user?(wxRole(user)?wxRole(user):(isOwner(user)?"System administrator":"signed in")):"";
 
@@ -736,7 +951,8 @@ function App(){
       {!loaded&&<p className="lede">Loading…</p>}
       {loaded&&tab==="home"&&<HomeTab citizens={citizens} passports={passports} me={me} onGo={setTab}/>}
       {loaded&&tab==="citizenship"&&<CitizenshipTab citizens={citizens} accounts={accounts} user={user} gov={gov} onAction={onAction} notify={notify} setBusy={setBusy}/>}
-      {loaded&&tab==="passports"&&<PassportsTab passports={passports} citizens={citizens} accounts={accounts} user={user} gov={gov} onAction={onAction} notify={notify} setBusy={setBusy}/>}
+      {loaded&&tab==="passports"&&<PassportsTab passports={passports} citizens={citizens} accounts={accounts} user={user} gov={gov} stampVisas={stampVisas} onAction={onAction} notify={notify} setBusy={setBusy}/>}
+      {loaded&&tab==="visas"&&<VisasTab relations={relations} visas={visas} user={user} gov={gov} onAction={onAction} notify={notify} setBusy={setBusy} foreignPassports={foreignPassports}/>}
       {loaded&&tab==="relations"&&<RelationsTab relations={relations} user={user} gov={gov} onAction={onAction} notify={notify} setBusy={setBusy}/>}
     </div></main>
 
