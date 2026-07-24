@@ -1,0 +1,1289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>War Room — Empire of Lech ⚔ Republic of Vindex Nation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Playfair+Display:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --bg:#0b0d10; --bg2:#101419; --bg3:#151a21; --line:#242c36; --line2:#33404e;
+  --ink:#e3e9ef; --ink-dim:#8b98a5; --ink-faint:#5c6873;
+  --lech:#b13c3c; --lech-deep:#6b2020; --lech-bright:#e08b8b;
+  --vin:#3fae74; --vin-deep:#1d5c3c; --vin-bright:#6fd0a4;
+  --wil:#2e8f8f; --wil-deep:#175454; --wil-bright:#6fc4c4;
+  --contest:#d99a3d; --contest-deep:#8a5a1d;
+  --danger:#c8574f;
+}
+html,body{height:100%;}
+body{background:var(--bg);color:var(--ink);font-family:'Crimson Text',Georgia,serif;overflow:hidden;}
+::-webkit-scrollbar{width:6px;height:6px;}
+::-webkit-scrollbar-track{background:var(--bg);}
+::-webkit-scrollbar-thumb{background:var(--line2);border-radius:3px;}
+button,input,select,textarea{font-family:'Crimson Text',Georgia,serif;color:var(--ink);}
+.mono{font-family:'Share Tech Mono',monospace;}
+
+#app{display:flex;flex-direction:column;height:100vh;}
+
+/* ── Header ─────────────────────────────────────────── */
+header{display:flex;align-items:center;gap:1rem;padding:.55rem 1rem;border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--bg2),var(--bg));flex-wrap:wrap;}
+.hdr-crests{display:flex;align-items:center;gap:.5rem;font-family:'Cinzel',serif;font-size:.72rem;letter-spacing:.14em;}
+.hdr-crests .l{color:var(--lech-bright);}
+.hdr-crests .v{color:var(--vin-bright);}
+.hdr-crests .x{color:var(--ink-faint);font-size:.95rem;}
+#warTitleWrap{flex:1;min-width:220px;text-align:center;}
+#warTitle{font-family:'Playfair Display',Georgia,serif;font-weight:900;font-size:1.35rem;letter-spacing:.04em;outline:none;border-bottom:1px dashed transparent;display:inline-block;padding:0 .35rem;min-width:120px;}
+#warTitle[contenteditable="true"]:hover,#warTitle[contenteditable="true"]:focus{border-bottom-color:var(--line2);}
+#warSub{font-size:.8rem;color:var(--ink-dim);font-style:italic;outline:none;display:inline-block;padding:0 .35rem;}
+#warSub[contenteditable="true"]:hover,#warSub[contenteditable="true"]:focus{border-bottom:1px dashed var(--line2);}
+.hdr-actions{display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;}
+.btn{background:var(--bg3);border:1px solid var(--line2);border-radius:4px;padding:.32rem .7rem;font-size:.85rem;cursor:pointer;transition:all .15s;white-space:nowrap;}
+.btn:hover{border-color:var(--ink-faint);background:#1b222b;}
+.btn.primary{border-color:var(--vin-deep);background:#122419;color:var(--vin-bright);}
+.btn.primary:hover{border-color:var(--vin);}
+.btn.danger{color:#e79d97;border-color:#5c2c28;}
+.btn.danger:hover{border-color:var(--danger);}
+.btn.active{background:#1e2833;border-color:var(--ink-dim);color:#fff;box-shadow:inset 0 0 0 1px var(--ink-faint);}
+.btn:disabled{opacity:.4;cursor:default;}
+#userBox{display:flex;align-items:center;gap:.45rem;font-size:.82rem;}
+#userBox img{width:22px;height:22px;border-radius:3px;image-rendering:pixelated;}
+#userOffice{color:var(--ink-faint);font-size:.72rem;font-family:'Share Tech Mono',monospace;letter-spacing:.05em;}
+.spectator{font-family:'Share Tech Mono',monospace;font-size:.68rem;letter-spacing:.12em;color:var(--contest);border:1px solid var(--contest-deep);border-radius:3px;padding:.15rem .5rem;}
+
+/* ── Tracker ────────────────────────────────────────── */
+#tracker{padding:.7rem 1.2rem .55rem;border-bottom:1px solid var(--line);background:var(--bg2);}
+.trk-row{display:flex;align-items:center;gap:1rem;}
+.trk-side{font-family:'Cinzel',serif;font-size:.68rem;letter-spacing:.16em;width:170px;line-height:1.5;}
+.trk-side.vin{text-align:right;color:var(--vin-bright);}
+.trk-side.lech{color:var(--lech-bright);}
+.trk-side small{display:block;color:var(--ink-faint);letter-spacing:.1em;font-size:.6rem;}
+.trk-bar-wrap{flex:1;position:relative;height:46px;}
+.trk-bar{position:absolute;inset:12px 0;background:linear-gradient(90deg,rgba(63,174,116,.22),rgba(20,24,30,.6) 38%,rgba(20,24,30,.6) 62%,rgba(177,60,60,.22));border:1px solid var(--line2);border-radius:4px;overflow:hidden;}
+.trk-fill{position:absolute;top:0;bottom:0;transition:left .5s cubic-bezier(.3,.7,.3,1),right .5s cubic-bezier(.3,.7,.3,1);}
+.trk-fill.lech{background:linear-gradient(90deg,rgba(177,60,60,.15),rgba(177,60,60,.55));}
+.trk-fill.vin{background:linear-gradient(90deg,rgba(63,174,116,.55),rgba(63,174,116,.15));}
+.trk-center{position:absolute;top:6px;bottom:6px;left:50%;width:0;border-left:1px dashed var(--ink-faint);}
+.trk-tick{position:absolute;bottom:12px;width:1px;height:5px;background:var(--line2);}
+.trk-tick.mid{height:8px;background:var(--ink-faint);}
+.trk-needle{position:absolute;top:2px;bottom:2px;width:0;transition:left .5s cubic-bezier(.3,.7,.3,1);z-index:2;}
+.trk-needle::before{content:'';position:absolute;top:8px;bottom:8px;left:-1.5px;width:3px;background:#f2f5f8;border-radius:2px;box-shadow:0 0 8px rgba(255,255,255,.6);}
+.trk-score{position:absolute;top:-9px;left:50%;transform:translateX(-50%);font-family:'Share Tech Mono',monospace;font-size:.72rem;background:var(--bg);border:1px solid var(--line2);border-radius:3px;padding:0 .35rem;white-space:nowrap;}
+.trk-status{display:flex;justify-content:center;align-items:baseline;gap:1.2rem;margin-top:.35rem;font-size:.85rem;color:var(--ink-dim);}
+#trkStatusMain{font-family:'Cinzel',serif;font-size:.85rem;letter-spacing:.12em;color:var(--ink);}
+#trkStatusMain.lech{color:var(--lech-bright);}
+#trkStatusMain.vin{color:var(--vin-bright);}
+#trkStatusMain.victory{font-size:1rem;text-shadow:0 0 14px currentColor;}
+.trk-thr{display:flex;align-items:center;gap:.3rem;font-size:.75rem;color:var(--ink-faint);}
+.trk-thr input{width:52px;background:var(--bg3);border:1px solid var(--line2);border-radius:3px;padding:.1rem .3rem;font-family:'Share Tech Mono',monospace;font-size:.75rem;text-align:center;}
+
+/* ── Main layout ────────────────────────────────────── */
+main{flex:1;display:flex;min-height:0;}
+#sidebar{width:330px;min-width:330px;border-right:1px solid var(--line);background:var(--bg2);display:flex;flex-direction:column;min-height:0;transition:margin-left .25s;}
+#sidebar.hidden{margin-left:-330px;}
+.tabs{display:flex;border-bottom:1px solid var(--line);}
+.tab{flex:1;padding:.5rem;text-align:center;font-family:'Cinzel',serif;font-size:.72rem;letter-spacing:.12em;cursor:pointer;color:var(--ink-dim);border-bottom:2px solid transparent;user-select:none;}
+.tab.active{color:var(--ink);border-bottom-color:var(--contest);background:var(--bg3);}
+.panel{flex:1;overflow-y:auto;padding:.7rem;display:none;min-height:0;}
+.panel.active{display:block;}
+
+/* territory cards */
+.tcard{border:1px solid var(--line);border-radius:5px;background:var(--bg3);margin-bottom:.5rem;padding:.45rem .55rem;cursor:pointer;transition:border-color .15s;}
+.tcard:hover{border-color:var(--line2);}
+.tcard.sel{border-color:var(--contest);box-shadow:0 0 0 1px var(--contest-deep);}
+.tcard-top{display:flex;align-items:center;gap:.45rem;}
+.chip{width:13px;height:13px;border-radius:3px;border:1px solid rgba(255,255,255,.25);flex:none;}
+.tcard-name{flex:1;font-weight:600;font-size:.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.tcard-world{font-size:.68rem;color:var(--ink-faint);font-family:'Share Tech Mono',monospace;letter-spacing:.05em;}
+.tcard-status{font-size:.72rem;margin-top:.15rem;color:var(--ink-dim);font-style:italic;}
+.tcard-edit{margin-top:.5rem;border-top:1px solid var(--line);padding-top:.5rem;display:grid;gap:.4rem;cursor:default;}
+.frow{display:grid;grid-template-columns:82px 1fr;align-items:center;gap:.4rem;font-size:.78rem;color:var(--ink-dim);}
+.frow input,.frow select,.frow textarea{background:var(--bg);border:1px solid var(--line2);border-radius:3px;padding:.25rem .4rem;font-size:.85rem;width:100%;}
+.frow input:disabled,.frow select:disabled,.frow textarea:disabled{opacity:.6;}
+.frow textarea{resize:vertical;min-height:40px;}
+.tcard-btns{display:flex;gap:.35rem;justify-content:flex-end;}
+.tcard-btns .btn{font-size:.75rem;padding:.2rem .5rem;}
+.empty-note{color:var(--ink-faint);font-style:italic;font-size:.85rem;text-align:center;padding:1.2rem .5rem;line-height:1.6;}
+
+/* battle form + log */
+#battleForm{border:1px solid var(--line);border-radius:5px;background:var(--bg3);padding:.55rem;display:grid;gap:.4rem;margin-bottom:.7rem;}
+#battleForm h3{font-family:'Cinzel',serif;font-size:.7rem;letter-spacing:.14em;color:var(--ink-dim);font-weight:600;}
+.bf-grid{display:grid;grid-template-columns:1fr 1fr;gap:.4rem;}
+#battleForm input,#battleForm select,#battleForm textarea{background:var(--bg);border:1px solid var(--line2);border-radius:3px;padding:.28rem .4rem;font-size:.85rem;width:100%;}
+#battleForm textarea{resize:vertical;min-height:36px;}
+.bcard{border:1px solid var(--line);border-left-width:3px;border-radius:4px;background:var(--bg3);margin-bottom:.45rem;padding:.4rem .55rem;}
+.bcard.lech{border-left-color:var(--lech);}
+.bcard.vindex{border-left-color:var(--vin);}
+.bcard.stalemate{border-left-color:var(--ink-faint);}
+.bcard-top{display:flex;align-items:baseline;gap:.5rem;}
+.bcard-name{font-weight:600;flex:1;}
+.bcard-pts{font-family:'Share Tech Mono',monospace;font-size:.78rem;}
+.bcard-pts.lech{color:var(--lech-bright);}
+.bcard-pts.vindex{color:var(--vin-bright);}
+.bcard-pts.stalemate{color:var(--ink-faint);}
+.bcard-meta{font-size:.74rem;color:var(--ink-dim);font-family:'Share Tech Mono',monospace;margin-top:.1rem;}
+.bcard-notes{font-size:.82rem;color:var(--ink-dim);font-style:italic;margin-top:.2rem;}
+.bcard-by{font-size:.68rem;color:var(--ink-faint);font-family:'Share Tech Mono',monospace;margin-top:.2rem;}
+.bcard-btns{display:flex;gap:.3rem;justify-content:flex-end;margin-top:.25rem;}
+.bcard-btns .btn{font-size:.7rem;padding:.12rem .45rem;}
+
+/* ── Map area ───────────────────────────────────────── */
+#mapArea{flex:1;position:relative;display:flex;flex-direction:column;min-width:0;background:#07090b;}
+#toolbar{display:flex;align-items:center;gap:.4rem;padding:.4rem .6rem;border-bottom:1px solid var(--line);background:var(--bg2);flex-wrap:wrap;}
+#toolbar .sep{width:1px;height:20px;background:var(--line);margin:0 .2rem;}
+#toolbar label{font-size:.75rem;color:var(--ink-dim);display:flex;align-items:center;gap:.35rem;}
+#opacity{width:80px;accent-color:var(--contest);}
+.th-tab{background:var(--bg3);border:1px solid var(--line2);border-radius:4px;padding:.32rem .7rem;font-size:.8rem;cursor:pointer;font-family:'Cinzel',serif;letter-spacing:.08em;color:var(--ink-dim);}
+.th-tab.active{color:#fff;border-color:var(--contest-deep);background:#221b10;box-shadow:inset 0 0 0 1px var(--contest-deep);}
+#viewport{flex:1;position:relative;overflow:hidden;cursor:grab;touch-action:none;}
+#viewport.drawing{cursor:crosshair;}
+#viewport.panning{cursor:grabbing;}
+#world{position:absolute;top:0;left:0;transform-origin:0 0;}
+#mapImg{display:block;user-select:none;pointer-events:none;image-rendering:auto;}
+#overlay{position:absolute;top:0;left:0;overflow:visible;}
+#overlay .terr-fill{cursor:pointer;}
+#viewport.drawing .terr-fill{pointer-events:none;}
+.handle{cursor:move;}
+#mapNote{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:.8rem;color:var(--ink-faint);text-align:center;padding:2rem;}
+#mapNote .big{font-family:'Cinzel',serif;font-size:1.1rem;letter-spacing:.14em;color:var(--ink-dim);}
+#legend{position:absolute;right:10px;top:10px;background:rgba(11,13,16,.88);border:1px solid var(--line2);border-radius:5px;padding:.45rem .6rem;font-size:.74rem;z-index:5;backdrop-filter:blur(3px);}
+#legend .lrow{display:flex;align-items:center;gap:.45rem;margin:.18rem 0;color:var(--ink-dim);}
+#legend .sw{width:16px;height:11px;border-radius:2px;border:1px solid rgba(255,255,255,.2);flex:none;}
+#drawTip{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);background:rgba(11,13,16,.92);border:1px solid var(--contest-deep);color:var(--contest);border-radius:4px;padding:.3rem .8rem;font-size:.8rem;z-index:5;display:none;white-space:nowrap;}
+footer{padding:.28rem .8rem;border-top:1px solid var(--line);background:var(--bg2);font-size:.74rem;color:var(--ink-faint);display:flex;gap:1rem;justify-content:space-between;}
+#toast{position:fixed;bottom:44px;left:50%;transform:translateX(-50%);background:#1b222b;border:1px solid var(--line2);border-radius:5px;padding:.45rem .9rem;font-size:.85rem;z-index:99;opacity:0;transition:opacity .25s;pointer-events:none;box-shadow:0 4px 18px rgba(0,0,0,.5);max-width:80vw;}
+#toast.show{opacity:1;}
+
+/* auth modal */
+#authOverlay{position:fixed;inset:0;z-index:9000;background:rgba(5,8,12,.92);display:none;align-items:center;justify-content:center;padding:1rem;}
+#authOverlay.show{display:flex;}
+#authBox{background:var(--bg2);border:1px solid var(--line2);border-radius:6px;padding:1.2rem 1.4rem;width:100%;max-width:340px;display:grid;gap:.6rem;}
+#authBox h2{font-family:'Cinzel',serif;font-size:.85rem;letter-spacing:.14em;color:var(--ink-dim);font-weight:600;text-align:center;}
+#authBox input{background:var(--bg);border:1px solid var(--line2);border-radius:3px;padding:.4rem .55rem;font-size:.95rem;width:100%;}
+#authErr{color:#e79d97;font-size:.8rem;min-height:1.1em;text-align:center;}
+#authBox .note{font-size:.75rem;color:var(--ink-faint);text-align:center;font-style:italic;}
+
+@media(max-width:900px){ .trk-side{width:auto;font-size:.58rem;} #sidebar{position:absolute;z-index:20;height:100%;left:0;} }
+@media(max-height:620px){
+  .hdr-crests{display:none;}
+  header{padding:.25rem .7rem;}
+  #warTitle{font-size:1rem;}
+  #warSub{display:none;}
+  #tracker{padding:.3rem .8rem .25rem;}
+  .trk-side{font-size:.55rem;width:110px;}
+  .trk-side small{display:none;}
+  .trk-bar-wrap{height:34px;}
+  .trk-bar{inset:8px 0;}
+  .trk-status{margin-top:.1rem;font-size:.72rem;}
+  footer{display:none;}
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div class="hdr-crests"><span class="l">EMPIRE OF LECH</span><span class="x">⚔</span><span class="v">REPUBLIC OF VINDEX</span></div>
+    <div id="warTitleWrap">
+      <div id="warTitle" spellcheck="false"></div><br/>
+      <div id="warSub" spellcheck="false"></div>
+    </div>
+    <div class="hdr-actions">
+      <span id="userBox"></span>
+      <button class="btn" id="btnExport" title="Download the war state as JSON">Export</button>
+      <button class="btn danger" id="btnReset" style="display:none" title="Erase the shared war record (administrators only)">Reset War</button>
+    </div>
+  </header>
+
+  <section id="tracker">
+    <div class="trk-row">
+      <div class="trk-side vin">REPUBLIC OF<br/>VINDEX NATION<small id="vinWins"></small></div>
+      <div class="trk-bar-wrap">
+        <div class="trk-bar" id="trkBar">
+          <div class="trk-fill" id="trkFill"></div>
+          <div class="trk-center"></div>
+        </div>
+        <div class="trk-needle" id="trkNeedle"><div class="trk-score mono" id="trkScore">0</div></div>
+      </div>
+      <div class="trk-side lech">EMPIRE<br/>OF LECH<small id="lechWins"></small></div>
+    </div>
+    <div class="trk-status">
+      <span id="trkStatusMain">THE GUNS ARE SILENT</span>
+      <span id="trkMomentum"></span>
+      <span class="trk-thr">victory at ±<input type="number" id="threshold" min="3" max="50" step="1" disabled/></span>
+    </div>
+  </section>
+
+  <main>
+    <aside id="sidebar">
+      <div class="tabs">
+        <div class="tab active" data-tab="territories">TERRITORIES</div>
+        <div class="tab" data-tab="battles">BATTLE LOG</div>
+      </div>
+      <div class="panel active" id="panel-territories"></div>
+      <div class="panel" id="panel-battles">
+        <form id="battleForm" style="display:none">
+          <h3 id="bfTitle">RECORD A BATTLE</h3>
+          <input type="text" id="bfName" placeholder="Battle name (e.g. Battle of the Viridian Gap)" required/>
+          <div class="bf-grid">
+            <input type="date" id="bfDate"/>
+            <select id="bfWorld"></select>
+          </div>
+          <input type="text" id="bfLocation" placeholder="Location / front"/>
+          <div class="bf-grid">
+            <select id="bfVictor">
+              <option value="lech">Lech victory</option>
+              <option value="vindex">Vindex victory</option>
+              <option value="stalemate">Inconclusive</option>
+            </select>
+            <select id="bfScale">
+              <option value="1">Skirmish (±1)</option>
+              <option value="2" selected>Major battle (±2)</option>
+              <option value="3">Decisive (±3)</option>
+            </select>
+          </div>
+          <textarea id="bfNotes" placeholder="Notes / outcome"></textarea>
+          <div class="tcard-btns">
+            <button type="button" class="btn" id="bfCancel" style="display:none">Cancel</button>
+            <button type="submit" class="btn primary" id="bfSubmit">Add Battle</button>
+          </div>
+        </form>
+        <div id="battleNote" class="empty-note" style="display:none">Battles are recorded by network administrators once each engagement is adjudicated.</div>
+        <div id="battleList"></div>
+      </div>
+    </aside>
+
+    <div id="mapArea">
+      <div id="toolbar">
+        <button class="btn" id="btnSidebar" title="Toggle sidebar">☰</button>
+        <div class="sep"></div>
+        <span id="theatreTabs"></span>
+        <div class="sep"></div>
+        <button class="btn active" id="modeSelect" title="Select territories, drag to pan">Select / Pan</button>
+        <button class="btn" id="modeDraw" style="display:none" title="Draw a new border polygon">✎ Draw Border</button>
+        <button class="btn primary" id="btnFinish" style="display:none">Finish ✓</button>
+        <button class="btn" id="btnCancelDraw" style="display:none">Cancel</button>
+        <div class="sep"></div>
+        <button class="btn" id="btnZoomOut">−</button>
+        <button class="btn" id="btnZoomIn">+</button>
+        <button class="btn" id="btnFit">Fit</button>
+        <div class="sep"></div>
+        <label>fill <input type="range" id="opacity" min="0" max="100" value="55"/></label>
+        <button class="btn" id="btnMapUrl" style="display:none" title="Change this theatre's map image URL">Map URL…</button>
+      </div>
+      <div id="viewport">
+        <div id="world">
+          <img id="mapImg" alt=""/>
+          <svg id="overlay" xmlns="http://www.w3.org/2000/svg">
+            <defs id="svgDefs"></defs>
+            <g id="gTerr"></g>
+            <g id="gDraw"></g>
+            <g id="gHandles"></g>
+          </svg>
+        </div>
+        <div id="mapNote"><div class="big" id="mapNoteBig"></div><div id="mapNoteSmall"></div></div>
+        <div id="legend"></div>
+        <div id="drawTip"></div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <span id="hint">Connecting to the war record…</span>
+    <span class="mono" id="saveState"></span>
+  </footer>
+</div>
+
+<div id="authOverlay">
+  <div id="authBox">
+    <h2>IMPERIAL NETWORK — SIGN IN</h2>
+    <input type="text" id="authUser" placeholder="Username" autocomplete="username"/>
+    <input type="password" id="authPass" placeholder="Password" autocomplete="current-password"/>
+    <div id="authErr"></div>
+    <div class="tcard-btns">
+      <button type="button" class="btn" id="authCancel">Cancel</button>
+      <button type="button" class="btn primary" id="authGo">Sign In</button>
+    </div>
+    <div class="note">One account for the whole network — register on the Vintranet.</div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+/* ══════════════════════════════════════════════════════
+   War Room — Lech ⚔ Vindex
+   Backed by the shared network backend (MongoDB on Render).
+   Territories and battles are per-record collections
+   (lvwar_territories / lvwar_battles); war configuration is
+   the lvwar_meta singleton. Reads are public — anyone may
+   watch. Writes are authorised server-side: the map needs
+   War Office or Vindex Department of Defense authority;
+   battles and configuration are network administrators'.
+   ══════════════════════════════════════════════════════ */
+
+const API = "https://lech-backend.onrender.com";
+const SESSION_KEY = "lech_session", SESSION_ACC_KEY = "lech_session_acc";
+const uid = () => Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+const STATUS = {
+  lech:        { label: 'Lech territory',        short: 'LECH',           fill: 'rgba(177,60,60,.85)',   stroke: '#e08b8b' },
+  vindex:      { label: 'Vindex territory',      short: 'VINDEX',         fill: 'rgba(63,174,116,.85)',  stroke: '#6fd0a4' },
+  wilden:      { label: 'Wilden territory',      short: 'WILDEN',         fill: 'rgba(46,143,143,.85)',  stroke: '#6fc4c4' },
+  'lech-occ':  { label: 'Occupied by Lech',      short: 'OCC. BY LECH',   fill: 'url(#pat-lech-occ)',    stroke: '#e08b8b', dashed: true },
+  'vindex-occ':{ label: 'Occupied by Vindex',    short: 'OCC. BY VINDEX', fill: 'url(#pat-vindex-occ)',  stroke: '#6fd0a4', dashed: true },
+  'wilden-occ':{ label: 'Occupied by Wilden',    short: 'OCC. BY WILDEN', fill: 'url(#pat-wilden-occ)',  stroke: '#6fc4c4', dashed: true },
+  contested:   { label: 'Contested / frontline', short: 'CONTESTED',      fill: 'url(#pat-contested)',   stroke: '#ffb35c', dashed: true },
+};
+
+const DEFAULT_META = {
+  warName: 'The Lech–Vindex War',
+  warSub: 'Theatres of San Amaro & Viridis',
+  threshold: 10,
+  theatres: [
+    { id: 'sanamaro', name: 'San Amaro', map: '' },
+    { id: 'viridis',  name: 'Viridis',   map: '' },
+  ],
+};
+
+let meta = JSON.parse(JSON.stringify(DEFAULT_META));
+let territories = [];   // records from lvwar_territories
+let battles = [];       // records from lvwar_battles, sorted by .at
+let account = null;     // signed-in account (null = spectator)
+let vxGov = {};         // vx_gov singleton (cabinet posts) — SecDef check
+let accountsDir = {};   // mi_accounts, for battle attribution
+let canTerritory = false, canBattles = false, canMeta = false;
+
+let selectedId = null;
+let mode = 'select';
+let drawPts = [];
+let editingBattleId = null;
+let theatreIdx = 0;
+let views = {};           // theatre id -> {x,y,s}
+let view = { x: 0, y: 0, s: 1 };
+let mapW = 0, mapH = 0;
+let pendingSaves = 0;
+let loadedOnce = false;
+
+/* ── element refs ── */
+const $ = id => document.getElementById(id);
+const viewport = $('viewport'), world = $('world'), mapImg = $('mapImg'), overlay = $('overlay');
+const gTerr = $('gTerr'), gDraw = $('gDraw'), gHandles = $('gHandles'), svgDefs = $('svgDefs');
+
+/* ══════════ BACKEND ══════════ */
+let token = localStorage.getItem(SESSION_KEY) || "";
+try { account = JSON.parse(localStorage.getItem(SESSION_ACC_KEY) || "null"); } catch { account = null; }
+
+function saveSession(t, acc) {
+  token = t; account = acc;
+  localStorage.setItem(SESSION_KEY, t);
+  localStorage.setItem(SESSION_ACC_KEY, JSON.stringify(acc));
+}
+function clearSession() {
+  token = ""; account = null;
+  localStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(SESSION_ACC_KEY);
+}
+async function jpost(path, body) {
+  try {
+    const r = await fetch(API + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return await r.json();
+  } catch (e) { return { ok: false, error: 'Network error — backend unreachable.' }; }
+}
+const slogin  = (username, password) => jpost('/api/login', { username, password });
+const slogout = () => jpost('/api/logout', { token });
+const sset    = (key, value) => jpost('/api/set', { token, key, value });
+const sdel    = (key) => jpost('/api/unset', { token, key });
+const saveRecord   = (collection, record) => jpost('/api/write', { token, collection, record });
+const deleteRecord = (collection, id) => jpost('/api/delete', { token, collection, id });
+async function sme() {
+  try {
+    const r = await fetch(API + '/api/me?token=' + encodeURIComponent(token));
+    return await r.json();
+  } catch (e) { return { ok: false, error: 'network' }; }
+}
+async function sgetAll() {
+  try {
+    const r = await fetch(API + '/api/data' + (token ? '?token=' + encodeURIComponent(token) : ''));
+    return await r.json();
+  } catch (e) { return { ok: false, error: 'Network error — backend unreachable.' }; }
+}
+
+/* ── permissions (cosmetic; the server re-checks every write) ── */
+function isSysAdminA(a) { return !!a && (a.role === 'emperor' || a.sysAdmin === true); }
+function hasWarA(a) { return !!a && (a.role === 'emperor' || a.mowRole === 'commander' || a.mowRole === 'minister'); }
+function isVxSecDef(a) {
+  if (!a || String(a.vxRole || '') !== 'cabinet') return false;
+  const post = ((vxGov && vxGov.cabinet) || {})[String(a.username || '').toLowerCase()];
+  return /^secretary of defen[cs]e$/i.test(String(post || '').trim());
+}
+function refreshPerms() {
+  canBattles = isSysAdminA(account);
+  canMeta = isSysAdminA(account);
+  canTerritory = canBattles || hasWarA(account) || isVxSecDef(account);
+
+  $('modeDraw').style.display = canTerritory ? '' : 'none';
+  $('battleForm').style.display = canBattles ? '' : 'none';
+  $('battleNote').style.display = canBattles ? 'none' : '';
+  $('btnReset').style.display = canMeta ? '' : 'none';
+  $('btnMapUrl').style.display = canMeta ? '' : 'none';
+  $('threshold').disabled = !canMeta;
+  $('warTitle').contentEditable = canMeta ? 'true' : 'false';
+  $('warSub').contentEditable = canMeta ? 'true' : 'false';
+  renderUserBox();
+  updateHint();
+}
+function officeLabel() {
+  if (!account) return '';
+  if (account.role === 'emperor') return 'NETWORK OWNER';
+  if (account.sysAdmin === true) return 'NETWORK ADMINISTRATOR';
+  if (hasWarA(account)) return 'WAR OFFICE';
+  if (isVxSecDef(account)) return 'SECRETARY OF DEFENSE';
+  return 'SPECTATOR';
+}
+function renderUserBox() {
+  const box = $('userBox');
+  if (!account) {
+    box.innerHTML = `<span class="spectator">SPECTATOR — READ ONLY</span> <button class="btn" id="btnSignIn">Sign In</button>`;
+    $('btnSignIn').addEventListener('click', openAuth);
+  } else {
+    const name = esc(account.displayName || account.username);
+    const face = esc(account.mcName || account.username || '');
+    box.innerHTML = `<img src="https://mc-heads.net/avatar/${face}/22" alt=""/>
+      <span>${name}</span> <span id="userOffice">${officeLabel()}</span>
+      <button class="btn" id="btnSignOut">Sign Out</button>`;
+    $('btnSignOut').addEventListener('click', async () => {
+      await slogout(); clearSession(); refreshPerms();
+      if (mode === 'draw') cancelDraw();
+      selectTerritory(null); renderAll();
+      toast('Signed out — spectator mode.');
+    });
+  }
+}
+
+/* ── auth modal ── */
+function openAuth() {
+  $('authErr').textContent = '';
+  $('authOverlay').classList.add('show');
+  $('authUser').focus();
+}
+function closeAuth() { $('authOverlay').classList.remove('show'); $('authPass').value = ''; }
+$('authCancel').addEventListener('click', closeAuth);
+$('authOverlay').addEventListener('click', e => { if (e.target === e.currentTarget) closeAuth(); });
+async function doAuth() {
+  const u = $('authUser').value.trim(), p = $('authPass').value;
+  if (!u || !p) { $('authErr').textContent = 'Enter your credentials.'; return; }
+  $('authGo').disabled = true;
+  const res = await slogin(u, p);
+  $('authGo').disabled = false;
+  if (!res.ok) { $('authErr').textContent = res.error || 'Sign-in failed.'; return; }
+  saveSession(res.token, res.account);
+  closeAuth();
+  refreshPerms();
+  toast(`Signed in as ${res.account.displayName || res.account.username} — ${officeLabel()}.`);
+  loadAll();
+}
+$('authGo').addEventListener('click', doAuth);
+$('authPass').addEventListener('keydown', e => { if (e.key === 'Enter') doAuth(); });
+$('authUser').addEventListener('keydown', e => { if (e.key === 'Enter') $('authPass').focus(); });
+
+/* ── save-state indicator ── */
+function noteSaving() { pendingSaves++; $('saveState').textContent = 'saving…'; }
+function noteSaved(ok, err) {
+  pendingSaves = Math.max(0, pendingSaves - 1);
+  if (!ok) { $('saveState').textContent = 'save failed'; toast(err || 'Save failed.'); return; }
+  if (pendingSaves === 0) $('saveState').textContent = 'saved ' + new Date().toLocaleTimeString();
+}
+
+/* ── persistence ── */
+async function persistTerritory(t) {
+  noteSaving();
+  const res = await saveRecord('lvwar_territories', t);
+  noteSaved(res.ok, res.error);
+}
+const terrSaveTimers = {};
+function persistTerritoryDebounced(t) {
+  clearTimeout(terrSaveTimers[t.id]);
+  terrSaveTimers[t.id] = setTimeout(() => { delete terrSaveTimers[t.id]; persistTerritory(t); }, 600);
+}
+async function persistBattle(b) {
+  noteSaving();
+  const res = await saveRecord('lvwar_battles', b);
+  noteSaved(res.ok, res.error);
+}
+let metaTimer = null;
+function persistMetaDebounced() {
+  clearTimeout(metaTimer);
+  metaTimer = setTimeout(async () => {
+    metaTimer = null;
+    noteSaving();
+    const res = await sset('lvwar_meta', meta);
+    noteSaved(res.ok, res.error);
+  }, 600);
+}
+
+/* ── toast ── */
+let toastTimer = null;
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 3200);
+}
+
+/* ══════════ LOAD & POLL ══════════ */
+function busyEditing() {
+  if (pendingSaves > 0 || metaTimer || Object.keys(terrSaveTimers).length) return true;
+  if (drawPts.length || vertexDrag || editingBattleId) return true;
+  const ae = document.activeElement;
+  if (ae && ae.isContentEditable) return true;
+  return !!(ae && /INPUT|TEXTAREA|SELECT/.test(ae.tagName) && ae.closest('#sidebar'));
+}
+async function loadAll() {
+  const res = await sgetAll();
+  if (!res.ok) {
+    $('saveState').textContent = 'backend unreachable';
+    if (!loadedOnce) { $('hint').textContent = 'Backend unreachable — retrying… (free hosting can take ~1 min to wake)'; setTimeout(loadAll, 8000); }
+    return;
+  }
+  const raw = res.data || {};
+  vxGov = raw.vx_gov || {};
+  accountsDir = raw.mi_accounts || {};
+  if (!busyEditing()) {
+    const m = raw.lvwar_meta;
+    meta = m && typeof m === 'object'
+      ? { ...JSON.parse(JSON.stringify(DEFAULT_META)), ...m }
+      : JSON.parse(JSON.stringify(DEFAULT_META));
+    if (!Array.isArray(meta.theatres) || !meta.theatres.length) meta.theatres = JSON.parse(JSON.stringify(DEFAULT_META.theatres));
+    theatreIdx = clamp(theatreIdx, 0, meta.theatres.length - 1);
+    territories = Object.values(raw.lvwar_territories || {}).filter(t => t && Array.isArray(t.points));
+    battles = Object.values(raw.lvwar_battles || {}).filter(b => b && b.victor).sort((a, b) => (a.at || 0) - (b.at || 0));
+    if (selectedId && !territories.some(t => t.id === selectedId)) selectedId = null;
+    renderAll();
+    if (!loadedOnce) { loadedOnce = true; loadTheatre(0); }
+    updateHint();
+  }
+  refreshPerms();
+}
+setInterval(() => { if (document.visibilityState === 'visible' && loadedOnce && !busyEditing()) loadAll(); }, 25000);
+
+/* ══════════ THEATRES & MAP ══════════ */
+function activeTheatre() { return meta.theatres[theatreIdx] || meta.theatres[0]; }
+function renderTheatreTabs() {
+  $('theatreTabs').innerHTML = meta.theatres.map((t, i) =>
+    `<button type="button" class="th-tab${i === theatreIdx ? ' active' : ''}" data-i="${i}">${esc(t.name)}</button>`).join(' ');
+  $('theatreTabs').querySelectorAll('.th-tab').forEach(b =>
+    b.addEventListener('click', () => loadTheatre(+b.dataset.i)));
+}
+function loadTheatre(i) {
+  if (mode === 'draw') cancelDraw();
+  if (mapW && meta.theatres[theatreIdx]) views[meta.theatres[theatreIdx].id] = { ...view };
+  theatreIdx = clamp(i, 0, meta.theatres.length - 1);
+  selectedId = null;
+  const th = activeTheatre();
+  mapW = 0; mapH = 0;
+  $('mapNote').style.display = 'flex';
+  if (!th.map) {
+    mapImg.removeAttribute('src');
+    $('mapNoteBig').textContent = 'NO THEATRE MAP SET';
+    $('mapNoteSmall').textContent = canMeta
+      ? 'Place the ' + th.name + ' map PNG beside war.html (or host it anywhere) and set its URL with “Map URL…” above.'
+      : 'A network administrator has not yet set the ' + th.name + ' theatre map.';
+    renderTheatreTabs(); renderTerritories(); renderMap();
+    return;
+  }
+  $('mapNoteBig').textContent = 'LOADING THEATRE MAP…';
+  $('mapNoteSmall').textContent = th.map;
+  mapImg.onload = () => {
+    mapW = mapImg.naturalWidth; mapH = mapImg.naturalHeight;
+    overlay.setAttribute('width', mapW);
+    overlay.setAttribute('height', mapH);
+    overlay.setAttribute('viewBox', `0 0 ${mapW} ${mapH}`);
+    $('mapNote').style.display = 'none';
+    buildPatterns();
+    const saved = views[th.id];
+    if (saved) { view = { ...saved }; applyView(); renderMap(); } else fitMap();
+  };
+  mapImg.onerror = () => {
+    $('mapNoteBig').textContent = 'MAP IMAGE NOT FOUND';
+    $('mapNoteSmall').textContent = th.map + ' — check the file exists beside war.html' + (canMeta ? ', or set a new URL with “Map URL…”' : '');
+  };
+  mapImg.src = th.map;
+  renderTheatreTabs(); renderTerritories(); renderMap();
+}
+$('btnMapUrl').addEventListener('click', () => {
+  if (!canMeta) return;
+  const th = activeTheatre();
+  const url = prompt(`Map image URL for the ${th.name} theatre:`, th.map);
+  if (!url || url.trim() === th.map) return;
+  th.map = url.trim();
+  persistMetaDebounced();
+  loadTheatre(theatreIdx);
+});
+
+function buildPatterns() {
+  const u = Math.max(10, Math.round(mapW / 110));
+  const mk = (id, base, stripe, rot) =>
+    `<pattern id="${id}" patternUnits="userSpaceOnUse" width="${u}" height="${u}" patternTransform="rotate(${rot})">` +
+    `<rect width="${u}" height="${u}" fill="${base}"/>` +
+    `<rect width="${u/2}" height="${u}" fill="${stripe}"/></pattern>`;
+  svgDefs.innerHTML =
+    mk('pat-contested',  'rgba(217,154,61,.55)', 'rgba(138,90,29,.75)',  45) +
+    mk('pat-lech-occ',   'rgba(177,60,60,.50)',  'rgba(107,32,32,.80)', -45) +
+    mk('pat-vindex-occ', 'rgba(63,174,116,.50)', 'rgba(29,92,60,.80)',  -45) +
+    mk('pat-wilden-occ', 'rgba(46,143,143,.50)', 'rgba(23,84,84,.80)',  -45);
+}
+
+/* ══════════ VIEW (pan / zoom) ══════════ */
+function applyView() {
+  world.style.transform = `translate(${view.x}px,${view.y}px) scale(${view.s})`;
+}
+function fitMap() {
+  if (!mapW) return;
+  const r = viewport.getBoundingClientRect();
+  view.s = Math.min(r.width / mapW, r.height / mapH) * 0.96;
+  view.x = (r.width - mapW * view.s) / 2;
+  view.y = (r.height - mapH * view.s) / 2;
+  applyView(); renderMap();
+}
+function zoomAt(cx, cy, factor) {
+  const r = viewport.getBoundingClientRect();
+  const mx = cx - r.left, my = cy - r.top;
+  const ns = clamp(view.s * factor, 0.02, 40);
+  const k = ns / view.s;
+  view.x = mx - (mx - view.x) * k;
+  view.y = my - (my - view.y) * k;
+  view.s = ns;
+  applyView();
+  requestAnimationFrame(renderMap);
+}
+function screenToImage(e) {
+  const r = viewport.getBoundingClientRect();
+  return { x: (e.clientX - r.left - view.x) / view.s, y: (e.clientY - r.top - view.y) / view.s };
+}
+function zoomToTerritory(t) {
+  if (!t.points.length) return;
+  const xs = t.points.map(p => p[0]), ys = t.points.map(p => p[1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const r = viewport.getBoundingClientRect();
+  const pad = 1.35;
+  view.s = clamp(Math.min(r.width / ((x1 - x0) * pad || 1), r.height / ((y1 - y0) * pad || 1)), 0.02, 40);
+  view.x = r.width / 2 - (x0 + x1) / 2 * view.s;
+  view.y = r.height / 2 - (y0 + y1) / 2 * view.s;
+  applyView(); renderMap();
+}
+
+/* ══════════ GEOMETRY ══════════ */
+function centroid(pts) {
+  let a = 0, cx = 0, cy = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % pts.length];
+    const f = x1 * y2 - x2 * y1;
+    a += f; cx += (x1 + x2) * f; cy += (y1 + y2) * f;
+  }
+  if (Math.abs(a) < 1e-6) {
+    return [pts.reduce((s, p) => s + p[0], 0) / pts.length, pts.reduce((s, p) => s + p[1], 0) / pts.length];
+  }
+  a *= 3;
+  return [cx / a, cy / a];
+}
+
+/* ══════════ RENDER: MAP OVERLAY ══════════ */
+const svgNS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs) {
+  const n = document.createElementNS(svgNS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  return n;
+}
+function visibleTerritories() {
+  const w = activeTheatre().name;
+  return territories.filter(t => (t.world || '') === w);
+}
+
+function renderMap() {
+  gTerr.innerHTML = ''; gHandles.innerHTML = '';
+  if (!mapW) { renderDrawLayer(); return; }
+  const op = $('opacity').value / 100;
+  const fs = Math.max(11 / view.s, mapW / 220);
+
+  for (const t of visibleTerritories()) {
+    if (t.points.length < 3) continue;
+    const st = STATUS[t.status] || STATUS.contested;
+    const ptsStr = t.points.map(p => p.join(',')).join(' ');
+    const g = el('g', { class: 'terr' });
+
+    const fill = el('polygon', { points: ptsStr, fill: st.fill, opacity: op, class: 'terr-fill', 'data-id': t.id });
+    fill.addEventListener('click', ev => {
+      if (mode === 'draw') return;
+      ev.stopPropagation();
+      if (dragMoved) return;
+      selectTerritory(t.id === selectedId ? null : t.id);
+    });
+    g.appendChild(fill);
+
+    const outline = el('polygon', {
+      points: ptsStr, fill: 'none', stroke: st.stroke,
+      'stroke-width': t.id === selectedId ? 3 : 1.8,
+      'vector-effect': 'non-scaling-stroke',
+      'stroke-dasharray': st.dashed ? '7 4' : 'none',
+      'pointer-events': 'none',
+      opacity: t.id === selectedId ? 1 : 0.9,
+    });
+    g.appendChild(outline);
+
+    const [cx, cy] = centroid(t.points);
+    const t1 = el('text', {
+      x: cx, y: cy, 'text-anchor': 'middle', fill: '#f2f5f8',
+      'font-size': fs, 'font-family': "'Cinzel',Georgia,serif", 'font-weight': '700',
+      'paint-order': 'stroke', stroke: 'rgba(0,0,0,.75)', 'stroke-width': fs / 6,
+      'pointer-events': 'none',
+    });
+    t1.textContent = t.name;
+    g.appendChild(t1);
+    const t2 = el('text', {
+      x: cx, y: cy + fs * 1.1, 'text-anchor': 'middle', fill: st.stroke,
+      'font-size': fs * 0.62, 'font-family': "'Share Tech Mono',monospace", 'letter-spacing': '.15em',
+      'paint-order': 'stroke', stroke: 'rgba(0,0,0,.75)', 'stroke-width': fs / 8,
+      'pointer-events': 'none',
+    });
+    t2.textContent = st.short;
+    g.appendChild(t2);
+
+    gTerr.appendChild(g);
+  }
+
+  renderHandles();
+  renderDrawLayer();
+}
+
+/* vertex handles for the selected territory (editors only) */
+function renderHandles() {
+  gHandles.innerHTML = '';
+  if (mode !== 'select' || !selectedId || !canTerritory) return;
+  const t = territories.find(x => x.id === selectedId);
+  if (!t) return;
+  const hr = 6 / view.s;
+
+  t.points.forEach((p, i) => {
+    const q = t.points[(i + 1) % t.points.length];
+    const mid = el('rect', {
+      x: (p[0] + q[0]) / 2 - hr * 0.6, y: (p[1] + q[1]) / 2 - hr * 0.6,
+      width: hr * 1.2, height: hr * 1.2,
+      fill: 'rgba(217,154,61,.9)', stroke: '#000', 'stroke-width': 1 / view.s,
+      class: 'handle', transform: `rotate(45 ${(p[0]+q[0])/2} ${(p[1]+q[1])/2})`,
+    });
+    mid.addEventListener('pointerdown', ev => {
+      ev.stopPropagation(); ev.preventDefault();
+      t.points.splice(i + 1, 0, [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2]);
+      startVertexDrag(t, i + 1, ev);
+    });
+    gHandles.appendChild(mid);
+  });
+
+  t.points.forEach((p, i) => {
+    const c = el('circle', {
+      cx: p[0], cy: p[1], r: hr,
+      fill: '#f2f5f8', stroke: '#000', 'stroke-width': 1.2 / view.s, class: 'handle',
+    });
+    c.addEventListener('pointerdown', ev => { ev.stopPropagation(); ev.preventDefault(); startVertexDrag(t, i, ev); });
+    c.addEventListener('contextmenu', ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      if (t.points.length <= 3) { toast('A border needs at least 3 points.'); return; }
+      t.points.splice(i, 1);
+      renderMap(); persistTerritory(t);
+    });
+    gHandles.appendChild(c);
+  });
+}
+
+let vertexDrag = null;
+function startVertexDrag(t, idx, ev) {
+  vertexDrag = { t, idx };
+  const move = e => {
+    const p = screenToImage(e);
+    t.points[idx] = [clamp(p.x, 0, mapW), clamp(p.y, 0, mapH)];
+    renderMap();
+  };
+  const up = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    vertexDrag = null;
+    persistTerritory(t);
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+}
+
+/* in-progress drawing */
+function renderDrawLayer() {
+  gDraw.innerHTML = '';
+  if (mode !== 'draw' || !drawPts.length) return;
+  const hr = 5 / view.s;
+  if (drawPts.length > 1) {
+    gDraw.appendChild(el('polyline', {
+      points: drawPts.map(p => p.join(',')).join(' '),
+      fill: 'rgba(217,154,61,.15)', stroke: '#ffb35c', 'stroke-width': 2,
+      'vector-effect': 'non-scaling-stroke', 'stroke-dasharray': '6 4',
+    }));
+  }
+  drawPts.forEach((p, i) => {
+    gDraw.appendChild(el('circle', {
+      cx: p[0], cy: p[1], r: i === 0 ? hr * 1.5 : hr,
+      fill: i === 0 ? '#ffb35c' : '#f2f5f8', stroke: '#000', 'stroke-width': 1 / view.s,
+    }));
+  });
+}
+
+/* ══════════ MODES / DRAW ══════════ */
+function updateHint() {
+  if (!loadedOnce) return;
+  if (mode === 'draw') {
+    $('hint').textContent = 'Click to place border points · click the first point or press Enter to close · Backspace = undo point · Esc = cancel';
+  } else if (canTerritory) {
+    $('hint').textContent = 'Click a territory to select · drag to pan · scroll to zoom · drag white handles to reshape · right-click a handle to delete it';
+  } else if (account) {
+    $('hint').textContent = 'Viewing the war record. Territory changes need War Office or Department of Defense authority.';
+  } else {
+    $('hint').textContent = 'Viewing the war record as a spectator — sign in to edit.';
+  }
+}
+function setMode(m) {
+  if (m === 'draw' && (!mapW || !canTerritory)) return;
+  mode = m;
+  if (m !== 'draw') { drawPts = []; }
+  $('modeSelect').classList.toggle('active', m === 'select');
+  $('modeDraw').classList.toggle('active', m === 'draw');
+  $('btnFinish').style.display = m === 'draw' ? '' : 'none';
+  $('btnCancelDraw').style.display = m === 'draw' ? '' : 'none';
+  viewport.classList.toggle('drawing', m === 'draw');
+  $('drawTip').style.display = m === 'draw' ? 'block' : 'none';
+  updateDrawTip();
+  updateHint();
+  renderMap();
+}
+function updateDrawTip() {
+  $('drawTip').textContent = drawPts.length
+    ? `${drawPts.length} point${drawPts.length > 1 ? 's' : ''} — ${drawPts.length >= 3 ? 'click first point / press Enter to close' : 'place at least 3 points'}`
+    : 'Click on the map to start tracing a border';
+}
+function finishDraw() {
+  if (drawPts.length < 3) { toast('Need at least 3 points to close a border.'); return; }
+  const t = {
+    id: 'terr_' + uid(),
+    name: 'New Territory ' + (territories.length + 1),
+    world: activeTheatre().name, status: 'contested', notes: '',
+    points: drawPts.map(p => [Math.round(p[0]), Math.round(p[1])]),
+  };
+  territories.push(t);
+  drawPts = [];
+  setMode('select');
+  selectTerritory(t.id);
+  persistTerritory(t);
+  toast('Territory created — name it and set who holds it.');
+  setTimeout(() => {
+    const inp = document.querySelector('.tcard.sel input[data-f="name"]');
+    if (inp) { inp.focus(); inp.select(); }
+  }, 50);
+}
+function cancelDraw() { drawPts = []; setMode('select'); }
+
+/* ══════════ VIEWPORT EVENTS ══════════ */
+let panDrag = null, dragMoved = false;
+viewport.addEventListener('pointerdown', e => {
+  if (e.button === 2) return;
+  dragMoved = false;
+  const pan = (mode === 'select') || e.button === 1 || spaceHeld;
+  panDrag = { x0: e.clientX, y0: e.clientY, vx: view.x, vy: view.y, pan };
+  viewport.setPointerCapture(e.pointerId);
+});
+viewport.addEventListener('pointermove', e => {
+  if (!panDrag || vertexDrag) return;
+  const dx = e.clientX - panDrag.x0, dy = e.clientY - panDrag.y0;
+  if (Math.hypot(dx, dy) > 4) dragMoved = true;
+  if (panDrag.pan && dragMoved) {
+    viewport.classList.add('panning');
+    view.x = panDrag.vx + dx;
+    view.y = panDrag.vy + dy;
+    applyView();
+  }
+});
+viewport.addEventListener('pointerup', e => {
+  viewport.classList.remove('panning');
+  const wasDrag = dragMoved;
+  panDrag = null;
+  if (wasDrag || vertexDrag) return;
+  if (mode === 'draw' && mapW && e.button === 0 && !spaceHeld) {
+    const p = screenToImage(e);
+    if (p.x < 0 || p.y < 0 || p.x > mapW || p.y > mapH) return;
+    if (drawPts.length >= 3) {
+      const d = Math.hypot(p.x - drawPts[0][0], p.y - drawPts[0][1]);
+      if (d < 12 / view.s) { finishDraw(); return; }
+    }
+    drawPts.push([p.x, p.y]);
+    updateDrawTip();
+    renderDrawLayer();
+  }
+});
+viewport.addEventListener('click', e => {
+  if (mode === 'select' && !dragMoved && (e.target === viewport || e.target === mapImg)) {
+    selectTerritory(null);
+  }
+});
+viewport.addEventListener('wheel', e => {
+  e.preventDefault();
+  zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.15 : 1 / 1.15);
+}, { passive: false });
+viewport.addEventListener('dblclick', e => {
+  if (mode === 'draw' && drawPts.length >= 4) {
+    const a = drawPts[drawPts.length - 1], b = drawPts[drawPts.length - 2];
+    if (Math.hypot(a[0] - b[0], a[1] - b[1]) < 8 / view.s) drawPts.pop();
+    finishDraw();
+  }
+});
+viewport.addEventListener('contextmenu', e => { if (mode === 'draw') e.preventDefault(); });
+
+/* keyboard */
+let spaceHeld = false;
+window.addEventListener('keydown', e => {
+  const tag = (document.activeElement && document.activeElement.tagName) || '';
+  const typing = /INPUT|TEXTAREA|SELECT/.test(tag) || (document.activeElement && document.activeElement.isContentEditable);
+  if (e.code === 'Space' && !typing) { spaceHeld = true; e.preventDefault(); }
+  if (typing) return;
+  if (mode === 'draw') {
+    if (e.key === 'Enter') { e.preventDefault(); finishDraw(); }
+    if (e.key === 'Escape') cancelDraw();
+    if (e.key === 'Backspace') { e.preventDefault(); drawPts.pop(); updateDrawTip(); renderDrawLayer(); }
+  } else {
+    if (e.key === 'Escape') selectTerritory(null);
+    if (e.key === 'Delete' && selectedId && canTerritory) deleteTerritory(selectedId);
+    if (e.key === 'd' && canTerritory) setMode('draw');
+  }
+});
+window.addEventListener('keyup', e => { if (e.code === 'Space') spaceHeld = false; });
+window.addEventListener('resize', () => { if (mapW) renderMap(); });
+
+/* ══════════ TERRITORY SIDEBAR ══════════ */
+function selectTerritory(id) {
+  selectedId = id;
+  renderMap(); renderTerritories();
+  if (id) switchTab('territories');
+}
+async function deleteTerritory(id) {
+  const t = territories.find(x => x.id === id);
+  if (!t) return;
+  if (!confirm(`Delete territory “${t.name}”?`)) return;
+  territories = territories.filter(x => x.id !== id);
+  if (selectedId === id) selectedId = null;
+  renderMap(); renderTerritories();
+  noteSaving();
+  const res = await deleteRecord('lvwar_territories', id);
+  noteSaved(res.ok, res.error);
+}
+
+function renderTerritories() {
+  const panel = $('panel-territories');
+  const vis = visibleTerritories();
+  if (!vis.length) {
+    panel.innerHTML = `<div class="empty-note">No borders drawn in the ${esc(activeTheatre().name)} theatre.${canTerritory ? '<br/>Use <b>✎ Draw Border</b> above the map to trace a territory.' : ''}</div>`;
+    return;
+  }
+  panel.innerHTML = '';
+  for (const t of vis) {
+    const st = STATUS[t.status] || STATUS.contested;
+    const card = document.createElement('div');
+    card.className = 'tcard' + (t.id === selectedId ? ' sel' : '');
+    const chipStyle = st.fill.startsWith('url')
+      ? `background:repeating-linear-gradient(45deg, ${st.stroke}55, ${st.stroke}55 3px, ${st.stroke}22 3px, ${st.stroke}22 6px)`
+      : `background:${st.fill}`;
+    card.innerHTML = `
+      <div class="tcard-top">
+        <span class="chip" style="${chipStyle}"></span>
+        <span class="tcard-name">${esc(t.name)}</span>
+        <span class="tcard-world">${esc(t.world || '')}</span>
+      </div>
+      <div class="tcard-status">${st.label}</div>`;
+    card.addEventListener('click', () => { if (t.id !== selectedId) { selectTerritory(t.id); zoomToTerritory(t); } });
+
+    if (t.id === selectedId) {
+      const ed = document.createElement('div');
+      ed.className = 'tcard-edit';
+      ed.addEventListener('click', e => e.stopPropagation());
+      const dis = canTerritory ? '' : ' disabled';
+      const worldOpts = meta.theatres.map(th =>
+        `<option${t.world === th.name ? ' selected' : ''}>${esc(th.name)}</option>`).join('');
+      ed.innerHTML = `
+        <div class="frow"><span>Name</span><input data-f="name" value="${esc(t.name)}"${dis}/></div>
+        <div class="frow"><span>World</span><select data-f="world"${dis}>${worldOpts}</select></div>
+        <div class="frow"><span>Control</span>
+          <select data-f="status"${dis}>
+            ${Object.entries(STATUS).map(([k, v]) => `<option value="${k}"${t.status === k ? ' selected' : ''}>${v.label}</option>`).join('')}
+          </select></div>
+        <div class="frow"><span>Notes</span><textarea data-f="notes"${dis}>${esc(t.notes)}</textarea></div>
+        <div class="tcard-btns">
+          <button type="button" class="btn" data-act="zoom">Zoom to</button>
+          ${canTerritory ? '<button type="button" class="btn danger" data-act="del">Delete</button>' : ''}
+        </div>`;
+      if (canTerritory) {
+        ed.querySelectorAll('[data-f]').forEach(inp => {
+          inp.addEventListener('input', () => {
+            t[inp.dataset.f] = inp.value;
+            if (inp.dataset.f === 'status' || inp.dataset.f === 'world') { renderMap(); renderTerritories(); }
+            else if (inp.dataset.f === 'name') {
+              renderMap();
+              const n = card.querySelector('.tcard-name');
+              if (n) n.textContent = t.name;
+            }
+            persistTerritoryDebounced(t);
+          });
+        });
+        const del = ed.querySelector('[data-act="del"]');
+        if (del) del.addEventListener('click', () => deleteTerritory(t.id));
+      }
+      ed.querySelector('[data-act="zoom"]').addEventListener('click', () => zoomToTerritory(t));
+      card.appendChild(ed);
+    }
+    panel.appendChild(card);
+  }
+}
+
+/* ══════════ BATTLES & TRACKER ══════════ */
+const SCALES = { 1: 'Skirmish', 2: 'Major battle', 3: 'Decisive' };
+function battleScore(b) { return b.victor === 'lech' ? +b.scale : b.victor === 'vindex' ? -b.scale : 0; }
+function warScore() {
+  return clamp(battles.reduce((s, b) => s + battleScore(b), 0), -meta.threshold, meta.threshold);
+}
+function displayNameOf(username) {
+  const a = accountsDir[String(username || '').toLowerCase()];
+  return (a && a.displayName) || username || '';
+}
+
+function renderTracker() {
+  const thr = meta.threshold, score = warScore();
+  const pct = (score + thr) / (2 * thr) * 100;
+  if (document.activeElement !== $('threshold')) $('threshold').value = thr;
+  $('trkNeedle').style.left = pct + '%';
+  $('trkScore').textContent = score === 0 ? '0' : (score > 0 ? `+${score} LECH` : `+${-score} VINDEX`);
+
+  const fill = $('trkFill');
+  fill.className = 'trk-fill ' + (score >= 0 ? 'lech' : 'vin');
+  if (score >= 0) { fill.style.left = '50%'; fill.style.right = (100 - pct) + '%'; }
+  else { fill.style.left = pct + '%'; fill.style.right = '50%'; }
+
+  $('trkBar').querySelectorAll('.trk-tick').forEach(n => n.remove());
+  for (let i = -thr; i <= thr; i++) {
+    const tick = document.createElement('div');
+    tick.className = 'trk-tick' + (i === 0 ? ' mid' : '');
+    tick.style.left = ((i + thr) / (2 * thr) * 100) + '%';
+    $('trkBar').appendChild(tick);
+  }
+
+  const mainEl = $('trkStatusMain');
+  const mag = Math.abs(score) / thr;
+  const side = score > 0 ? 'LECH' : 'VINDEX';
+  let txt, cls = score > 0 ? 'lech' : score < 0 ? 'vin' : '';
+  if (score === 0) txt = battles.length ? 'DEADLOCK' : 'THE GUNS ARE SILENT';
+  else if (mag >= 1) { txt = `⚑ TOTAL ${side} VICTORY ⚑`; cls += ' victory'; }
+  else if (mag >= 0.7) txt = `${side} NEARING VICTORY`;
+  else if (mag >= 0.4) txt = `${side} DOMINANT`;
+  else if (mag >= 0.2) txt = `${side} ADVANCING`;
+  else txt = `SLIGHT ${side} ADVANTAGE`;
+  mainEl.textContent = txt;
+  mainEl.className = cls.trim();
+
+  const last3 = battles.slice(-3);
+  const mom = last3.reduce((s, b) => s + battleScore(b), 0);
+  $('trkMomentum').textContent = last3.length
+    ? 'momentum: ' + (mom > 0 ? 'Lech ▲' : mom < 0 ? 'Vindex ▲' : 'even —')
+    : '';
+
+  const lw = battles.filter(b => b.victor === 'lech').length;
+  const vw = battles.filter(b => b.victor === 'vindex').length;
+  $('lechWins').textContent = lw + (lw === 1 ? ' victory' : ' victories');
+  $('vinWins').textContent = vw + (vw === 1 ? ' victory' : ' victories');
+}
+
+function renderBattles() {
+  const list = $('battleList');
+  if (!battles.length) {
+    list.innerHTML = `<div class="empty-note">No battles recorded.<br/>Each result moves the war tracker toward one capital or the other.</div>`;
+    return;
+  }
+  list.innerHTML = '';
+  [...battles].reverse().forEach(b => {
+    const sc = battleScore(b);
+    const card = document.createElement('div');
+    card.className = 'bcard ' + b.victor;
+    const by = b._writtenBy ? `<div class="bcard-by">recorded by ${esc(displayNameOf(b._writtenBy))}</div>` : '';
+    card.innerHTML = `
+      <div class="bcard-top">
+        <span class="bcard-name">${esc(b.name)}</span>
+        <span class="bcard-pts ${b.victor}">${sc === 0 ? '±0' : (sc > 0 ? `+${sc} LECH` : `+${-sc} VINDEX`)}</span>
+      </div>
+      <div class="bcard-meta">${esc(b.date || '')}${b.world ? ' · ' + esc(b.world) : ''}${b.location ? ' · ' + esc(b.location) : ''} · ${SCALES[b.scale] || ''}</div>
+      ${b.notes ? `<div class="bcard-notes">${esc(b.notes)}</div>` : ''}
+      ${by}
+      ${canBattles ? `<div class="bcard-btns">
+        <button type="button" class="btn" data-act="edit">edit</button>
+        <button type="button" class="btn danger" data-act="del">✕</button>
+      </div>` : ''}`;
+    if (canBattles) {
+      card.querySelector('[data-act="del"]').addEventListener('click', async () => {
+        if (!confirm(`Remove “${b.name}” from the record?`)) return;
+        battles = battles.filter(x => x.id !== b.id);
+        renderBattles(); renderTracker();
+        noteSaving();
+        const res = await deleteRecord('lvwar_battles', b.id);
+        noteSaved(res.ok, res.error);
+      });
+      card.querySelector('[data-act="edit"]').addEventListener('click', () => {
+        editingBattleId = b.id;
+        $('bfName').value = b.name; $('bfDate').value = b.date || '';
+        $('bfWorld').value = b.world || ''; $('bfLocation').value = b.location || '';
+        $('bfVictor').value = b.victor; $('bfScale').value = b.scale;
+        $('bfNotes').value = b.notes || '';
+        $('bfTitle').textContent = 'EDIT BATTLE';
+        $('bfSubmit').textContent = 'Update';
+        $('bfCancel').style.display = '';
+        $('bfName').focus();
+      });
+    }
+    list.appendChild(card);
+  });
+}
+
+function renderBattleWorldOptions() {
+  const cur = $('bfWorld').value;
+  $('bfWorld').innerHTML = '<option value="">— world —</option>' +
+    meta.theatres.map(th => `<option>${esc(th.name)}</option>`).join('') +
+    '<option>Other</option>';
+  $('bfWorld').value = cur;
+}
+function resetBattleForm() {
+  editingBattleId = null;
+  $('battleForm').reset();
+  $('bfDate').value = new Date().toISOString().slice(0, 10);
+  $('bfScale').value = '2';
+  $('bfTitle').textContent = 'RECORD A BATTLE';
+  $('bfSubmit').textContent = 'Add Battle';
+  $('bfCancel').style.display = 'none';
+}
+$('battleForm').addEventListener('submit', e => {
+  e.preventDefault();
+  if (!canBattles) return;
+  const data = {
+    name: $('bfName').value.trim() || 'Unnamed engagement',
+    date: $('bfDate').value,
+    world: $('bfWorld').value,
+    location: $('bfLocation').value.trim(),
+    victor: $('bfVictor').value,
+    scale: +$('bfScale').value,
+    notes: $('bfNotes').value.trim(),
+  };
+  let rec;
+  if (editingBattleId) {
+    rec = battles.find(x => x.id === editingBattleId);
+    if (rec) Object.assign(rec, data);
+  } else {
+    rec = { id: 'bat_' + uid(), at: Date.now(), ...data };
+    battles.push(rec);
+  }
+  resetBattleForm();
+  renderBattles(); renderTracker();
+  if (rec) persistBattle(rec);
+});
+$('bfCancel').addEventListener('click', resetBattleForm);
+
+$('threshold').addEventListener('change', () => {
+  if (!canMeta) return;
+  meta.threshold = clamp(+$('threshold').value || 10, 3, 50);
+  renderTracker(); persistMetaDebounced();
+});
+
+/* ══════════ LEGEND ══════════ */
+function renderLegend() {
+  $('legend').innerHTML = Object.values(STATUS).map(v => {
+    const bg = v.fill.startsWith('url')
+      ? `repeating-linear-gradient(45deg, ${v.stroke}66, ${v.stroke}66 3px, transparent 3px, transparent 6px), rgba(255,255,255,.04)`
+      : v.fill;
+    return `<div class="lrow"><span class="sw" style="background:${bg}"></span>${v.label}</div>`;
+  }).join('');
+}
+
+/* ══════════ TABS / HEADER / TOOLBAR ══════════ */
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
+}
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
+
+$('warTitle').addEventListener('input', () => { if (canMeta) { meta.warName = $('warTitle').textContent.trim(); persistMetaDebounced(); } });
+$('warSub').addEventListener('input', () => { if (canMeta) { meta.warSub = $('warSub').textContent.trim(); persistMetaDebounced(); } });
+[$('warTitle'), $('warSub')].forEach(n => n.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); n.blur(); } }));
+
+$('btnSidebar').addEventListener('click', () => $('sidebar').classList.toggle('hidden'));
+$('modeSelect').addEventListener('click', () => setMode('select'));
+$('modeDraw').addEventListener('click', () => setMode(mode === 'draw' ? 'select' : 'draw'));
+$('btnFinish').addEventListener('click', finishDraw);
+$('btnCancelDraw').addEventListener('click', cancelDraw);
+$('btnFit').addEventListener('click', fitMap);
+$('btnZoomIn').addEventListener('click', () => { const r = viewport.getBoundingClientRect(); zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1.3); });
+$('btnZoomOut').addEventListener('click', () => { const r = viewport.getBoundingClientRect(); zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1 / 1.3); });
+$('opacity').addEventListener('input', renderMap);
+
+/* export / reset */
+$('btnExport').addEventListener('click', () => {
+  const payload = { app: 'lvwar', version: 2, savedAt: new Date().toISOString(), meta, territories, battles };
+  const blob = new Blob([JSON.stringify(payload, null, 1)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (meta.warName || 'war').toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('War record exported.');
+});
+$('btnReset').addEventListener('click', async () => {
+  if (!canMeta) return;
+  if (!confirm('Erase the entire war record — borders, battles and configuration — for EVERYONE?')) return;
+  if (!confirm('This cannot be undone. Really erase the shared war record?')) return;
+  noteSaving();
+  const r1 = await sdel('lvwar_territories');
+  const r2 = await sdel('lvwar_battles');
+  const r3 = await sdel('lvwar_meta');
+  noteSaved(r1.ok && r2.ok && r3.ok, r1.error || r2.error || r3.error);
+  territories = []; battles = []; meta = JSON.parse(JSON.stringify(DEFAULT_META));
+  selectedId = null;
+  renderAll();
+  toast('The war record has been erased.');
+});
+
+/* ══════════ BOOT ══════════ */
+function renderAll() {
+  $('warTitle').textContent = meta.warName;
+  $('warSub').textContent = meta.warSub;
+  renderTheatreTabs(); renderBattleWorldOptions();
+  renderLegend(); renderTracker(); renderBattles(); renderTerritories(); renderMap();
+}
+window.__war = { get data() { return { meta, territories, battles, account, canTerritory, canBattles, canMeta }; } };
+
+renderAll();
+setMode('select');
+refreshPerms();
+resetBattleForm();
+if (innerWidth < 900) $('sidebar').classList.add('hidden');
+(async () => {
+  if (token) {
+    const res = await sme();
+    if (res.ok) { saveSession(token, res.account); }
+    else if (res.error !== 'network') { clearSession(); }
+    refreshPerms();
+  }
+  loadAll();
+})();
+</script>
+</body>
+</html>
