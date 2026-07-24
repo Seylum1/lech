@@ -12,8 +12,8 @@
   --bg:#0b0d10; --bg2:#101419; --bg3:#151a21; --line:#242c36; --line2:#33404e;
   --ink:#e3e9ef; --ink-dim:#8b98a5; --ink-faint:#5c6873;
   --lech:#b13c3c; --lech-deep:#6b2020; --lech-bright:#e08b8b;
-  --vin:#3fae74; --vin-deep:#1d5c3c; --vin-bright:#6fd0a4;
-  --wil:#2e8f8f; --wil-deep:#175454; --wil-bright:#6fc4c4;
+  --vin:#2b7a4b; --vin-deep:#123f27; --vin-bright:#57c084;
+  --wil:#8b929b; --wil-deep:#4c525a; --wil-bright:#c4cad2;
   --contest:#d99a3d; --contest-deep:#8a5a1d;
   --danger:#c8574f;
 }
@@ -86,10 +86,10 @@ header{display:flex;align-items:center;gap:1rem;padding:.55rem 1rem;border-botto
 .trk-side.lech{color:var(--lech-bright);}
 .trk-side small{display:block;color:var(--ink-faint);letter-spacing:.1em;font-size:.6rem;}
 .trk-bar-wrap{flex:1;position:relative;height:46px;}
-.trk-bar{position:absolute;inset:12px 0;background:linear-gradient(90deg,rgba(63,174,116,.22),rgba(20,24,30,.6) 38%,rgba(20,24,30,.6) 62%,rgba(177,60,60,.22));border:1px solid var(--line2);border-radius:4px;overflow:hidden;}
+.trk-bar{position:absolute;inset:12px 0;background:linear-gradient(90deg,rgba(43,122,75,.22),rgba(20,24,30,.6) 38%,rgba(20,24,30,.6) 62%,rgba(177,60,60,.22));border:1px solid var(--line2);border-radius:4px;overflow:hidden;}
 .trk-fill{position:absolute;top:0;bottom:0;transition:left .5s cubic-bezier(.3,.7,.3,1),right .5s cubic-bezier(.3,.7,.3,1);}
 .trk-fill.lech{background:linear-gradient(90deg,rgba(177,60,60,.15),rgba(177,60,60,.55));}
-.trk-fill.vin{background:linear-gradient(90deg,rgba(63,174,116,.55),rgba(63,174,116,.15));}
+.trk-fill.vin{background:linear-gradient(90deg,rgba(43,122,75,.55),rgba(43,122,75,.15));}
 .trk-center{position:absolute;top:6px;bottom:6px;left:50%;width:0;border-left:1px dashed var(--ink-faint);}
 .trk-tick{position:absolute;bottom:12px;width:1px;height:5px;background:var(--line2);}
 .trk-tick.mid{height:8px;background:var(--ink-faint);}
@@ -360,11 +360,11 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 
 const STATUS = {
   lech:        { label: 'Lech territory',        short: 'LECH',           fill: 'rgba(177,60,60,.85)',   stroke: '#e08b8b' },
-  vindex:      { label: 'Vindex territory',      short: 'VINDEX',         fill: 'rgba(63,174,116,.85)',  stroke: '#6fd0a4' },
-  wilden:      { label: 'Wilden territory',      short: 'WILDEN',         fill: 'rgba(46,143,143,.85)',  stroke: '#6fc4c4' },
+  vindex:      { label: 'Vindex territory',      short: 'VINDEX',         fill: 'rgba(43,122,75,.85)',   stroke: '#57c084' },
+  wilden:      { label: 'Wilden territory',      short: 'WILDEN',         fill: 'rgba(139,146,155,.85)', stroke: '#c4cad2' },
   'lech-occ':  { label: 'Occupied by Lech',      short: 'OCC. BY LECH',   fill: 'url(#pat-lech-occ)',    stroke: '#e08b8b', dashed: true },
-  'vindex-occ':{ label: 'Occupied by Vindex',    short: 'OCC. BY VINDEX', fill: 'url(#pat-vindex-occ)',  stroke: '#6fd0a4', dashed: true },
-  'wilden-occ':{ label: 'Occupied by Wilden',    short: 'OCC. BY WILDEN', fill: 'url(#pat-wilden-occ)',  stroke: '#6fc4c4', dashed: true },
+  'vindex-occ':{ label: 'Occupied by Vindex',    short: 'OCC. BY VINDEX', fill: 'url(#pat-vindex-occ)',  stroke: '#57c084', dashed: true },
+  'wilden-occ':{ label: 'Occupied by Wilden',    short: 'OCC. BY WILDEN', fill: 'url(#pat-wilden-occ)',  stroke: '#c4cad2', dashed: true },
   contested:   { label: 'Contested / frontline', short: 'CONTESTED',      fill: 'url(#pat-contested)',   stroke: '#ffb35c', dashed: true },
 };
 
@@ -665,8 +665,8 @@ function buildPatterns() {
   svgDefs.innerHTML =
     mk('pat-contested',  'rgba(217,154,61,.55)', 'rgba(138,90,29,.75)',  45) +
     mk('pat-lech-occ',   'rgba(177,60,60,.50)',  'rgba(107,32,32,.80)', -45) +
-    mk('pat-vindex-occ', 'rgba(63,174,116,.50)', 'rgba(29,92,60,.80)',  -45) +
-    mk('pat-wilden-occ', 'rgba(46,143,143,.50)', 'rgba(23,84,84,.80)',  -45);
+    mk('pat-vindex-occ', 'rgba(43,122,75,.50)',  'rgba(18,63,39,.80)',  -45) +
+    mk('pat-wilden-occ', 'rgba(139,146,155,.50)','rgba(76,82,90,.80)',  -45);
 }
 
 /* ══════════ VIEW (pan / zoom) ══════════ */
