@@ -52,6 +52,32 @@ header{display:flex;align-items:center;gap:1rem;padding:.55rem 1rem;border-botto
 #userOffice{color:var(--ink-faint);font-size:.72rem;font-family:'Share Tech Mono',monospace;letter-spacing:.05em;}
 .spectator{font-family:'Share Tech Mono',monospace;font-size:.68rem;letter-spacing:.12em;color:var(--contest);border:1px solid var(--contest-deep);border-radius:3px;padding:.15rem .5rem;}
 
+/* ── Command strip: flags & war leadership ──────────── */
+#command{display:flex;align-items:center;gap:1rem;padding:.45rem 1rem;border-bottom:1px solid var(--line);background:var(--bg2);}
+.cmd-side{display:flex;align-items:center;gap:1rem;flex:1;min-width:0;flex-wrap:wrap;}
+.cmd-side.lech{justify-content:flex-end;}
+.cmd-x{color:var(--ink-faint);font-size:1.1rem;flex-shrink:0;}
+.flag{height:44px;max-width:80px;object-fit:contain;flex-shrink:0;filter:drop-shadow(0 1px 3px rgba(0,0,0,.5));}
+.cmd-leaders{display:flex;gap:1rem;flex-wrap:wrap;align-items:center;}
+.leader{display:flex;align-items:center;gap:.45rem;}
+.leader .head{width:34px;height:34px;border-radius:4px;image-rendering:pixelated;border:1px solid var(--line2);flex-shrink:0;}
+.leader span.head.vacant{display:flex;align-items:center;justify-content:center;background:var(--bg3);color:var(--ink-faint);font-size:1rem;}
+.leader.isvacant .l-name{color:var(--ink-faint);font-style:italic;font-weight:400;}
+.l-title{font-family:'Share Tech Mono',monospace;font-size:.58rem;letter-spacing:.12em;}
+.cmd-side.vin .l-title{color:var(--vin-bright);opacity:.85;}
+.cmd-side.lech .l-title{color:var(--lech-bright);opacity:.85;}
+.l-name{font-size:.84rem;font-weight:600;line-height:1.2;white-space:nowrap;}
+@media(max-width:1150px){ .l-name{white-space:normal;max-width:96px;} .flag{height:36px;} }
+@media(max-height:620px){
+  #command{padding:.25rem .7rem;gap:.6rem;}
+  .flag{height:26px;}
+  .leader .head{width:22px;height:22px;}
+  .leader span.head.vacant{font-size:.8rem;}
+  .l-title{font-size:.5rem;}
+  .l-name{font-size:.72rem;}
+  .cmd-leaders{gap:.6rem;}
+}
+
 /* ── Tracker ────────────────────────────────────────── */
 #tracker{padding:.7rem 1.2rem .55rem;border-bottom:1px solid var(--line);background:var(--bg2);}
 .trk-row{display:flex;align-items:center;gap:1rem;}
@@ -195,6 +221,8 @@ footer{padding:.28rem .8rem;border-top:1px solid var(--line);background:var(--bg
       <button class="btn danger" id="btnReset" style="display:none" title="Erase the shared war record (administrators only)">Reset War</button>
     </div>
   </header>
+
+  <section id="command"></section>
 
   <section id="tracker">
     <div class="trk-row">
@@ -355,7 +383,8 @@ let territories = [];   // records from lvwar_territories
 let battles = [];       // records from lvwar_battles, sorted by .at
 let account = null;     // signed-in account (null = spectator)
 let vxGov = {};         // vx_gov singleton (cabinet posts) — SecDef check
-let accountsDir = {};   // mi_accounts, for battle attribution
+let bkOfficials = {};   // bk_officials singleton — Chancellor / Minister of War
+let accountsDir = {};   // mi_accounts, for attribution + leadership strip
 let canTerritory = false, canBattles = false, canMeta = false;
 
 let selectedId = null;
@@ -553,6 +582,7 @@ async function loadAll() {
   }
   const raw = res.data || {};
   vxGov = raw.vx_gov || {};
+  bkOfficials = raw.bk_officials || {};
   accountsDir = raw.mi_accounts || {};
   if (!busyEditing()) {
     const m = raw.lvwar_meta;
@@ -1204,6 +1234,78 @@ $('threshold').addEventListener('change', () => {
   renderTracker(); persistMetaDebounced();
 });
 
+/* ══════════ COMMAND STRIP (flags & leadership) ══════════ */
+// Resolve a bare name or username from bk_officials against the account
+// directory, the same way the server's holdsNamedOffice matches.
+function resolveAccount(nameOrUser) {
+  const bare = String(nameOrUser || '').trim().toLowerCase();
+  if (!bare || bare === 'vacant') return null;
+  if (accountsDir[bare]) return accountsDir[bare];
+  return Object.values(accountsDir).find(a =>
+    String(a.displayName || '').toLowerCase() === bare) || { displayName: nameOrUser };
+}
+function lechLeaders() {
+  const accs = Object.values(accountsDir);
+  const emperor = accs.find(a => a.role === 'emperor') || null;
+  const off = bkOfficials || {};
+  const chancellor = off.chancellor_username
+    ? (accountsDir[String(off.chancellor_username).toLowerCase()] || { username: off.chancellor_username })
+    : resolveAccount(off.chancellor);
+  let minWar = null;
+  const mus = off.minister_usernames || {};
+  for (const k of Object.keys(mus)) if (/war/i.test(k) && mus[k]) {
+    minWar = accountsDir[String(mus[k]).toLowerCase()] || { username: mus[k] };
+    break;
+  }
+  if (!minWar) {
+    const ms = off.ministers || {};
+    for (const k of Object.keys(ms)) if (/war/i.test(k)) { minWar = resolveAccount(ms[k]); if (minWar) break; }
+  }
+  if (!minWar) minWar = accs.find(a => a.mowRole === 'minister') || null;
+  return [
+    { title: 'EMPEROR', acc: emperor, nameOverride: 'Emperor Edward I' },
+    { title: 'CHANCELLOR', acc: chancellor },
+    { title: 'MINISTER OF WAR', acc: minWar },
+  ];
+}
+function vindexLeaders() {
+  const accs = Object.values(accountsDir);
+  const pres = accs.find(a => String(a.vxRole || '') === 'president') || null;
+  const vp = accs.find(a => String(a.vxRole || '') === 'vice_president') || null;
+  let secdef = null;
+  for (const [u, post] of Object.entries((vxGov && vxGov.cabinet) || {})) {
+    if (/^secretary of defen[cs]e$/i.test(String(post || '').trim())) {
+      secdef = accountsDir[String(u).toLowerCase()] || { username: u };
+      break;
+    }
+  }
+  return [
+    { title: 'PRESIDENT', acc: pres },
+    { title: 'VICE PRESIDENT', acc: vp },
+    { title: 'SEC. OF DEFENSE', acc: secdef },
+  ];
+}
+function leaderHTML(l) {
+  const name = l.nameOverride || (l.acc && (l.acc.displayName || l.acc.username)) || 'Vacant';
+  const face = l.acc && (l.acc.mcName || l.acc.username);
+  const head = face
+    ? `<img class="head" src="https://mc-heads.net/avatar/${encodeURIComponent(face)}/44" alt=""/>`
+    : `<span class="head vacant">·</span>`;
+  return `<div class="leader${l.acc ? '' : ' isvacant'}">${head}<div><div class="l-title">${l.title}</div><div class="l-name">${esc(name)}</div></div></div>`;
+}
+function renderCommand() {
+  $('command').innerHTML = `
+    <div class="cmd-side vin">
+      <img class="flag" src="vindexflag.png" onerror="this.onerror=null;this.src='vindexcoa.png';" alt="Republic of Vindex Nation"/>
+      <div class="cmd-leaders">${vindexLeaders().map(leaderHTML).join('')}</div>
+    </div>
+    <div class="cmd-x">⚔</div>
+    <div class="cmd-side lech">
+      <div class="cmd-leaders">${lechLeaders().map(leaderHTML).join('')}</div>
+      <img class="flag" src="lechflag.png" onerror="this.onerror=null;this.src='lechcoa.png';" alt="Empire of Lech"/>
+    </div>`;
+}
+
 /* ══════════ LEGEND ══════════ */
 function renderLegend() {
   $('legend').innerHTML = Object.values(STATUS).map(v => {
@@ -1265,7 +1367,7 @@ $('btnReset').addEventListener('click', async () => {
 function renderAll() {
   $('warTitle').textContent = meta.warName;
   $('warSub').textContent = meta.warSub;
-  renderTheatreTabs(); renderBattleWorldOptions();
+  renderTheatreTabs(); renderBattleWorldOptions(); renderCommand();
   renderLegend(); renderTracker(); renderBattles(); renderTerritories(); renderMap();
 }
 window.__war = { get data() { return { meta, territories, battles, account, canTerritory, canBattles, canMeta }; } };
